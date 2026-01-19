@@ -163,6 +163,102 @@ ALTER TABLE dbo.Users ADD CONSTRAINT FK_Users_Teams FOREIGN KEY (TeamId) REFEREN
     }
 
     [Fact]
+    public async Task PlanApplyPlan_WithAlterAddNullableColumn_IsIdempotent()
+    {
+        var master = GetMasterConnectionStringOrNull();
+        if (string.IsNullOrWhiteSpace(master))
+        {
+            return;
+        }
+
+        await using var db = await SqlServerTestDatabase.CreateAsync(master);
+
+        var desiredSql = @"
+CREATE TABLE dbo.Users (Id int NOT NULL)
+ALTER TABLE dbo.Users ADD Nickname nvarchar(50) NULL
+";
+
+        await using var conn = new SqlConnection(db.ConnectionString);
+        await conn.OpenAsync();
+
+        var planner = new SqlServerSchemaPlanner();
+        var applier = new SqlServerSchemaApplier();
+
+        var plan1 = await planner.PlanAsync(conn, desiredSql, new PlannerOptions());
+        Assert.False(plan1.IsEmpty);
+
+        await applier.ApplyAsync(conn, plan1, new ApplyOptions());
+
+        var plan2 = await planner.PlanAsync(conn, desiredSql, new PlannerOptions());
+        Assert.True(plan2.IsEmpty);
+    }
+
+    [Fact]
+    public async Task PlanApplyPlan_WithCheckConstraint_IsIdempotent()
+    {
+        var master = GetMasterConnectionStringOrNull();
+        if (string.IsNullOrWhiteSpace(master))
+        {
+            return;
+        }
+
+        await using var db = await SqlServerTestDatabase.CreateAsync(master);
+
+        var desiredSql = @"
+CREATE TABLE dbo.Users (
+  Id int NOT NULL,
+  Age int NULL,
+  CONSTRAINT CK_Users_Age CHECK (Age > 0)
+)
+";
+
+        await using var conn = new SqlConnection(db.ConnectionString);
+        await conn.OpenAsync();
+
+        var planner = new SqlServerSchemaPlanner();
+        var applier = new SqlServerSchemaApplier();
+
+        var plan1 = await planner.PlanAsync(conn, desiredSql, new PlannerOptions());
+        Assert.False(plan1.IsEmpty);
+
+        await applier.ApplyAsync(conn, plan1, new ApplyOptions());
+
+        var plan2 = await planner.PlanAsync(conn, desiredSql, new PlannerOptions());
+        Assert.True(plan2.IsEmpty);
+    }
+
+    [Fact]
+    public async Task PlanApplyPlan_WithUniqueIndex_IsIdempotent()
+    {
+        var master = GetMasterConnectionStringOrNull();
+        if (string.IsNullOrWhiteSpace(master))
+        {
+            return;
+        }
+
+        await using var db = await SqlServerTestDatabase.CreateAsync(master);
+
+        var desiredSql = @"
+CREATE TABLE dbo.Users (Id int NOT NULL, Email nvarchar(255) NOT NULL)
+CREATE UNIQUE INDEX IX_Users_Email ON dbo.Users (Email)
+";
+
+        await using var conn = new SqlConnection(db.ConnectionString);
+        await conn.OpenAsync();
+
+        var planner = new SqlServerSchemaPlanner();
+        var applier = new SqlServerSchemaApplier();
+
+        var plan1 = await planner.PlanAsync(conn, desiredSql, new PlannerOptions());
+        Assert.False(plan1.IsEmpty);
+
+        await applier.ApplyAsync(conn, plan1, new ApplyOptions());
+
+        var plan2 = await planner.PlanAsync(conn, desiredSql, new PlannerOptions());
+        Assert.True(plan2.IsEmpty);
+    }
+
+    [Fact]
     public async Task Apply_OnFailure_ThrowsApplyFailedExceptionWithOperation()
     {
         var master = GetMasterConnectionStringOrNull();
@@ -195,5 +291,49 @@ ALTER TABLE dbo.Users ADD CONSTRAINT FK_Users_Teams FOREIGN KEY (TeamId) REFEREN
 
         Assert.NotNull(ex.Operation);
         Assert.Equal("Invalid SQL", ex.Operation.Description);
+    }
+
+    [Fact]
+    public async Task Apply_SingleTransaction_RollsBackOnFailure()
+    {
+        var master = GetMasterConnectionStringOrNull();
+        if (string.IsNullOrWhiteSpace(master))
+        {
+            return;
+        }
+
+        await using var db = await SqlServerTestDatabase.CreateAsync(master);
+        await using var conn = new SqlConnection(db.ConnectionString);
+        await conn.OpenAsync();
+
+        var plan = new MigrationPlan(
+            new PlanMetadata { Schema = "dbo" },
+            new[]
+            {
+                new SqlOperation
+                {
+                    Kind = OperationKind.CreateTable,
+                    Description = "Create dbo.Users",
+                    Sql = "CREATE TABLE dbo.Users (Id int NOT NULL)",
+                    Target = new SqlObjectRef { Type = SqlObjectType.Table, Schema = "dbo", Name = "Users" },
+                },
+                new SqlOperation
+                {
+                    Kind = OperationKind.CreateTable,
+                    Description = "Invalid SQL",
+                    Sql = "THIS_IS_NOT_VALID_SQL",
+                    Target = new SqlObjectRef { Type = SqlObjectType.Table, Schema = "dbo", Name = "X" },
+                },
+            },
+            Array.Empty<SkippedItem>());
+
+        var applier = new SqlServerSchemaApplier();
+        await Assert.ThrowsAsync<ApplyFailedException>(() => applier.ApplyAsync(conn, plan, new ApplyOptions()));
+
+        await using var check = conn.CreateCommand();
+        check.CommandText = "SELECT COUNT(1) FROM sys.tables WHERE name = N'Users'";
+        var scalar = await check.ExecuteScalarAsync();
+        var count = Convert.ToInt32(scalar);
+        Assert.Equal(0, count);
     }
 }
