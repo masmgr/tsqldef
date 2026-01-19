@@ -1,28 +1,28 @@
-# v1 公開API 詳細設計（SQL Server専用 / 追加のみ）
+# v1 Public API Detailed Design (SQL Server only / additive-only)
 
-本書は `dotnet-sqldef-plan.md` の v1 方針（dbo固定、追加のみ、変更/削除は `-- Skipped:`、desired は許可DDL以外エラー）を前提に、.NET へ組み込みやすい **公開APIの具体的な型設計**をまとめる。
+This document defines concrete public API types based on the v1 principles in `dotnet-sqldef-plan.md` (fixed `dbo`, additive-only, alter/drop become `-- Skipped:`, and `desired` fails fast if it contains unsupported DDL).
 
-ターゲット:
-- ライブラリは **.NET Standard 2.0** を対象とする
-  - 公開APIのサンプルは `record` / `required` / `init` などの言語機能に依存しない形で記述する
-  - v1は SQL Server 専用のため、実装は **`Microsoft.Data.SqlClient.SqlConnection`** を利用する
-  - ただし `SqlSchemaDef.Core` の公開APIは可能な限り **`System.Data.Common.DbConnection`** に寄せ、Core が特定プロバイダに依存しない構成を推奨する
+Targets:
+- The library targets **.NET Standard 2.0**
+  - Public API samples should not rely on language features like `record` / `required` / `init`
+  - Since v1 is SQL Server-only, the implementation uses **`Microsoft.Data.SqlClient.SqlConnection`**
+  - However, prefer keeping `SqlSchemaDef.Core` public APIs as close as possible to **`System.Data.Common.DbConnection`** so Core does not depend on a specific provider
 
 ---
 
-## 1. 名前空間・アセンブリ構成（案）
+## 1. Namespace and Assembly Layout (Draft)
 
 - `SqlSchemaDef.Core`
-  - `SqlSchemaDef.Core.Planning`（Plan/Operation/Options/Diagnostics）
-  - `SqlSchemaDef.Core.Model`（内部モデル。公開は最小にする）
+  - `SqlSchemaDef.Core.Planning` (plan/operations/options/diagnostics)
+  - `SqlSchemaDef.Core.Model` (internal model; keep public surface minimal)
 - `SqlSchemaDef.SqlServer`
-  - `SqlSchemaDef.SqlServer.Planning`（SQL Server向け Planner/Applier 実装）
+  - `SqlSchemaDef.SqlServer.Planning` (SQL Server planner/applier implementation)
 
-以降の型は、公開面を `SqlSchemaDef.Core.Planning` に寄せる想定。
+The types below are intended to live primarily under `SqlSchemaDef.Core.Planning`.
 
 ---
 
-## 2. 代表的な利用例（組み込み側）
+## 2. Typical Usage (Embedding Side)
 
 ```csharp
 using Microsoft.Data.SqlClient;
@@ -36,10 +36,10 @@ var applier = new SqlServerSchemaApplier();
 
 var plan = await planner.PlanAsync(conn, desiredSql, new PlannerOptions(), ct);
 
-// レビュー用
+// For review
 var script = plan.ToScript();
 
-// 適用（dry-run の場合は呼ばない）
+// Apply (do not call in dry-run)
 if (!plan.IsEmpty)
 {
     await applier.ApplyAsync(conn, plan, new ApplyOptions(), ct);
@@ -48,11 +48,11 @@ if (!plan.IsEmpty)
 
 ---
 
-## 3. 主要インターフェース
+## 3. Key Interfaces
 
 ### 3.1 `ISchemaPlanner`
 
-Planner は「current（DB）+ desired（SQL）」から `MigrationPlan` を生成する。
+The planner creates a `MigrationPlan` from `current` (DB) + `desired` (SQL).
 
 ```csharp
 namespace SqlSchemaDef.Core.Planning;
@@ -67,15 +67,15 @@ public interface ISchemaPlanner
 }
 ```
 
-SQL Server専用実装は `SqlSchemaDef.SqlServer.Planning.SqlServerSchemaPlanner : ISchemaPlanner`。
+The SQL Server implementation is `SqlSchemaDef.SqlServer.Planning.SqlServerSchemaPlanner : ISchemaPlanner`.
 
-備考:
-- v1 は SQL Server 専用のため、`SqlServerSchemaPlanner` は `SqlConnection` を要求し、他の `DbConnection` が来た場合は例外にする
-- connection は呼び出し側が Open 済みを推奨。未 Open の場合の扱いは実装で明記する
+Notes:
+- Since v1 is SQL Server-only, `SqlServerSchemaPlanner` may require `SqlConnection` and throw if given a different `DbConnection`
+- Prefer having the caller open the connection. If unopened connections are supported, document the behavior explicitly
 
 ### 3.2 `ISchemaApplier`
 
-Applier は `MigrationPlan.Operations` を順序どおりに実行する（`-- Skipped:` は実行しない）。
+The applier executes `MigrationPlan.Operations` in order (it never executes `-- Skipped:`).
 
 ```csharp
 namespace SqlSchemaDef.Core.Planning;
@@ -90,35 +90,35 @@ public interface ISchemaApplier
 }
 ```
 
-SQL Server専用実装は `SqlSchemaDef.SqlServer.Planning.SqlServerSchemaApplier : ISchemaApplier`。
+The SQL Server implementation is `SqlSchemaDef.SqlServer.Planning.SqlServerSchemaApplier : ISchemaApplier`.
 
 ---
 
-## 4. PlannerOptions（v1: dbo固定/追加のみ）
+## 4. `PlannerOptions` (v1: fixed `dbo` / additive-only)
 
-v1の原則は「安全第一」。オプションも “誤って破壊的なDDLが出ない” 方向へ寄せる。
+The v1 principle is “safety first”. Options should default to preventing destructive output.
 
 ```csharp
 namespace SqlSchemaDef.Core.Planning;
 
 public sealed class PlannerOptions
 {
-    // v1: dbo固定。将来拡張のために保持してもよいが、v1では変更不可として扱う。
+    // v1: fixed to dbo. You may keep this for future expansion, but treat it as immutable in v1.
     public string Schema { get; set; } = "dbo";
 
-    // v1: desired SQL に許可ステートメント以外が混在したらエラー
+    // v1: error if desired SQL contains unsupported statements
     public UnsupportedDesiredStatementBehavior UnsupportedDesiredStatementBehavior { get; set; }
         = UnsupportedDesiredStatementBehavior.Error;
 
-    // v1: 追加のみ。変更/削除に該当する差分は skipped として収集する。
+    // v1: additive-only. Alter/drop diffs are collected as skipped notifications.
     public PlanMode Mode { get; set; } = PlanMode.AdditiveOnly;
 
-    // v1安全策: 既存行がある可能性のあるテーブルへの NOT NULL 列追加は skipped
-    // （DEFAULT付きでの安全な追加などは v1.1 以降）
+    // v1 safety: adding NOT NULL columns to tables that might have existing rows becomes skipped
+    // (safe NOT NULL additions with DEFAULT could be added in v1.1+)
     public NotNullColumnAddBehavior NotNullColumnAddBehavior { get; set; }
         = NotNullColumnAddBehavior.Skip;
 
-    // v1: currentの余計なオブジェクト/非対応差分はエラーにせず skipped
+    // v1: extra objects/diffs in current are collected as skipped (not errors)
     public SurplusCurrentObjectBehavior SurplusCurrentObjectBehavior { get; set; }
         = SurplusCurrentObjectBehavior.CollectAsSkipped;
 }
@@ -136,141 +136,84 @@ public enum UnsupportedDesiredStatementBehavior
 public enum NotNullColumnAddBehavior
 {
     Skip = 0,
-    // Error,  // 将来: 強制的に失敗させたい場合
+    // Error,  // future: fail fast if desired includes NOT NULL additions
 }
 
 public enum SurplusCurrentObjectBehavior
 {
     CollectAsSkipped = 0,
-    // SilentIgnore, // 将来: 何も出さない
-    // Error,        // 将来: CIで厳格化
+    // SilentIgnore, // future: emit nothing
+    // Error,        // future: strict CI mode
 }
 ```
 
-設計意図:
-- v1は “やらないこと” を明確にするため `PlanMode.AdditiveOnly` を固定し、将来にのみ拡張
-- `Schema` は v1固定だが、v2 以降を見据えてフィールドとして残してもよい
+Design notes:
+- v1 keeps `PlanMode` with a single value to make “what we never do” explicit (and to ease future expansion)
+- v1 defaults are chosen to be non-destructive
 
 ---
 
-## 5. MigrationPlan（計画結果の表現）
-
-### 5.1 形（immutable 推奨）
+## 5. Apply Options
 
 ```csharp
 namespace SqlSchemaDef.Core.Planning;
-
-public sealed class MigrationPlan
-{
-    public MigrationPlan(
-        PlanMetadata metadata,
-        IReadOnlyList<SqlOperation> operations,
-        IReadOnlyList<SkippedItem> skipped) => throw new NotImplementedException();
-
-    public PlanMetadata Metadata { get; }
-
-    // 実行すべきSQL（追加のみ）
-    public IReadOnlyList<SqlOperation> Operations { get; }
-
-    // 実行しないが通知すべき差分
-    public IReadOnlyList<SkippedItem> Skipped { get; }
-
-    public bool IsEmpty => Operations.Count == 0;
-
-    // レビュー用途のスクリプト（GOは使わない。実行は ISchemaApplier.ApplyAsync）
-    public string ToScript(ScriptOptions options = null) => throw new NotImplementedException();
-}
-
-public sealed class PlanMetadata
-{
-    public string Schema { get; set; }           // v1: dbo
-    public DateTimeOffset PlannedAt { get; set; }
-    public string PlannerVersion { get; set; }   // アセンブリ/パッケージ版など
-
-    // 監査/表示用（任意）
-    public string DatabaseName { get; set; }
-    public string ServerVersion { get; set; }
-}
-```
-
-備考:
-- Apply は `SqlSchemaDef.SqlServer` 側の `SqlServerSchemaApplier` に分離する（推奨）
-  - Core は plan の表現と ToScript を提供し、DB依存は SqlServer パッケージに寄せる
-
-### 5.2 ScriptOptions（ToScriptの出力制御）
-
-```csharp
-namespace SqlSchemaDef.Core.Planning;
-
-public sealed class ScriptOptions
-{
-    // 先頭ヘッダ（-- dry run -- / -- Apply -- など）
-    public ScriptHeaderMode HeaderMode { get; set; } = ScriptHeaderMode.DryRunStyle;
-
-    // `-- Skipped:` を出すか
-    public bool IncludeSkipped { get; set; } = true;
-
-    // SQL末尾に ; を付けるか（レビュー用）
-    public bool TerminateWithSemicolon { get; set; } = true;
-
-    // OSに依存しない改行（スナップショット安定化のため）。既定は `\n`。
-    public string NewLine { get; set; } = "\n";
-}
-
-public enum ScriptHeaderMode
-{
-    None = 0,
-    DryRunStyle = 1,
-}
 
 public sealed class ApplyOptions
 {
-    // v1: 例外時に直前のSQLを含めたメッセージを出すなど、実行器の挙動を調整する余地。
-    public ApplyTransactionMode TransactionMode { get; set; } = ApplyTransactionMode.SingleTransaction;
+    public TransactionMode TransactionMode { get; set; } = TransactionMode.SingleTransaction;
+
+    // future: logging hooks, execution timeout, etc.
 }
 
-public enum ApplyTransactionMode
+public enum TransactionMode
 {
     SingleTransaction = 0,
+    // PerOperation, // future
 }
 ```
 
 ---
 
-## 6. SqlOperation（実行単位）
+## 6. `SqlOperation` (execution unit)
 
-v1は “1ステートメント = 1 operation” を原則にする（失敗時の追跡が容易）。
+In v1, use “one statement = one operation” as a rule of thumb (easier to trace failures).
 
 ```csharp
 namespace SqlSchemaDef.Core.Planning;
 
 public sealed class SqlOperation
 {
-    public string Description { get; set; } // 例: "Create table dbo.Users"
-    public string Sql { get; set; }         // 例: "CREATE TABLE dbo.Users (...)"
-
-    // ログ/エラー用の参照
+    public OperationKind Kind { get; set; }
     public SqlObjectRef Target { get; set; }
 
-    // 適用順序のためのカテゴリ（ソートキー）
-    public OperationKind Kind { get; set; }
+    public string Description { get; set; } // e.g. "Create table dbo.Users"
+    public string Sql { get; set; }         // e.g. "CREATE TABLE dbo.Users (...)"
+
+    // References for logging/errors
+    public int? BatchIndex { get; set; }
+    public int? Line { get; set; }
+    public int? Column { get; set; }
 }
 
 public enum OperationKind
 {
-    CreateTable = 10,
-    AddColumn = 20,
-    AddConstraint = 30,
-    CreateIndex = 40,
-    AddForeignKey = 50,
+    CreateTable = 1,
+    AddColumn = 2,
+    AddConstraint = 3,
+    CreateIndex = 4,
+    AddForeignKey = 5,
 }
 ```
 
+Notes:
+- `BatchIndex/Line/Column` are primarily useful for connecting operations back to `desired` SQL
+- The concrete enum values are not important, but keep them stable once published
+
 ---
 
-## 7. SkippedItem（通知）
+## 7. `SkippedItem` (notification)
 
-Skipped は “ユーザーが後で判断すべき差分” を失わないための仕組み。
+Skipped is a mechanism to preserve diffs that require user judgment later.
 
 ```csharp
 namespace SqlSchemaDef.Core.Planning;
@@ -278,28 +221,29 @@ namespace SqlSchemaDef.Core.Planning;
 public sealed class SkippedItem
 {
     public SkippedReason Reason { get; set; }
-    public string Message { get; set; } // 例: "alter is not supported in v1: column dbo.Users.Email differs"
     public SqlObjectRef Target { get; set; }
-    public string Details { get; set; }         // 任意: current/desiredの断片など
+
+    public string Message { get; set; } // e.g. "alter is not supported in v1: column dbo.Users.Email differs"
+    public string Details { get; set; } // optional: snippets of current/desired, etc.
 }
 
 public enum SkippedReason
 {
-    DropNotSupported = 1,          // currentにのみ存在
-    AlterNotSupported = 2,         // 定義差（変更が必要）
-    NotNullAddNotSupported = 3,    // v1安全策
-    UnsupportedFeatureInDesired = 4, // desiredで検出したが “エラーにせず” skipped にしたい場合（v1は基本 Error）
+    DropNotSupported = 1,            // exists only in current
+    AlterNotSupported = 2,           // definition differs (needs alter)
+    NotNullAddNotSupported = 3,      // v1 safety policy
+    UnsupportedFeatureInDesired = 4, // future: detect in desired but prefer skipped over error (v1 is generally Error)
 }
 ```
 
-注:
-- v1は “desiredに非対応が混ざると即エラー” を原則にするため、`UnsupportedFeatureInDesired` は将来用
+Note:
+- Since v1 is “unsupported in desired -> immediate error”, `UnsupportedFeatureInDesired` is mainly for future versions
 
 ---
 
-## 8. SqlObjectRef（対象識別）
+## 8. `SqlObjectRef` (target identification)
 
-`dbo` 固定でも、ログや `-- Skipped:` の整形で “何の話か” を一意に表現できることが重要。
+Even with fixed `dbo`, it is important to identify “what we are talking about” uniquely for logs and `-- Skipped:` output.
 
 ```csharp
 namespace SqlSchemaDef.Core.Planning;
@@ -310,8 +254,8 @@ public sealed class SqlObjectRef
     public SqlObjectType Type { get; set; }
     public string Name { get; set; }      // table/index/constraint name
 
-    // columnやFK参照など、追加情報が必要な場合
-    public string ParentName { get; set; }        // 例: columnの親テーブル名
+    // Additional information (e.g. columns or FK references)
+    public string ParentName { get; set; } // e.g. the parent table name for a column
 }
 
 public enum SqlObjectType
@@ -324,16 +268,16 @@ public enum SqlObjectType
 }
 ```
 
-表示用の規約（例）:
+Display convention examples:
 - table: `dbo.Users`
 - column: `dbo.Users.Email`
-- index: `dbo.Users.IX_Users_Email`（または `dbo.IX_Users_Email` で統一）
+- index: `dbo.Users.IX_Users_Email` (or consistently `dbo.IX_Users_Email`)
 
 ---
 
-## 9. 例外・診断（失敗時の契約）
+## 9. Exceptions and Diagnostics (Failure Contracts)
 
-### 9.1 パースエラー（desired）
+### 9.1 Parse errors (`desired`)
 
 ```csharp
 namespace SqlSchemaDef.Core.Planning;
@@ -352,17 +296,17 @@ public sealed class SqlDiagnostic
     public string Message { get; set; }
     public int? Line { get; set; }
     public int? Column { get; set; }
-    public string Fragment { get; set; } // 任意: 該当テキスト断片
+    public string Fragment { get; set; } // optional: a relevant snippet
 }
 ```
 
-### 9.2 v1 非対応（desired）
+### 9.2 v1 unsupported in `desired`
 
-v1 の契約:
-- desired に許可外ステートメントが混ざれば即エラー
-- 許可ステートメント内の非対応機能（例: INDEX INCLUDE）も即エラー
-- dbo 固定違反も即エラー
-  - メッセージ規約は `dotnet-sqldef-scriptdom-visitor-spec.md` のテンプレートに準拠する
+v1 contract:
+- If `desired` contains unsupported statements: immediate error
+- If supported statements include unsupported features (e.g. `CREATE INDEX ... INCLUDE`): immediate error
+- Any schema other than `dbo`: immediate error
+  - Message templates follow `dotnet-sqldef-scriptdom-visitor-spec.md`
 
 ```csharp
 namespace SqlSchemaDef.Core.Planning;
@@ -398,11 +342,11 @@ public sealed class UnsupportedSchemaException : DesiredSqlException
 public sealed class UnsupportedBatchSeparatorException : DesiredSqlException
 {
     public UnsupportedBatchSeparatorException(string message) : base(message) {}
-    public string SeparatorText { get; set; } // 例: "GO 2"
+    public string SeparatorText { get; set; } // e.g. "GO 2"
 }
 ```
 
-### 9.3 Apply失敗
+### 9.3 Apply failures
 
 ```csharp
 namespace SqlSchemaDef.Core.Planning;
@@ -416,14 +360,14 @@ public sealed class ApplyFailedException : Exception
 }
 ```
 
-契約:
-- Apply失敗時は “どの operation で失敗したか” を必ず辿れる
+Contract:
+- On apply failure, callers must be able to trace “which operation failed”
 
 ---
 
-## 10. v1での追加のみ保証（API観点）
+## 10. “Additive-only” Guarantee (API Perspective)
 
-呼び出し側が「変更/削除が発生していない」と誤解しないよう、集約情報を提供する。
+Provide aggregate information so callers do not mistakenly assume there were no alter/drop-equivalent diffs.
 
 ```csharp
 namespace SqlSchemaDef.Core.Planning;
@@ -433,23 +377,24 @@ public sealed class PlanSummary
     public int OperationCount { get; set; }
     public int SkippedCount { get; set; }
 
-    // 将来: kindsの内訳
+    // future: breakdown by kind
     public IReadOnlyDictionary<OperationKind, int> OperationCountByKind { get; set; }
     public IReadOnlyDictionary<SkippedReason, int> SkippedCountByReason { get; set; }
 }
 ```
 
-`MigrationPlan` に `Summary` を持たせるか、`MigrationPlan.GetSummary()` を提供する。
+Either attach `Summary` to `MigrationPlan`, or provide `MigrationPlan.GetSummary()`.
 
 ---
 
-## 11. v1の非機能要件（APIに関わるもの）
+## 11. Non-functional Requirements for v1 (API-related)
 
 - Deterministic:
-  - `Operations` と `Skipped` は常に決定的な順序（ソートキー + 名前順）で出力する
+  - Always emit `Operations` and `Skipped` in deterministic order (sort keys + name order)
 - Thread-safe:
-  - `MigrationPlan` は immutable とし、複数スレッドから安全に参照可能にする
+  - Make `MigrationPlan` immutable and safe to read from multiple threads
 - Cancellation:
-  - `PlanAsync` / `ApplyAsync` は `CancellationToken` を受け取り、DBアクセス/ループで尊重する
+  - `PlanAsync` / `ApplyAsync` accept and honor `CancellationToken` during DB access and loops
 - Logging:
-  - 実装パッケージ側で `ILogger` を受け取れるようにする（公開APIは options か ctor 注入）
+  - Allow implementations to accept `ILogger` (via options or ctor injection)
+

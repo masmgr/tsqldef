@@ -1,28 +1,28 @@
-# v1 sysカタログ取得SQL（dbo固定 / 追加のみ）
+# v1 sys catalog queries (fixed `dbo` / additive-only)
 
-本書は `dotnet-sqldef-plan.md` の v1 方針に基づき、SQL Server の current schema を `sys.*` から読み取って中間モデル化するための **必要なSELECT群**を確定する。
+Based on the v1 principles in `dotnet-sqldef-plan.md`, this document locks down the **required SELECT queries** to read the SQL Server `current` schema from `sys.*` and convert it into the intermediate model.
 
-前提:
-- 対象スキーマは `dbo` 固定（`@schema = N'dbo'`）
-- 取得対象はユーザー定義テーブルのみ（`sys.tables`）
-- “DDLを復元”せず、メタデータを最小限のモデルへ直接マッピングする
+Assumptions:
+- Target schema is fixed to `dbo` (`@schema = N'dbo'`)
+- Read user tables only (`sys.tables`)
+- Do not “reconstruct DDL”; map metadata directly into the minimal model
 
 ---
 
-## 0. 共通パラメータ
+## 0. Common parameter
 
 ```sql
 DECLARE @schema sysname = N'dbo';
 ```
 
-アプリ側は `@schema` をパラメータとして渡す想定（v1は固定値）。
+The app is expected to pass `@schema` as a parameter (in v1 it is always `dbo`).
 
 ---
 
-## 1. テーブル一覧（dbo）
+## 1. Table list (`dbo`)
 
-用途:
-- `TableModel` の作成（dbo固定なので Name だけでもよい）
+Use:
+- Create `TableModel` entries (since schema is fixed, table name alone is enough)
 
 ```sql
 DECLARE @schema sysname = N'dbo';
@@ -41,11 +41,11 @@ ORDER BY t.name;
 
 ---
 
-## 2. 列（型/NULL/IDENTITY）
+## 2. Columns (type / NULL / IDENTITY)
 
-用途:
-- `ColumnModel` の作成（型は v1では “文字列” として保持）
-- `IDENTITY` 判定（`sys.identity_columns` の存在で判定）
+Use:
+- Build `ColumnModel` entries (type is kept as a string in v1)
+- Detect IDENTITY (by presence in `sys.identity_columns`)
 
 ```sql
 DECLARE @schema sysname = N'dbo';
@@ -84,21 +84,21 @@ WHERE s.name = @schema
 ORDER BY t.name, c.column_id;
 ```
 
-メモ（型文字列化の指針）:
-- v1は “変更をしない” ため、`type_name` と必要に応じて `(max_length/precision/scale)` から **表示用**の型文字列を生成して保持する
-- `max_length = -1` は `MAX`
-- `nchar/nvarchar` は `max_length` がバイト単位なので `/2` を考慮
-- `decimal/numeric` は `(precision, scale)`
-- `datetime2/time/datetimeoffset` は `scale` が小数秒精度
+Notes (type stringification guidance):
+- Since v1 does not emit alter DDL, generate a **display** type string from `type_name` and (as needed) `(max_length/precision/scale)`
+- `max_length = -1` means `MAX`
+- `nchar/nvarchar` use byte lengths, so divide `max_length` by 2
+- `decimal/numeric` use `(precision, scale)`
+- `datetime2/time/datetimeoffset` use `scale` for fractional seconds precision
 
-`c.is_computed = 1` は v1 非対応とし、desired 側に計算列が含まれる場合は即エラー推奨。current 側にある場合は “削除相当” と同様に `-- Skipped:` の対象にする（B方針）。
+`c.is_computed = 1` is unsupported in v1. If it appears in `desired`, fail fast. If it exists only in `current`, treat it like a drop-equivalent and include it as `-- Skipped:` (policy B).
 
 ---
 
-## 3. DEFAULT（列既定値）
+## 3. DEFAULT (column default constraints)
 
-用途:
-- `ColumnModel.DefaultExpression` を raw で保持（差異は変更DDLを出さず `-- Skipped:`）
+Use:
+- Store `ColumnModel.DefaultExpression` as raw (`definition`); differences become `-- Skipped:` (no alter DDL)
 
 ```sql
 DECLARE @schema sysname = N'dbo';
@@ -127,11 +127,11 @@ ORDER BY t.name, c.column_id;
 
 ---
 
-## 4. PK / UNIQUE（キー制約）
+## 4. PK / UNIQUE (key constraints)
 
-用途:
-- `ConstraintModel(PK/UQ)` の作成
-- 列順の取得
+Use:
+- Build `ConstraintModel` for PK/UQ
+- Capture key column ordering
 
 ```sql
 DECLARE @schema sysname = N'dbo';
@@ -167,15 +167,15 @@ WHERE s.name = @schema
 ORDER BY t.name, kc.name, ic.key_ordinal;
 ```
 
-注:
-- v1は “変更しない” ので、`is_clustered` 等の属性差は拾っても `-- Skipped:` として通知する方針でよい
+Note:
+- Since v1 does not alter, differences in attributes like `is_clustered` can be detected but should be reported as `-- Skipped:`
 
 ---
 
-## 5. CHECK（チェック制約）
+## 5. CHECK constraints
 
-用途:
-- `ConstraintModel(CK).Definition` を raw で保持（差異は `-- Skipped:`）
+Use:
+- Store `ConstraintModel(CK).Definition` as raw; differences become `-- Skipped:`
 
 ```sql
 DECLARE @schema sysname = N'dbo';
@@ -201,11 +201,11 @@ ORDER BY t.name, cc.name;
 
 ---
 
-## 6. インデックス（PK/UQ由来以外）
+## 6. Indexes (excluding PK/UQ-backed ones)
 
-用途:
-- `IndexModel` の作成（UNIQUE含む）
-- v1では PK/UQ は制約として扱うので、ここではそれ以外のインデックスを対象とする
+Use:
+- Build `IndexModel` entries (including UNIQUE)
+- In v1, PK/UQ are treated as constraints, so this query targets other indexes
 
 ```sql
 DECLARE @schema sysname = N'dbo';
@@ -245,17 +245,17 @@ WHERE s.name = @schema
 ORDER BY t.name, i.name, ic.is_included_column, ic.key_ordinal, c.name;
 ```
 
-v1の扱い:
-- `ic.is_included_column = 1`（INCLUDE）は v1非対応とし、desiredに含まれる場合は即エラー推奨
-- currentに存在する INCLUDE/filtered 等は “削除相当” と同様に `-- Skipped:` で通知
+v1 handling:
+- `ic.is_included_column = 1` (INCLUDE) is unsupported in v1; if present in `desired`, fail fast
+- If `current` contains INCLUDE/filtered/etc., treat it like a drop-equivalent and report via `-- Skipped:`
 
 ---
 
-## 7. FOREIGN KEY（外部キー）
+## 7. FOREIGN KEY
 
-用途:
-- `ConstraintModel(FK)` の作成
-- 参照元/参照先の列順を取得
+Use:
+- Build `ConstraintModel(FK)`
+- Capture parent/referenced column ordering
 
 ```sql
 DECLARE @schema sysname = N'dbo';
@@ -299,33 +299,33 @@ WHERE ps.name = @schema
 ORDER BY pt.name, fk.name, fkc.constraint_column_id;
 ```
 
-v1の扱い:
-- 参照先が dbo 以外の場合は v1 非対応とし、currentで検出したら `-- Skipped:`（削除相当と同等）に寄せる
-- desiredに dbo 以外の参照が含まれたら即エラー推奨（スコープ外）
+v1 handling:
+- If the referenced schema is not `dbo`, treat it as unsupported. If detected in `current`, report as `-- Skipped:` (drop-equivalent). If present in `desired`, fail fast (out of scope).
 
 ---
 
-## 8. 取得結果のマッピング要点（実装メモ）
+## 8. Mapping notes (implementation)
 
-- TableKey: `dbo` + `table_name`（case-insensitive）
-- ColumnKey: `dbo` + `table_name` + `column_name`（case-insensitive）
+- TableKey: `dbo` + `table_name` (case-insensitive)
+- ColumnKey: `dbo` + `table_name` + `column_name` (case-insensitive)
 - ConstraintKey / IndexKey:
-  - v1は “名前が同じなら同一” として扱う（定義差は変更扱い→ `-- Skipped:`）
-- 列順:
-  - PK/UQ/Index は `key_ordinal`、FK は `constraint_column_id`
+  - In v1, “same name means same object”. Definition differences are alter-equivalent → `-- Skipped:`
+- Column ordering:
+  - PK/UQ/Index: `key_ordinal`
+  - FK: `constraint_column_id`
 
 ---
 
-## 9. まとめ（v1に必要なSELECT群）
+## 9. Summary (queries required for v1)
 
-v1で必須:
+Required in v1:
 - 1: tables
-- 2: columns（型/NULL/IDENTITY）
+- 2: columns (type/NULL/IDENTITY)
 - 3: defaults
 - 4: PK/UQ
 - 5: CHECK
-- 6: indexes（PK/UQ以外）
+- 6: indexes (excluding PK/UQ)
 - 7: FK
 
-これらの結果から current モデルを組み立て、desired（ScriptDom）モデルとの差分を “追加のみ” で `MigrationPlan` に落とす。
+Build the `current` model from these results, then compute the additive-only plan (`MigrationPlan`) against the `desired` model (ScriptDom).
 

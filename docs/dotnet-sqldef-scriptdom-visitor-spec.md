@@ -1,232 +1,233 @@
-# v1 ScriptDom Visitor 対象ステートメントと変換仕様（dbo固定 / 追加のみ）
+# v1 ScriptDom Visitor: Supported Statements and Conversion Spec (fixed `dbo` / additive-only)
 
-本書は `dotnet-sqldef-plan.md` の v1 方針（dbo固定、追加のみ、変更/削除は `-- Skipped:`、desired は許可DDL以外エラー）に基づき、**ScriptDom Visitor が受理するステートメント一覧**と、**中間モデルへの変換仕様**、および **例外メッセージ規約**を確定する。
+Based on the v1 principles in `dotnet-sqldef-plan.md` (fixed `dbo`, additive-only, alter/drop become `-- Skipped:`, and `desired` fails fast if it contains unsupported DDL), this document locks down:
+- the list of statements accepted by the ScriptDom visitor,
+- conversion rules into the intermediate model, and
+- exception message conventions.
 
-対象:
-- desired SQL（入力DDL）のみ（current は `sys.*` 取得）
+Scope:
+- `desired` SQL (input DDL) only (`current` is read from `sys.*`)
 - ScriptDom: `Microsoft.SqlServer.TransactSql.ScriptDom`
 
 ---
 
-## 1. 前処理: GO バッチ分割（必須）
+## 1. Preprocessing: GO Batch Splitting (Required)
 
-### 1.1 目的
-ScriptDom は `GO` を文法要素として扱わないため、`GO` で区切られた入力を事前に分割してからパースする。
+### 1.1 Purpose
+ScriptDom does not treat `GO` as a grammar element, so input separated by `GO` must be split into batches before parsing.
 
-### 1.2 v1 の分割ルール（確定）
-- 区切りは **行頭の `GO`** のみ（前後空白は許可）
-- 大文字小文字は無視（`go`, `Go` も区切り）
-- `--` 行コメントや `/* */` ブロックコメントの **内部にある `GO` は区切り扱いしない**
-- `GO 123`（繰り返し回数）は v1 では **非対応（エラー）**
+### 1.2 v1 splitting rules (Locked)
+- Only **`GO` at the start of a line** is a separator (allowing surrounding whitespace)
+- Case-insensitive (`go`, `Go` also split)
+- `GO` inside line comments (`-- ...`) or block comments (`/* ... */`) is **not** a separator
+- `GO 123` (repeat count) is **unsupported in v1** (error)
 
-### 1.3 分割時の行番号管理
-後述の診断/例外で “元のSQLの行/列” を出せるように、各バッチに以下の情報を保持する:
-- `BatchIndex`（0-based）
-- `StartLine`（元SQLの 1-based 開始行）
-- `Text`（バッチ本文）
+### 1.3 Line/column tracking during splitting
+To report “line/column in the original SQL” in diagnostics/exceptions, keep this per batch:
+- `BatchIndex` (0-based)
+- `StartLine` (1-based start line in the original SQL)
+- `Text` (batch text)
 
-`TSqlParser.Parse(...)` が返す `ParseError.Line` はバッチ内行番号なので、表示時は `StartLine` を加算して補正する。
+`TSqlParser.Parse(...)` reports `ParseError.Line` relative to the batch, so add `StartLine` when rendering messages.
 
 ---
 
-## 2. Parser バージョン方針
+## 2. Parser Version Policy
 
-v1 は parser を固定してサポートバージョンを明記する（例: SQL Server 2019+ 相当）。
+In v1, fix the parser version and document the supported SQL Server version (e.g., SQL Server 2019+).
 
-推奨:
-- `TSql160Parser`（SQL Server 2022 相当）または `TSql170Parser`（SQL Server 2025 相当）
+Recommended:
+- `TSql160Parser` (roughly SQL Server 2022) or `TSql170Parser` (roughly SQL Server 2025)
 - `initialQuotedIdentifiers: true`
 
 ---
 
-## 3. Visitor の責務（v1）
+## 3. Visitor Responsibilities (v1)
 
-### 3.1 許容ステートメント（トップレベル）
-v1で受理するのは以下のみ:
+### 3.1 Allowed top-level statements
+v1 accepts only:
 - `CreateTableStatement`
 - `AlterTableAddTableElementStatement`
 - `CreateIndexStatement`
 
-それ以外が出現したら **即エラー**（誤って破壊的/非対応DDLを混ぜた場合に確実に止める）。
+Anything else is an **immediate error** (to reliably stop when destructive/unsupported DDL is mixed in).
 
-### 3.2 “追加のみ” の担保
-allowed の中でも次は v1 では禁止:
-- `ALTER TABLE` で `ADD` 以外（`AlterTableAlterColumnStatement` 等）は即エラー（そもそもトップレベル許容外）
-- `CREATE INDEX` の `INCLUDE` / `WHERE`（filtered）/ `WITH(...)` / `ONLINE` 等は v1 非対応（エラー）
-- 計算列、列セット、圧縮、パーティション、特殊インデックスなど v1 非対応の属性はエラー
+### 3.2 Guaranteeing “additive-only”
+Even within allowed statements, the following are prohibited in v1:
+- Anything other than `ADD` in `ALTER TABLE` (`AlterTableAlterColumnStatement`, etc.) (also disallowed by top-level rules)
+- `CREATE INDEX` with `INCLUDE` / `WHERE` (filtered) / `WITH(...)` / `ONLINE`, etc. (error)
+- Computed columns, columnsets, compression, partitioning, special index types, etc. (error)
 
 ---
 
-## 4. 中間モデルへの変換仕様（確定）
+## 4. Conversion to the Intermediate Model (Locked)
 
-中間モデルの概念は `dotnet-sqldef-plan.md` の「中間モデル（最小）」に一致させる。
+The model concept must match the “Intermediate Model (Minimal)” section of `dotnet-sqldef-plan.md`.
 
-### 4.1 共通: 識別子と dbo 固定
-- スキーマ名:
-  - テーブル名にスキーマが指定されていなければ `dbo` として扱う
-  - スキーマが指定されていて `dbo` 以外なら v1 非対応 → エラー
-- 比較キーは case-insensitive だが、**出力の表記は desired 側の表記を優先**して保持する
+### 4.1 Common rules: identifiers and fixed `dbo`
+- Schema name:
+  - If a table name omits schema, treat it as `dbo`
+  - If a schema is specified and it is not `dbo`, it is unsupported in v1 → error
+- Comparison keys are case-insensitive, but **rendering uses the `desired` casing** when possible
 
-#### 実装方針（推奨）
+#### Implementation notes (recommended)
 - `NormalizeSchema(Identifier)`:
   - null/empty → `"dbo"`
-  - `"dbo"`（大小無視）→ `"dbo"`
-  - それ以外 → エラー
+  - `"dbo"` (case-insensitive) → `"dbo"`
+  - anything else → error
 - `NormalizeNameKey(string)`:
-  - `ToUpperInvariant()` などで正規化して辞書キー化
+  - Normalize (e.g. `ToUpperInvariant()`) to build dictionary keys
 
 ### 4.2 `CreateTableStatement` → `TableModel`
 
-受理:
+Accepted:
 - `CREATE TABLE dbo.X (...)`
 
-禁止（エラー）:
-- `CREATE TABLE` の `AS SELECT`、一時テーブル、外部テーブル、システムテーブル関連
-- `WITH (...)` のストレージ/圧縮/パーティション/FILEGROUP など v1 非対応オプション
-- `CREATE TABLE` の中に `INDEX` 定義がある場合（ScriptDomの表現次第だが v1では扱わない）
+Rejected (error):
+- `CREATE TABLE ... AS SELECT`, temp tables, external tables, system-table features
+- `WITH (...)` options (storage/compression/partition/filegroup) unsupported in v1
+- Inline `INDEX` definitions inside `CREATE TABLE` (depends on ScriptDom representation, but treat as unsupported in v1)
 
-#### 4.2.1 列（ColumnDefinition）
-マッピング:
+#### 4.2.1 Columns (`ColumnDefinition`)
+Mapping:
 - `ColumnModel.Name`
 - `ColumnModel.IsNullable`
-- `ColumnModel.IsIdentity`（IDENTITY指定の有無）
-- `ColumnModel.SqlType`（以下のルールで文字列化）
-- `ColumnModel.DefaultExpression`（DEFAULTがあれば raw 文字列）
+- `ColumnModel.IsIdentity` (presence of `IDENTITY`)
+- `ColumnModel.SqlType` (stringified using the rules below)
+- `ColumnModel.DefaultExpression` (raw string if `DEFAULT` exists)
 
-型文字列化（v1推奨）:
-- ScriptDom の `DataTypeReference` を元に、最小限の標準表記に整形する
-  - 例: `nvarchar(255)` / `nvarchar(max)` / `decimal(18,2)` / `datetime2(7)`
-- 文字列化した結果は比較では “同一性の参考” に使うが、差異があっても v1 は変更しない（`-- Skipped:`）
+Type stringification (recommended for v1):
+- Format a minimal canonical representation from ScriptDom `DataTypeReference`
+  - Examples: `nvarchar(255)` / `nvarchar(max)` / `decimal(18,2)` / `datetime2(7)`
+- Use this value as a hint for comparison; if it differs, v1 still does not emit alter DDL (it becomes `-- Skipped:`)
 
-計算列（computed）は v1 非対応:
-- `ColumnDefinition.ComputedColumnExpression != null` ならエラー
+Computed columns are unsupported in v1:
+- If `ColumnDefinition.ComputedColumnExpression != null`, throw an error
 
-NOT NULL 列:
-- `CREATE TABLE` で `NOT NULL` は許可（新規作成なので安全）
-- `ALTER TABLE ... ADD` の `NOT NULL` は v1安全策により既定は skipped（後述）
+NOT NULL:
+- `NOT NULL` in `CREATE TABLE` is allowed (it is a new table, so it is safe)
+- `NOT NULL` in `ALTER TABLE ... ADD` is skipped by default in v1 (see below)
 
-#### 4.2.2 テーブル制約（TableDefinition/ConstraintDefinition）
-v1で扱うのは以下:
+#### 4.2.2 Table constraints (`TableDefinition` / `ConstraintDefinition`)
+Supported kinds:
 - PRIMARY KEY
 - UNIQUE
 - CHECK
 - FOREIGN KEY
 
-制約名:
-- 名称が省略されている場合、v1では **非対応（エラー）** を推奨
-  - 理由: current 側の実名と一致判定できず、冪等性と skipped の明確化が難しくなるため
-  - 将来: 自動命名規則を実装して追従する余地はある
+Constraint names:
+- If the name is omitted, treat it as unsupported in v1 (recommended) and throw
 
 PRIMARY KEY / UNIQUE:
-- `ConstraintModel.Kind = PK/UQ`
-- `ConstraintModel.Name = <constraint name>`
-- 対象列名（順序）を保持
-- cluster 指定等の属性は v1 では非対応 → エラー（または無視して良いが v1は安全に倒してエラー推奨）
+- `ConstraintModel.Kind = PK|UQ`
+- `ConstraintModel.Name`
+- Ordered key columns
+- Attributes such as clustered/nonclustered are unsupported in v1 → error (or ignore; but “fail fast” is recommended in v1)
 
 CHECK:
 - `ConstraintModel.Kind = CK`
 - `ConstraintModel.Name`
 - `ConstraintModel.Definition = <expression raw string>`
-  - raw string は ScriptDom の ScriptGenerator で生成するか、fragment substring を保持する
+  - Use ScriptDom script generation or fragment text to preserve raw expression
 
 FOREIGN KEY:
 - `ConstraintModel.Kind = FK`
 - `ConstraintModel.Name`
-- 親テーブル（dbo固定）
-- 親列（順序）
-- 参照先テーブル/列（dbo固定）
-- `ON DELETE/UPDATE` は v1では扱わない（指定があればエラー推奨）
+- Parent table (fixed `dbo`)
+- Parent columns (ordered)
+- Referenced table/columns (fixed `dbo`)
+- `ON DELETE/UPDATE` is not handled in v1; if present, error is recommended
 
-### 4.3 `AlterTableAddTableElementStatement` → 追加操作
+### 4.3 `AlterTableAddTableElementStatement` → Additions
 
-受理:
+Accepted:
 - `ALTER TABLE dbo.X ADD <column>`
-- `ALTER TABLE dbo.X ADD CONSTRAINT ...`（PK/UQ/CK/FK）
+- `ALTER TABLE dbo.X ADD CONSTRAINT ...` (PK/UQ/CK/FK)
 
-禁止（エラー）:
-- `ALTER TABLE` の `ALTER COLUMN`/`DROP`/`WITH CHECK` 等（そもそもトップレベル許容外）
+Rejected (error):
+- `ALTER TABLE` with `ALTER COLUMN`/`DROP`/`WITH CHECK`, etc. (also disallowed by top-level rules)
 
-列追加:
-- テーブル名（dbo固定）を解決
-- ColumnDefinition を `ColumnModel` に変換
-- v1安全策:
-  - `NOT NULL` の列追加は既定で **エラーではなく plan.Skipped**（理由: 既存行で失敗しやすい）
-  - `DEFAULT` があっても v1では “安全なNOT NULL追加” を保証しないため、既定は skipped
-  - skipped の `Reason = NotNullAddNotSupported`
+Add column:
+- Resolve table name (fixed `dbo`)
+- Convert `ColumnDefinition` into `ColumnModel`
+- v1 safety policy:
+  - Adding a `NOT NULL` column defaults to **Skipped (not error)** because it often fails when the table has existing rows
+  - Even with a `DEFAULT`, v1 does not guarantee “safe NOT NULL additions”, so default remains skipped
+  - Set skipped `Reason = NotNullAddNotSupported`
 
-制約追加:
-- CreateTable と同じ制約変換ルール
-- `ADD CONSTRAINT` で名称省略は v1では非対応（エラー推奨）
+Add constraint:
+- Same conversion rules as for `CREATE TABLE`
+- If `ADD CONSTRAINT` omits a name, treat it as unsupported in v1 (recommended) and throw
 
 ### 4.4 `CreateIndexStatement` → `IndexModel`
 
-受理:
+Accepted:
 - `CREATE INDEX IX ... ON dbo.T(col1, col2)`
 - `CREATE UNIQUE INDEX ...`
 
-禁止（エラー）:
+Rejected (error):
 - `INCLUDE (...)`
-- `WHERE ...`（filtered index）
-- `WITH (...)`（fillfactor/online 等）
-- `ON <filegroup/partition scheme>` 等
-- 下降順/ASC/DESC の指定（存在する場合は v1では非対応としてエラー推奨。将来拡張）
+- `WHERE ...` (filtered index)
+- `WITH (...)` (fillfactor/online, etc.)
+- `ON <filegroup/partition scheme>`, etc.
+- `ASC/DESC` (if present, treat as unsupported in v1; future expansion)
 
-マッピング:
+Mapping:
 - `IndexModel.Name`
 - `IndexModel.IsUnique`
-- `IndexModel.KeyColumns`（列順）
+- `IndexModel.KeyColumns` (ordered)
 
 ---
 
-## 5. 例外仕様（メッセージ規約を確定）
+## 5. Exceptions (Message Conventions Locked)
 
-### 5.1 例外型（推奨）
-- `DesiredSqlParseException`（ScriptDom parse errors）
-- `UnsupportedDesiredStatementException`（許可外ステートメント）
-- `UnsupportedDesiredFeatureException`（許可ステートメント内の非対応機能）
+### 5.1 Exception types (recommended)
+- `DesiredSqlParseException` (ScriptDom parse errors)
+- `UnsupportedDesiredStatementException` (statement type not allowed)
+- `UnsupportedDesiredFeatureException` (unsupported feature within an allowed statement)
 
-### 5.2 メッセージの必須要素
-いずれも以下を含める:
-- エラー種別（固定文言）
-- 対象バッチ番号（0-based）
-- 元SQL上の行・列（1-based、可能なら）
-- 対象ステートメント種別（可能なら）
-- “何が非対応か” と “v1は追加のみである” のヒント
+### 5.2 Required message elements
+All messages should include:
+- Error category (fixed wording)
+- Batch index (0-based)
+- Line/column in the original SQL (1-based, if possible)
+- Statement type (if available)
+- A hint that v1 is additive-only
 
-### 5.3 メッセージテンプレート（確定）
+### 5.3 Message templates (Locked)
 
-#### (A) 許可外ステートメント
+#### (A) Unsupported statement
 ```
 Unsupported desired statement in v1 (additive-only).
 Only CREATE TABLE / ALTER TABLE ... ADD ... / CREATE INDEX are supported.
 Found: {StatementType} at batch {BatchIndex}, line {Line}, column {Column}.
 ```
 
-#### (B) 非対応機能（例: CREATE INDEX INCLUDE）
+#### (B) Unsupported feature (e.g. CREATE INDEX INCLUDE)
 ```
 Unsupported desired feature in v1 (additive-only).
 Feature: {FeatureName}. Statement: {StatementType}.
 Location: batch {BatchIndex}, line {Line}, column {Column}.
 ```
 
-#### (C) dbo固定違反（例: schemaがdbo以外）
+#### (C) Schema not supported (non-dbo)
 ```
 Unsupported schema in v1.
 Only schema 'dbo' is supported. Found: '{SchemaName}'.
 Location: batch {BatchIndex}, line {Line}, column {Column}.
 ```
 
-#### (D) GO 反復回数
+#### (D) GO repeat count
 ```
 Unsupported batch separator in v1.
 "GO {N}" is not supported; use plain "GO".
 Location: line {Line}.
 ```
 
-### 5.4 ScriptDom parse error の収集
-`TSqlParser.Parse` の `IList<ParseError>` を全件収集し、`DesiredSqlParseException.Diagnostics` に詰める。
+### 5.4 Collecting ScriptDom parse errors
+Collect all `IList<ParseError>` items from `TSqlParser.Parse` and store them into `DesiredSqlParseException.Diagnostics`.
 
-推奨表記:
+Recommended formatting:
 ```
 Failed to parse desired SQL.
 Batch {BatchIndex}, line {Line}, column {Column}: {Message}
@@ -234,32 +235,32 @@ Batch {BatchIndex}, line {Line}, column {Column}: {Message}
 
 ---
 
-## 6. Visitor 実装ガイド（最小構成）
+## 6. Visitor Implementation Guide (Minimum)
 
-### 6.1 推奨クラス分割
-- `BatchSplitter`（GO分割 + StartLine 記録）
+### 6.1 Suggested class split
+- `BatchSplitter` (GO splitting + `StartLine` tracking)
 - `DesiredSqlParser`
   - `ParseBatches(IEnumerable<SqlBatch>) -> IReadOnlyList<TSqlFragment>`
-  - parse errors の補正（StartLine加算）
+  - Parse error line correction (add `StartLine`)
 - `DesiredModelBuilderVisitor : TSqlFragmentVisitor`
   - `Visit(CreateTableStatement)`
   - `Visit(AlterTableAddTableElementStatement)`
   - `Visit(CreateIndexStatement)`
-  - それ以外は `ExplicitVisit(TSqlStatement)` で例外
+  - For anything else, throw from `ExplicitVisit(TSqlStatement)`
 
-### 6.2 “それ以外は例外” の実装方針
-ScriptDom の Statement を列挙し、許可外に遭遇したら即例外。
+### 6.2 “Everything else throws” approach
+Enumerate ScriptDom statements and throw immediately when encountering anything not in the allowed set.
 
-推奨: `ExplicitVisit(TSqlStatement node)` を override し、許可した型は個別 override で処理し、それ以外はテンプレート(A)で例外。
+Recommended: override `ExplicitVisit(TSqlStatement node)` and only handle allowed statement types via dedicated overrides; for all others, throw using template (A).
 
 ---
 
-## 7. v1での妥協点（明示）
+## 7. Explicit v1 Trade-offs
 
-- 制約名省略を許さない（推奨）
-  - v1の冪等性を簡単に保証するための制約
-  - 将来: SQL Server の自動命名規則に追従する実装で緩和可能
-- DEFAULT/CHECK式は raw 文字列として保持
-  - v1では差異があっても変更しないため、正規化しない
-- CREATE INDEX の高度機能（INCLUDE/filtered/with/online 等）は v1非対応
+- Do not allow unnamed constraints (recommended)
+  - Helps keep idempotency simple in v1
+  - Future versions can relax this by emulating SQL Server’s auto-naming rules
+- Keep DEFAULT/CHECK expressions as raw strings
+  - Since v1 does not emit alter DDL, do not normalize them
+- Advanced index features (INCLUDE/filtered/with/online/etc.) are unsupported in v1
 

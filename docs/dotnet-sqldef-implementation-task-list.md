@@ -1,185 +1,185 @@
-﻿# dotnet-sqldef v1 実装タスクリスト（TDD版）
+# dotnet-sqldef v1 Implementation Task List (TDD)
 
-目的: `docs/dotnet-sqldef-plan.md` の v1（SQL Server / dbo固定 / 追加のみ）を、**テスト駆動（Red → Green → Refactor）**で実装するための作業チェックリスト。
+Goal: a work checklist for implementing v1 (SQL Server / fixed `dbo` / additive-only) from `docs/dotnet-sqldef-plan.md` using **test-driven development (Red → Green → Refactor)**.
 
-前提:
-- `SqlSchemaDef.Core`（公開API + Plan表現）と `SqlSchemaDef.SqlServer`（SQL Server 実装）を分離する
-- 追加のみ（破壊的DDLは出さない）
-- desired に許可外DDLが混ざれば即エラー
-
----
-
-## 進め方（TDDルール）
-
-- 1PR（または1コミット）= 1つの小さい振る舞い
-- すべてのタスクは原則 **テストを先に追加**（Red）し、その後に実装（Green）、最後に整理（Refactor）
-- 完了条件（Definition of Done）:
-  - [ ] 追加したテストが意図した失敗をする（Redを確認）
-  - [ ] 実装後にテストが通る（Green）
-  - [ ] `dotnet test SqlSchemaDef.sln -c Release` が通る
-  - [ ] 公開API変更がある場合、`docs/dotnet-sqldef-api-design.md` を更新（必要時）
+Assumptions:
+- Separate `SqlSchemaDef.Core` (public API + plan representation) and `SqlSchemaDef.SqlServer` (SQL Server implementation)
+- Additive-only (never emit destructive DDL)
+- If `desired` includes any disallowed DDL, fail fast (error)
 
 ---
 
-## 0. リポジトリ/雛形（完了）
+## How to proceed (TDD rules)
 
-- [x] ソリューション作成: `SqlSchemaDef.sln` / `SqlSchemaDef.slnx`
-- [x] プロジェクト構成作成: `src/SqlSchemaDef.Core`（`netstandard2.0`）
-- [x] プロジェクト構成作成: `src/SqlSchemaDef.SqlServer`（`netstandard2.0`）
-- [x] プロジェクト構成作成: `src/SqlSchemaDef.Cli`（`net8.0`）
-- [x] プロジェクト構成作成: `tests/SqlSchemaDef.Tests`（xUnit, `net8.0`）
-- [x] 参照関係: `Cli -> SqlServer -> Core` / `Tests -> Core`
-- [x] Core 公開API雛形（Plan/Options/例外/ToScript）追加
-- [x] SqlServer Planner/Applier 雛形追加（Planは現状空を返す）
-- [x] `MigrationPlan.ToScript()` のユニットテスト追加
+- 1 PR (or 1 commit) = one small behavior
+- For every task, **add tests first** (Red), then implement (Green), then clean up (Refactor)
+- Definition of Done:
+  - [ ] The added test fails in the intended way (confirm Red)
+  - [ ] Tests pass after implementation (Green)
+  - [ ] `dotnet test SqlSchemaDef.sln -c Release` passes
+  - [ ] If the public API changes, update `docs/dotnet-sqldef-api-design.md` (when needed)
 
 ---
 
-## 1. desired: GO 分割（BatchSplitter）
+## 0. Repo / scaffolding (Done)
 
-参照: `docs/dotnet-sqldef-scriptdom-visitor-spec.md`（GO分割仕様）
-
-- [x] テスト: `GO` の基本分割（大文字小文字、前後空白）
-- [x] テスト: `-- GO` / `/* GO */` は区切らない
-- [x] テスト: 最終バッチが空でもエラーにしない（空はスキップ）
-- [x] テスト: `GO 2` は `UnsupportedBatchSeparatorException`（行番号付き）
-- [x] 実装: `SqlSchemaDef.SqlServer` に `BatchSplitter`（`BatchIndex`/`StartLine`/`Text`）
-- [x] リファクタ: 分割ロジックと行番号補正を整理（重複排除）
-
----
-
-## 2. desired: ScriptDom パース（DesiredSqlParser）
-
-参照:
-- `docs/dotnet-sqldef-scriptdom-visitor-spec.md`（parser方針/例外テンプレ）
-
-- [x] テスト: ScriptDom の parse error を `DesiredSqlParseException` で返す（`Diagnostics` 全件）
-- [x] テスト: `Diagnostics` に `BatchIndex`/`Line`/`Column` が入る（`StartLine` 補正込み）
-- [x] 実装: `DesiredSqlParser`（`TSql160Parser` 等を固定、`initialQuotedIdentifiers: true`）
-- [x] 実装: parse error の `Line` を `StartLine` 加算して補正
+- [x] Create solution: `SqlSchemaDef.sln` / `SqlSchemaDef.slnx`
+- [x] Create project layout: `src/SqlSchemaDef.Core` (`netstandard2.0`)
+- [x] Create project layout: `src/SqlSchemaDef.SqlServer` (`netstandard2.0`)
+- [x] Create project layout: `src/SqlSchemaDef.Cli` (`net8.0`)
+- [x] Create project layout: `tests/SqlSchemaDef.Tests` (xUnit, `net8.0`)
+- [x] References: `Cli -> SqlServer -> Core` / `Tests -> Core`
+- [x] Add Core public API skeleton (plan/options/exceptions/ToScript)
+- [x] Add SqlServer planner/applier skeleton (Plan currently returns empty)
+- [x] Add unit tests for `MigrationPlan.ToScript()`
 
 ---
 
-## 3. desired: Visitor（許可DDLのみ）
+## 1. `desired`: GO splitting (`BatchSplitter`)
 
-参照:
-- `docs/dotnet-sqldef-scriptdom-visitor-spec.md`（受理DDL/非対応機能/例外）
+Reference: `docs/dotnet-sqldef-scriptdom-visitor-spec.md` (GO splitting spec)
 
-### 3.1 許可外ステートメント（即エラー）
-- [x] テスト: 例）`CREATE VIEW` が `UnsupportedDesiredStatementException`
-- [x] テスト: 例）`ALTER TABLE ... ALTER COLUMN` が `UnsupportedDesiredStatementException`
-- [x] 実装: 許可外はテンプレ(A)で例外（batch/line/column を含める）
-
-### 3.2 dbo 固定違反（即エラー）
-- [x] テスト: `CREATE TABLE foo.X (...)` は `UnsupportedSchemaException`
-- [x] テスト: FK参照先が dbo 以外は `UnsupportedSchemaException`
-- [x] 実装: schema 解決と dbo 固定チェック
-
-### 3.3 許可DDL内の非対応機能（即エラー）
-- [x] テスト: `CREATE INDEX ... INCLUDE (...)` は `UnsupportedDesiredFeatureException`
-- [x] テスト: filtered index（`WHERE ...`）は `UnsupportedDesiredFeatureException`
-- [x] テスト: index `WITH (...)` / `ONLINE` は `UnsupportedDesiredFeatureException`
-- [x] テスト: computed column は `UnsupportedDesiredFeatureException`
-- [x] 実装: FeatureName/StatementType を埋めて例外化
-
-### 3.4 CreateTable/AlterTableAdd/CreateIndex のモデル化
-- [x] テスト: `CREATE TABLE dbo.T (...)` が desired モデルに入る
-- [x] テスト: `ALTER TABLE dbo.T ADD Col int NULL` が desired モデルに入る
-- [ ] テスト: `ALTER TABLE dbo.T ADD Col int NOT NULL` は既定で skipped（`NotNullAddNotSupported`）になる（※方針に合わせて）
-- [x] テスト: `CREATE UNIQUE INDEX ...` が desired モデルに入る
-- [x] 実装: Visitor + 最小中間モデル（v1に必要な最小限）
+- [x] Test: basic `GO` splitting (case-insensitive, surrounding whitespace)
+- [x] Test: `-- GO` / `/* GO */` do not split
+- [x] Test: empty final batch is not an error (skip empties)
+- [x] Test: `GO 2` throws `UnsupportedBatchSeparatorException` (with line number)
+- [x] Implement: `BatchSplitter` in `SqlSchemaDef.SqlServer` (`BatchIndex`/`StartLine`/`Text`)
+- [x] Refactor: deduplicate split logic and line correction
 
 ---
 
-## 4. current: sys カタログ取得（CurrentSchemaReader）
+## 2. `desired`: ScriptDom parsing (`DesiredSqlParser`)
 
-参照: `docs/dotnet-sqldef-syscatalog-queries.md`
+References:
+- `docs/dotnet-sqldef-scriptdom-visitor-spec.md` (parser policy / exception templates)
 
-- [ ] テスト（統合 or 低レベル）: tables/columns の取得結果をモデル化できる
-- [x] テスト（ユニット）: 型文字列化（`nvarchar(max)`、`decimal(p,s)` 等）の期待値
-- [ ] 実装: sys 取得SQLをコード化（dbo固定）
-- [x] 実装: 型文字列化ユーティリティ
-- [ ] 実装: current 側の v1非対応要素（computed/INCLUDE/filtered/descending 等）の検出と扱い（skippedに寄せる方針で固定）
-
----
-
-## 5. Diff（追加のみ）→ MigrationPlan
-
-参照:
-- `docs/dotnet-sqldef-plan.md`（v1の差分方針）
-- `docs/dotnet-sqldef-test-plan.md`（順序/Skipped）
-
-### 5.1 追加 only の operations
-- [ ] テスト: current になければ `CREATE TABLE` が出る
-- [ ] テスト: current になければ `ALTER TABLE ADD COLUMN` が出る（NULL可のみ）
-- [ ] テスト: current になければ PK/UQ/CK が出る
-- [ ] テスト: current になければ INDEX が出る
-- [ ] テスト: FK は参照テーブル作成後に出る（順序）
-- [ ] 実装: `SchemaDiffer`（operations 生成）
-
-### 5.2 変更/削除は skipped
-- [ ] テスト: current のみ存在（削除相当）は `SkippedReason.DropNotSupported`
-- [ ] テスト: 定義差（変更相当）は `SkippedReason.AlterNotSupported`
-- [ ] テスト: current 側の非対応要素は operations に出ず skipped に寄る（方針に合わせて）
-- [ ] 実装: `SkippedItem` 収集（Target/Message の規約を固定）
-
-### 5.3 決定性（順序/同順位の名前順）
-- [ ] テスト: 同じ入力で `Operations`/`Skipped` の順序が常に一致
-- [ ] 実装: `OperationKind` + 名前順でソート
+- [x] Test: ScriptDom parse errors become `DesiredSqlParseException` (all `Diagnostics`)
+- [x] Test: `Diagnostics` includes `BatchIndex`/`Line`/`Column` (with `StartLine` correction)
+- [x] Implement: `DesiredSqlParser` (fix `TSql160Parser`, `initialQuotedIdentifiers: true`, etc.)
+- [x] Implement: correct parse error `Line` by adding `StartLine`
 
 ---
 
-## 6. ToScript（レビュー出力）
+## 3. `desired`: Visitor (allowed DDL only)
 
-参照:
-- `docs/dotnet-sqldef-test-plan.md`（ToScript検証）
+Reference:
+- `docs/dotnet-sqldef-scriptdom-visitor-spec.md` (accepted DDL / unsupported features / exceptions)
 
-- [x] テスト: 空 plan のヘッダ出力
-- [x] テスト: operations + skipped の整形
-- [ ] テスト: `TerminateWithSemicolon=false` の出力
-- [ ] テスト: `IncludeSkipped=false` の出力
-- [ ] テスト: 改行が `ScriptOptions.NewLine` に従う（`\n` 固定でスナップショット安定化）
-- [ ] 実装: `ToScript()` の最終仕様確定（文言/順序）
+### 3.1 Unsupported statements (immediate error)
+- [x] Test: e.g. `CREATE VIEW` throws `UnsupportedDesiredStatementException`
+- [x] Test: e.g. `ALTER TABLE ... ALTER COLUMN` throws `UnsupportedDesiredStatementException`
+- [x] Implement: throw using template (A) (include batch/line/column)
 
----
+### 3.2 Fixed `dbo` violations (immediate error)
+- [x] Test: `CREATE TABLE foo.X (...)` throws `UnsupportedSchemaException`
+- [x] Test: FK referencing a schema other than `dbo` throws `UnsupportedSchemaException`
+- [x] Implement: schema resolution and `dbo`-only validation
 
-## 7. Apply（SQL実行）
+### 3.3 Unsupported features within allowed DDL (immediate error)
+- [x] Test: `CREATE INDEX ... INCLUDE (...)` throws `UnsupportedDesiredFeatureException`
+- [x] Test: filtered index (`WHERE ...`) throws `UnsupportedDesiredFeatureException`
+- [x] Test: index `WITH (...)` / `ONLINE` throws `UnsupportedDesiredFeatureException`
+- [x] Test: computed columns throw `UnsupportedDesiredFeatureException`
+- [x] Implement: populate `FeatureName`/`StatementType` and throw
 
-参照:
-- `docs/dotnet-sqldef-api-design.md`（ApplyFailedException 契約）
-
-- [ ] テスト（統合）: operations を順に実行して DB が desired に近づく
-- [ ] テスト（統合）: 失敗時 `ApplyFailedException.Operation` が参照できる
-- [ ] テスト（統合）: TransactionMode=SingleTransaction で一括実行（失敗時ロールバック）
-- [ ] 実装: `SqlServerSchemaApplier` の挙動固め（ログ/例外/キャンセル）
-
----
-
-## 8. CLI（最低限→運用向け）
-
-- [ ] テスト（スモーク）: `--help` が usage を出す
-- [ ] テスト（スモーク）: dry-run が ToScript を出す（exit code 0）
-- [ ] テスト（スモーク/任意）: `--apply` で Apply する
-- [ ] 実装: exit code 規約（parse/非対応/apply失敗）
-- [ ] 実装: `--schema`（v1はdbo固定なので、将来用に隠し/未実装でも可）方針決定
+### 3.4 Model building for CreateTable / AlterTableAdd / CreateIndex
+- [x] Test: `CREATE TABLE dbo.T (...)` becomes part of the `desired` model
+- [x] Test: `ALTER TABLE dbo.T ADD Col int NULL` becomes part of the `desired` model
+- [ ] Test: `ALTER TABLE dbo.T ADD Col int NOT NULL` defaults to skipped (`NotNullAddNotSupported`) (align with policy)
+- [x] Test: `CREATE UNIQUE INDEX ...` becomes part of the `desired` model
+- [x] Implement: visitor + minimal intermediate model (only what v1 needs)
 
 ---
 
-## 9. 統合テスト（Docker SQL Server）
+## 4. `current`: sys catalog reading (`CurrentSchemaReader`)
 
-参照: `docs/dotnet-sqldef-test-plan.md`
+Reference: `docs/dotnet-sqldef-syscatalog-queries.md`
 
-- [ ] テスト基盤: Docker SQL Server 起動（接続文字列を環境変数で注入）
-- [ ] テスト基盤: 1テスト=1DB（DB名ユニーク、並列衝突回避）
-- [ ] テスト: 冪等性（空DB→Plan/Apply→再Planで `IsEmpty == true`）を 5-10 パターン
-- [ ] テスト: current 余剰があっても drop を出さない（skippedに寄る）
-- [ ] テスト: “既存行あり + NOT NULL列追加” が skipped になる
+- [ ] Test (integration or low-level): map table/column query results into the model
+- [x] Test (unit): type stringification (e.g. `nvarchar(max)`, `decimal(p,s)`)
+- [ ] Implement: sys queries in code (fixed `dbo`)
+- [x] Implement: type stringification utility
+- [ ] Implement: detect and handle v1-unsupported elements in `current` (computed/INCLUDE/filtered/descending, etc.) (policy: prefer skipped)
 
 ---
 
-## 10. CI/品質
+## 5. Diff (additive-only) → `MigrationPlan`
 
-- [ ] CI: ユニットは常時 `dotnet test`
-- [ ] CI: 統合は Docker サービス起動 + 失敗時ログ出力
-- [ ] ドキュメント: 仕様変更が発生したら関連ドキュメント（plan/api/spec/test-plan）も追従
+References:
+- `docs/dotnet-sqldef-plan.md` (v1 diff policy)
+- `docs/dotnet-sqldef-test-plan.md` (ordering/skipped)
+
+### 5.1 Additive-only operations
+- [ ] Test: if missing in `current`, emit `CREATE TABLE`
+- [ ] Test: if missing in `current`, emit `ALTER TABLE ADD COLUMN` (nullable only)
+- [ ] Test: if missing in `current`, emit PK/UQ/CK
+- [ ] Test: if missing in `current`, emit INDEX
+- [ ] Test: FK is emitted after referenced tables are created (ordering)
+- [ ] Implement: `SchemaDiffer` (generate operations)
+
+### 5.2 Alter/drop become skipped
+- [ ] Test: exists only in `current` (drop-equivalent) becomes `SkippedReason.DropNotSupported`
+- [ ] Test: definition differences (alter-equivalent) become `SkippedReason.AlterNotSupported`
+- [ ] Test: v1-unsupported elements in `current` do not become operations and are collected as skipped (align with policy)
+- [ ] Implement: collect `SkippedItem` (lock down `Target`/`Message` conventions)
+
+### 5.3 Determinism (ordering + tie-breaking by name)
+- [ ] Test: for the same input, `Operations`/`Skipped` order is always identical
+- [ ] Implement: sort by `OperationKind` + name
+
+---
+
+## 6. `ToScript` (review output)
+
+Reference:
+- `docs/dotnet-sqldef-test-plan.md` (`ToScript` verification)
+
+- [x] Test: header output for an empty plan
+- [x] Test: formatting for operations + skipped
+- [ ] Test: `TerminateWithSemicolon=false` output
+- [ ] Test: `IncludeSkipped=false` output
+- [ ] Test: newlines follow `ScriptOptions.NewLine` (default `\n` for stable snapshots)
+- [ ] Implement: finalize `ToScript()` spec (wording/order)
+
+---
+
+## 7. Apply (SQL execution)
+
+Reference:
+- `docs/dotnet-sqldef-api-design.md` (`ApplyFailedException` contract)
+
+- [ ] Test (integration): execute operations in order and make the DB converge toward `desired`
+- [ ] Test (integration): on failure, `ApplyFailedException.Operation` is usable
+- [ ] Test (integration): `TransactionMode=SingleTransaction` runs in one transaction (rollback on failure)
+- [ ] Implement: lock down `SqlServerSchemaApplier` behavior (logging/exceptions/cancellation)
+
+---
+
+## 8. CLI (minimal → ops-friendly)
+
+- [ ] Smoke test: `--help` prints usage
+- [ ] Smoke test: dry-run prints `ToScript()` (exit code 0)
+- [ ] Smoke test (optional): `--apply` runs Apply
+- [ ] Implement: exit code conventions (parse/unsupported/apply failure)
+- [ ] Implement: decide policy for `--schema` (v1 is fixed `dbo`; can be hidden/unimplemented for future)
+
+---
+
+## 9. Integration tests (Docker SQL Server)
+
+Reference: `docs/dotnet-sqldef-test-plan.md`
+
+- [ ] Test infra: start Docker SQL Server (inject connection string via env var)
+- [ ] Test infra: 1 test = 1 DB (unique DB name; avoid parallel collisions)
+- [ ] Test: idempotency (empty DB → Plan/Apply → Plan again yields `IsEmpty == true`) for 5–10 patterns
+- [ ] Test: extra objects in `current` do not produce DROP (prefer skipped)
+- [ ] Test: “existing rows + NOT NULL column add” becomes skipped
+
+---
+
+## 10. CI / quality
+
+- [ ] CI: always run unit tests (`dotnet test`)
+- [ ] CI: integration tests start Docker service + print logs on failure
+- [ ] Docs: if specs change, update related docs (plan/api/spec/test plan) accordingly
 

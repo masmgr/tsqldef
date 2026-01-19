@@ -1,141 +1,141 @@
-# SQL Server専用 sqldef 相当（C#/.NET + ScriptDom）v1 計画
+# SQL Server-only sqldef equivalent (C#/.NET + ScriptDom) v1 Plan
 
-目的: SQL Serverのスキーマを **DDL（desired）** に合わせて、現在DB（current）との差分を **冪等** に適用できる仕組みを .NET プログラムへ組み込みやすい形で提供する。
+Goal: provide a .NET-friendly way to align a SQL Server schema to **DDL (`desired`)** by computing the difference from the current database (**`current`**) and applying it **idempotently**.
 
-本ドキュメントは v1 の設計・実装計画をまとめたもの。v1 は「安全第一」で、**新規作成 + 追加のみ** を行う。
+This document summarizes the v1 design and implementation plan. v1 is “safety first” and performs **new creations + additive changes only**.
 
-ターゲット:
-- ライブラリは **.NET Standard 2.0**
-  - その範囲で利用可能な BCL 型と API のみを前提にする
-  - C# 言語バージョンは任意だが、公開APIのサンプルは .NET Standard 2.0 前提の型（`record` / `required` などに依存しない形）で記述する
-
----
-
-## 1. v1 スコープ（確定）
-
-### 対象DB
-- SQL Server 専用
-- スキーマは **`dbo` 固定**
-  - desired/current ともにスキーマ未指定は `dbo` として扱う
-
-### 対象オブジェクト/DDL（作成・追加のみ）
-- `CREATE TABLE`（dbo）
-  - 列: 型、NULL/NOT NULL、IDENTITY、DEFAULT（保持のみ）
-  - テーブル制約: PK / UNIQUE / CHECK / FK（追加のみ）
-- `ALTER TABLE ... ADD`（dbo）
-  - 列追加（推奨: v1では安全のため NULL 可のみ。NOT NULL 追加は `-- Skipped:` 扱い）
-  - 制約追加（PK/UQ/CHECK/FK）
-- `CREATE INDEX`（dbo、UNIQUE含む）
-
-### v1で「絶対にしない」こと（確定）
-- 変更: `ALTER COLUMN`、型変更、NULL変更、DEFAULT変更、制約定義変更、インデックス再定義など
-- 削除: `DROP TABLE/COLUMN/CONSTRAINT/INDEX`、REVOKE など
-- リネーム（`@renamed from=` 相当）
-- 対象外構文の黙殺
-
-### desired SQL の許容ステートメント（確定）
-- desired 側に含めてよいのは **`CREATE TABLE` / `ALTER TABLE ... ADD ...` / `CREATE INDEX` のみ**
-- それ以外（例: `INSERT`, `DROP`, `ALTER COLUMN`, `EXEC`, `CREATE VIEW` 等）は **即エラー**
+Targets:
+- The library targets **.NET Standard 2.0**
+  - Assume only BCL types and APIs available within that target
+  - Any C# language version is fine, but public API samples should use types compatible with .NET Standard 2.0 (i.e., avoid `record`, `required`, etc.)
 
 ---
 
-## 2. 出力方針（B: Skipped通知）
+## 1. v1 Scope (Locked)
 
-- current にあるが desired にないオブジェクト（削除相当）や、差分が「変更」方向に見えるものは、
-  - **DDLは生成しない**
-  - 出力に `-- Skipped: <理由> <対象>` を必ず含める
+### Target database
+- SQL Server only
+- Schema is fixed to **`dbo`**
+  - In both `desired` and `current`, if the schema is omitted it is treated as `dbo`
 
-例:
+### Supported objects / DDL (create/add only)
+- `CREATE TABLE` (`dbo`)
+  - Columns: type, NULL/NOT NULL, IDENTITY, DEFAULT (stored only)
+  - Table constraints: PK / UNIQUE / CHECK / FK (add only)
+- `ALTER TABLE ... ADD` (`dbo`)
+  - Add columns (recommended: in v1, for safety, only nullable columns. Adding `NOT NULL` is treated as `-- Skipped:`)
+  - Add constraints (PK/UQ/CHECK/FK)
+- `CREATE INDEX` (`dbo`, including UNIQUE)
+
+### Things v1 will never do (Locked)
+- Alter existing definitions: `ALTER COLUMN`, type changes, nullability changes, DEFAULT changes, constraint definition changes, index redefinition, etc.
+- Drop anything: `DROP TABLE/COLUMN/CONSTRAINT/INDEX`, REVOKE, etc.
+- Rename support (the equivalent of `@renamed from=`)
+- Silently ignore out-of-scope syntax
+
+### Allowed statements in `desired` SQL (Locked)
+- `desired` may contain **only**: `CREATE TABLE` / `ALTER TABLE ... ADD ...` / `CREATE INDEX`
+- Anything else (e.g. `INSERT`, `DROP`, `ALTER COLUMN`, `EXEC`, `CREATE VIEW`) is an **immediate error**
+
+---
+
+## 2. Output Policy (B: Skipped Notifications)
+
+If something exists in `current` but not in `desired` (a drop-equivalent), or a difference looks like an “alter”:
+- **Do not generate any DDL**
+- Always include `-- Skipped: <reason> <target>` in the output
+
+Examples:
 - `-- Skipped: drop is not supported in v1 dbo.Users.OldIndex`
 - `-- Skipped: alter is not supported in v1 dbo.Users.Email DEFAULT differs`
 
-`MigrationPlan` は `Operations`（実行DDL）と `Skipped`（通知）を分けて保持する。
+`MigrationPlan` keeps `Operations` (executable DDL) and `Skipped` (notifications) separately.
 
 ---
 
-## 3. アーキテクチャ概要
+## 3. Architecture Overview
 
-### 入力
-- desired: SQL文字列（または将来的に複数ファイル）
-- current: 接続先 SQL Server（dbo）
+### Inputs
+- `desired`: SQL string (or multiple files in the future)
+- `current`: target SQL Server database connection (`dbo`)
 
-### 主要コンポーネント
-- `DesiredSchemaLoader`（ScriptDom）
-  - GOバッチ分割 → 各バッチを ScriptDom パース → Visitor でモデル化
-- `CurrentSchemaReader`（sysカタログ）
-  - `sys.*` から dbo のメタデータを取得してモデル化
+### Key components
+- `DesiredSchemaLoader` (ScriptDom)
+  - Split by GO batches → parse each batch via ScriptDom → build an in-memory model via a Visitor
+- `CurrentSchemaReader` (sys catalog)
+  - Read `dbo` metadata from `sys.*` and build the same in-memory model
 - `SchemaDiffer`
-  - current/desired モデルを比較し、追加のみの `MigrationPlan` を作成
+  - Compare `current` and `desired` models and build an additive-only `MigrationPlan`
 - `SqlServerSchemaApplier`
-  - `MigrationPlan` の operations をトランザクションで順次実行
+  - Execute `MigrationPlan` operations sequentially inside a transaction
 - `MigrationPlan.ToScript()`
-  - 実行予定SQLと `-- Skipped:` をレビュー用に整形
+  - Render planned SQL and `-- Skipped:` items for review
 
 ---
 
-## 4. 中間モデル（最小）
+## 4. Intermediate Model (Minimal)
 
-目的: desired と current を同じ形に揃え、比較可能にする。v1 は「変更を出さない」ため、比較に必要な最小情報に絞る。
+Goal: normalize `desired` and `current` into the same shape so they can be compared. Since v1 never alters, the model contains only what is needed for diffing.
 
 - `DatabaseModel`
-  - `Tables: Dictionary<TableKey, TableModel>`（キーは dbo + case-insensitive 名）
+  - `Tables: Dictionary<TableKey, TableModel>` (keyed by `dbo` + case-insensitive name)
 - `TableModel`
   - `Schema = "dbo"`
   - `Name`
   - `Columns: Dictionary<ColumnKey, ColumnModel>`
-  - `Constraints: Dictionary<ConstraintKey, ConstraintModel>`（PK/UQ/CK/FK）
+  - `Constraints: Dictionary<ConstraintKey, ConstraintModel>` (PK/UQ/CK/FK)
   - `Indexes: Dictionary<IndexKey, IndexModel>`
 - `ColumnModel`
   - `Name`
-  - `SqlType`（文字列）
+  - `SqlType` (string)
   - `IsNullable`
   - `IsIdentity`
-  - `DefaultExpression`（文字列、比較は raw。差異は Skipped）
+  - `DefaultExpression` (string; compared as raw; differences become Skipped)
 - `ConstraintModel`
   - `Kind: PK | UQ | CK | FK`
   - `Name`
-  - 種別ごとの最小情報
-    - PK/UQ: 列順
-    - CK: `Definition`（raw、差異は Skipped）
-    - FK: 参照先テーブル/列順
+  - Minimum per-kind details
+    - PK/UQ: ordered columns
+    - CK: `Definition` (raw; differences become Skipped)
+    - FK: referenced table and ordered columns
 - `IndexModel`
   - `Name`
   - `IsUnique`
-  - `KeyColumns`（列順）
+  - `KeyColumns` (ordered)
 
-正規化（v1）:
-- 参照・比較のキーは case-insensitive（dbo固定）
-- 式（DEFAULT/CHECK）は raw のまま保持し、差異は変更DDLを出さず `-- Skipped:` にする
+Normalization (v1):
+- Keys are case-insensitive (schema fixed to `dbo`)
+- Expressions (DEFAULT/CHECK) are stored raw; differences generate `-- Skipped:` without emitting alter DDL
 
 ---
 
-## 5. ScriptDom パース設計（desired）
+## 5. ScriptDom Parsing Design (`desired`)
 
 ### Parser
-- `TSqlParser` は固定のバージョン（例: `TSql160Parser`）。サポート対象SQL Serverをドキュメント化する。
+- Use a fixed ScriptDom parser version (e.g. `TSql160Parser`). Document the supported SQL Server version(s).
 
-### GO（バッチ）処理
-- ScriptDomは `GO` を扱わないため、事前にバッチ分割する
-- v1は「行頭の `GO`（前後空白OK）」のみ区切りとして扱う（コメント等は除外）
-- Apply時は `GO` を使わず、コマンド列として実行する
+### GO (batch) handling
+- ScriptDom does not support `GO`, so split into batches up front
+- In v1, treat only `GO` at the start of a line (allowing surrounding whitespace) as a separator; ignore `GO` inside comments
+- When applying, do not use `GO`; execute batches as sequential commands
 
-### Visitor（許容ステートメントのみ）
+### Visitor (allowed statements only)
 - `CreateTableStatement`
-- `AlterTableAddTableElementStatement`（ADD COLUMN / ADD CONSTRAINT）
+- `AlterTableAddTableElementStatement` (ADD COLUMN / ADD CONSTRAINT)
 - `CreateIndexStatement`
-- それ以外が出たら **エラー**
+- Anything else is an **error**
 
-### 追加のみを担保するルール
-- `ALTER TABLE` は `ADD` のみ許容（`ALTER COLUMN` 等は即エラー）
-- v1で解釈不能なオプション（filtered index、INCLUDE、computed、特殊制約等）は即エラー（誤差分を避ける）
+### Rules to guarantee additive-only behavior
+- Allow only `ALTER TABLE ... ADD ...` (any `ALTER COLUMN`, etc. is an immediate error)
+- If an option cannot be interpreted safely in v1 (filtered index, INCLUDE, computed columns, special constraints, etc.), fail fast with an error to avoid incorrect diffs
 
 ---
 
-## 6. sysカタログ取得設計（current）
+## 6. sys Catalog Reading Design (`current`)
 
-dbo のみ取得し、中間モデルへマッピングする。DDL復元はしない。
+Read only `dbo` and map directly into the intermediate model (no DDL reconstruction).
 
-取得対象（最小）:
+Minimum sources:
 - tables/schemas: `sys.tables`, `sys.schemas`
 - columns/types: `sys.columns`, `sys.types`, `sys.identity_columns`
 - defaults: `sys.default_constraints`
@@ -146,95 +146,96 @@ dbo のみ取得し、中間モデルへマッピングする。DDL復元はし�
 
 ---
 
-## 7. 差分生成（追加のみ）と順序
+## 7. Diff Generation (Additive Only) and Ordering
 
 `SchemaDiffer.Diff(current, desired) -> MigrationPlan`
 
-### 生成する operations（追加のみ）
-- schema固定のため `CREATE SCHEMA` は v1では基本不要（desiredに出たら非対応でエラーにしてもよい）
-- `CREATE TABLE dbo.X`（currentに無いテーブル）
-- `ALTER TABLE dbo.X ADD <column>`（currentに無い列）
-- `ALTER TABLE dbo.X ADD CONSTRAINT ...`（currentに無いPK/UQ/CK/FK）
-- `CREATE [UNIQUE] INDEX ... ON dbo.X(...)`（currentに無いインデックス）
+### Generated operations (add only)
+- Since schema is fixed, `CREATE SCHEMA` is generally unnecessary in v1 (if it appears in `desired`, treating it as unsupported is acceptable)
+- `CREATE TABLE dbo.X` (table missing in `current`)
+- `ALTER TABLE dbo.X ADD <column>` (column missing in `current`)
+- `ALTER TABLE dbo.X ADD CONSTRAINT ...` (PK/UQ/CK/FK missing in `current`)
+- `CREATE [UNIQUE] INDEX ... ON dbo.X(...)` (index missing in `current`)
 
-### 生成しない（Skippedのみ）
-- currentにあるが desired に無い（削除相当）
-- desired/current の定義差（変更相当）
-  - DEFAULT式差、CHECK式差、列定義差、制約差、インデックス差など
+### Not generated (Skipped only)
+- Exists in `current` but not in `desired` (drop-equivalent)
+- Definition differences between `desired` and `current` (alter-equivalent)
+  - DEFAULT expression differences, CHECK expression differences, column definition differences, constraint differences, index differences, etc.
 
-### 適用順序（安全）
+### Apply order (safe)
 1. `CREATE TABLE`
 2. `ALTER TABLE ADD COLUMN`
-3. `ALTER TABLE ADD CONSTRAINT`（PK/UQ/CK）
+3. `ALTER TABLE ADD CONSTRAINT` (PK/UQ/CK)
 4. `CREATE INDEX`
-5. `ALTER TABLE ADD CONSTRAINT`（FK）
+5. `ALTER TABLE ADD CONSTRAINT` (FK)
 
 ---
 
-## 8. DDL生成と実行（dry-run/apply）
+## 8. DDL Rendering and Execution (dry-run / apply)
 
-### Operation表現
+### Operation representation
 - `SqlOperation { Description, Sql }`
 - `SkippedItem { Reason, Target, Details? }`
 - `MigrationPlan { Operations, Skipped, IsEmpty }`
 
-### ToScript（レビュー用途）
-- `-- Skipped:` をまとめて表示（件数も表示できると便利）
-- operations のSQLを `;` 付きで列挙
+### `ToScript` (for review)
+- Render a consolidated list of `-- Skipped:` items (showing counts can be helpful)
+- List each operation SQL (optionally with trailing `;`)
 
-### Apply（実行）
-- `Microsoft.Data.SqlClient` で順次 `ExecuteNonQuery`
-- 基本は単一トランザクション
-- 失敗時は「どの Operation で失敗したか」を含めて例外化（Description/SQL）
+### Apply (execution)
+- Execute sequentially via `Microsoft.Data.SqlClient` and `ExecuteNonQuery`
+- Default: a single transaction
+- On failure, throw an exception that includes “which operation failed” (Description/SQL)
 
-### ログ
-- .NET `ILogger` を注入できる設計（Plan作成時/Apply時のトレース）
-
----
-
-## 9. テスト戦略
-
-### ユニット（DB不要）
-- desired SQL → モデル化（ScriptDom変換）
-- currentモデル + desiredモデル → plan（差分）
-- `ToScript()` のスナップショット（順序、Skippedの文言）
-
-主要ケース:
-- 新規テーブル作成
-- 列追加（NULL）
-- PK/UQ/CK/FK 追加（FKは順序が正しいこと）
-- currentに余計なオブジェクトがある → Skipped（削除相当）
-- DEFAULT/CHECK式の差異 → Skipped（変更相当）
-- desired に非対応ステートメントが混在 → エラー
-
-### 統合（Docker SQL Server）
-- `Apply → 再度 Plan` が空になる（冪等性）
-- “既存行あり + NOT NULL列追加”が Skipped になる（安全ポリシーの確認）
+### Logging
+- Allow injecting `ILogger` for tracing during planning and apply
 
 ---
 
-## 10. パッケージング（組み込み最優先）
+## 9. Test Strategy
 
-NuGet想定:
+### Unit tests (no DB)
+- `desired` SQL → model (ScriptDom conversion)
+- `current` model + `desired` model → plan (diff)
+- Snapshot tests for `ToScript()` (order and Skipped wording)
+
+Key cases:
+- Create a new table
+- Add a nullable column
+- Add PK/UQ/CK/FK constraints (FK ordering)
+- Extra objects exist in `current` → Skipped (drop-equivalent)
+- DEFAULT/CHECK expression differences → Skipped (alter-equivalent)
+- Unsupported statements mixed into `desired` → error
+
+### Integration tests (Docker SQL Server)
+- `Apply → Plan again` results in empty plan (idempotency)
+- “Existing rows + adding a NOT NULL column” becomes Skipped (safety policy)
+
+---
+
+## 10. Packaging (Embedding First)
+
+NuGet layout (suggested):
 - `*.Core`
-  - 中間モデル、Diff、MigrationPlan、ToScript、Skipped表現
+  - Intermediate model, diff, `MigrationPlan`, `ToScript`, skipped representations
 - `*.SqlServer`
-  - ScriptDom loader（desired）
-  - sys reader（current）
-  - applier（apply/dry-run）
-- （任意）`*.Cli`
-  - デバッグ用CLI（導入・検証が速くなる）
+  - ScriptDom loader (`desired`)
+  - sys catalog reader (`current`)
+  - applier (apply/dry-run)
+- (Optional) `*.Cli`
+  - Debug CLI (makes adoption/verification faster)
 
-公開API（最小案）:
+Public API (minimal draft):
 - `Task<MigrationPlan> ISchemaPlanner.PlanAsync(DbConnection, string desiredSql, PlannerOptions, CancellationToken)`
 - `Task ISchemaApplier.ApplyAsync(DbConnection, MigrationPlan, ApplyOptions, CancellationToken)`
 - `string MigrationPlan.ToScript(ScriptOptions options = null)`
 
 ---
 
-## 11. ロードマップ（v1以降の候補）
+## 11. Roadmap (Post v1 Ideas)
 
-- v1.1: `@renamed from=` 相当（リネーム支援）
-- v1.1: `NOT NULL + DEFAULT` の安全な列追加をオプションで許可
-- v1.2: 変更対応（ALTER COLUMN、DEFAULT/CK変更、インデックス再定義）
-- v2: dbo固定をやめ `TargetSchemas` 対応、VIEW/TRIGGER等の拡張
+- v1.1: `@renamed from=` equivalent (rename assistance)
+- v1.1: optionally allow safe `NOT NULL + DEFAULT` column additions
+- v1.2: support alters (ALTER COLUMN, DEFAULT/CK changes, index redefinition)
+- v2: drop the fixed-`dbo` limitation and support `TargetSchemas`, views/triggers, etc.
+

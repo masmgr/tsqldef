@@ -1,4 +1,3 @@
-# tsqldef / dotnet-sqldef（設計ドキュメント）
+# tsqldef / dotnet-sqldef (Design Documents)
 
-設計ドキュメントは `docs/README.md` にまとめています。
-
+Design documents are collected in `docs/README.md`.
