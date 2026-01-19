@@ -310,4 +310,29 @@ public sealed class SchemaDifferTests
             "dbo.Users.IX_Users_Name",
         }, targets);
     }
+
+    [Fact]
+    public void Diff_ForeignKey_IsOrderedAfterTableCreates()
+    {
+        var desiredSql = string.Join("\n", new[]
+        {
+            "CREATE TABLE dbo.Teams (Id int NOT NULL)",
+            "CREATE TABLE dbo.Users (",
+            "  Id int NOT NULL,",
+            "  TeamId int NOT NULL,",
+            "  CONSTRAINT FK_Users_Teams FOREIGN KEY (TeamId) REFERENCES dbo.Teams (Id)",
+            ")",
+        });
+
+        var desired = new DesiredSchemaLoader().Load(desiredSql);
+        var current = new DatabaseModel();
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = new SchemaDiffer().Diff(current, desired, metadata);
+
+        Assert.Equal(3, plan.Operations.Count);
+        Assert.Equal(OperationKind.CreateTable, plan.Operations[0].Kind);
+        Assert.Equal(OperationKind.CreateTable, plan.Operations[1].Kind);
+        Assert.Equal(OperationKind.AddForeignKey, plan.Operations[2].Kind);
+    }
 }
