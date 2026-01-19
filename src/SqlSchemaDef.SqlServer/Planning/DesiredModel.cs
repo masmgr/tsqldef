@@ -54,6 +54,7 @@ namespace SqlSchemaDef.SqlServer.Planning
         public bool IsIdentity { get; set; }
         public string DefaultExpression { get; set; }
         public bool IsFromAlterAdd { get; set; }
+        public string UnsupportedFeature { get; set; }
     }
 
     public sealed class ConstraintModel
@@ -65,6 +66,7 @@ namespace SqlSchemaDef.SqlServer.Planning
         public string ReferenceSchema { get; set; }
         public string ReferenceTable { get; set; }
         public IReadOnlyList<string> ReferenceColumns { get; set; }
+        public string UnsupportedFeature { get; set; }
     }
 
     public enum ConstraintKind
@@ -80,6 +82,7 @@ namespace SqlSchemaDef.SqlServer.Planning
         public string Name { get; set; }
         public bool IsUnique { get; set; }
         public IReadOnlyList<string> KeyColumns { get; set; }
+        public string UnsupportedFeature { get; set; }
     }
 
     internal static class IdentifierHelper

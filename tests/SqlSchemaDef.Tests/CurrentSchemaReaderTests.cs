@@ -195,7 +195,7 @@ public sealed class CurrentSchemaReaderTests
     }
 
     [Fact]
-    public void BuildModel_ThrowsOnUnsupportedIndexFeatures()
+    public void BuildModel_TracksUnsupportedIndexFeatures()
     {
         var tables = new[]
         {
@@ -238,9 +238,11 @@ public sealed class CurrentSchemaReaderTests
             },
         };
 
-        var ex = Assert.Throws<InvalidOperationException>(() =>
-            CurrentSchemaReader.BuildModel(tables, columns, indexes: indexes));
+        var model = CurrentSchemaReader.BuildModel(tables, columns, indexes: indexes);
+        var table = model.Tables.Values.Single();
+        var index = table.Indexes.Values.Single();
 
-        Assert.Contains("Unsupported index feature", ex.Message);
+        Assert.Equal("IX_Users_Name", index.Name);
+        Assert.Equal("IndexInclude", index.UnsupportedFeature);
     }
 }

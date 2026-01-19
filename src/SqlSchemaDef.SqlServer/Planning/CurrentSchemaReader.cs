@@ -520,6 +520,7 @@ ORDER BY pt.name, fk.name, fkc.constraint_column_id;";
                     IsIdentity = column.IsIdentity,
                     DefaultExpression = GetDefaultDefinition(defaultMap, column.ObjectId, column.ColumnId),
                     IsFromAlterAdd = false,
+                    UnsupportedFeature = column.IsComputed ? "ComputedColumn" : null,
                 };
 
                 table.Columns[IdentifierHelper.NormalizeNameKey(columnModel.Name)] = columnModel;
@@ -741,11 +742,9 @@ ORDER BY pt.name, fk.name, fkc.constraint_column_id;";
                 var rows = entry.Value;
                 rows.Sort((left, right) => left.Ordinal.CompareTo(right.Ordinal));
 
-                var referenceSchema = rows[0].ReferencedSchemaName;
-                if (!string.Equals(referenceSchema, "dbo", StringComparison.OrdinalIgnoreCase))
-                {
-                    throw new InvalidOperationException("Foreign key references unsupported schema.");
-                }
+                var referenceSchema = string.IsNullOrWhiteSpace(rows[0].ReferencedSchemaName)
+                    ? "dbo"
+                    : rows[0].ReferencedSchemaName;
 
                 var parentColumns = new List<string>(rows.Count);
                 var referencedColumns = new List<string>(rows.Count);
@@ -760,10 +759,15 @@ ORDER BY pt.name, fk.name, fkc.constraint_column_id;";
                     Kind = ConstraintKind.ForeignKey,
                     Name = constraintName,
                     Columns = parentColumns,
-                    ReferenceSchema = "dbo",
+                    ReferenceSchema = referenceSchema,
                     ReferenceTable = rows[0].ReferencedTableName,
                     ReferenceColumns = referencedColumns,
                 };
+
+                if (!string.Equals(referenceSchema, "dbo", StringComparison.OrdinalIgnoreCase))
+                {
+                    constraint.UnsupportedFeature = "ForeignKeyReferenceSchema";
+                }
 
                 table.Constraints[IdentifierHelper.NormalizeNameKey(constraint.Name)] = constraint;
             }
@@ -814,16 +818,29 @@ ORDER BY pt.name, fk.name, fkc.constraint_column_id;";
                 var rows = entry.Value;
                 rows.Sort((left, right) => left.KeyOrdinal.CompareTo(right.KeyOrdinal));
 
-                var keyColumns = new List<string>(rows.Count);
                 var isUnique = false;
+                var keyColumns = new List<string>();
+                string unsupportedFeature = null;
                 foreach (var row in rows)
                 {
-                    if (row.IsIncludedColumn || row.IsDescendingKey)
+                    isUnique = row.IsUnique;
+
+                    if (row.IsDescendingKey)
                     {
-                        throw new InvalidOperationException("Unsupported index feature detected.");
+                        unsupportedFeature = unsupportedFeature ?? "IndexSortOrder";
                     }
 
-                    isUnique = row.IsUnique;
+                    if (row.IsIncludedColumn)
+                    {
+                        unsupportedFeature = unsupportedFeature ?? "IndexInclude";
+                        continue;
+                    }
+
+                    if (row.KeyOrdinal <= 0)
+                    {
+                        continue;
+                    }
+
                     keyColumns.Add(row.ColumnName);
                 }
 
@@ -832,6 +849,7 @@ ORDER BY pt.name, fk.name, fkc.constraint_column_id;";
                     Name = indexName,
                     IsUnique = isUnique,
                     KeyColumns = keyColumns,
+                    UnsupportedFeature = unsupportedFeature,
                 };
 
                 table.Indexes[IdentifierHelper.NormalizeNameKey(index.Name)] = index;

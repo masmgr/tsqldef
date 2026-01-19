@@ -45,6 +45,23 @@ namespace SqlSchemaDef.SqlServer.Planning
                         var desiredColumn = columnEntry.Value;
                         if (currentTable.Columns.TryGetValue(columnEntry.Key, out var currentColumn))
                         {
+                            if (!string.IsNullOrEmpty(currentColumn.UnsupportedFeature))
+                            {
+                                skipped.Add(new SkippedItem
+                                {
+                                    Reason = SkippedReason.AlterNotSupported,
+                                    Target = new SqlObjectRef
+                                    {
+                                        Type = SqlObjectType.Column,
+                                        Schema = desiredTable.Schema,
+                                        ParentName = desiredTable.Name,
+                                        Name = desiredColumn.Name,
+                                    },
+                                    Message = "alter is not supported in v1",
+                                });
+                                continue;
+                            }
+
                             if (IsColumnDifferent(currentColumn, desiredColumn))
                             {
                                 skipped.Add(new SkippedItem
@@ -109,6 +126,25 @@ namespace SqlSchemaDef.SqlServer.Planning
                 {
                     if (hasCurrentTable && currentTable.Constraints.TryGetValue(constraintEntry.Key, out var currentConstraint))
                     {
+                        if (!string.IsNullOrEmpty(currentConstraint.UnsupportedFeature))
+                        {
+                            skipped.Add(new SkippedItem
+                            {
+                                Reason = SkippedReason.AlterNotSupported,
+                                Target = new SqlObjectRef
+                                {
+                                    Type = constraintEntry.Value.Kind == ConstraintKind.ForeignKey
+                                        ? SqlObjectType.ForeignKey
+                                        : SqlObjectType.Constraint,
+                                    Schema = desiredTable.Schema,
+                                    ParentName = desiredTable.Name,
+                                    Name = constraintEntry.Value.Name,
+                                },
+                                Message = "alter is not supported in v1",
+                            });
+                            continue;
+                        }
+
                         if (IsConstraintDifferent(currentConstraint, constraintEntry.Value))
                         {
                             skipped.Add(new SkippedItem
@@ -145,6 +181,23 @@ namespace SqlSchemaDef.SqlServer.Planning
                 {
                     if (hasCurrentTable && currentTable.Indexes.TryGetValue(indexEntry.Key, out var currentIndex))
                     {
+                        if (!string.IsNullOrEmpty(currentIndex.UnsupportedFeature))
+                        {
+                            skipped.Add(new SkippedItem
+                            {
+                                Reason = SkippedReason.AlterNotSupported,
+                                Target = new SqlObjectRef
+                                {
+                                    Type = SqlObjectType.Index,
+                                    Schema = desiredTable.Schema,
+                                    ParentName = desiredTable.Name,
+                                    Name = indexEntry.Value.Name,
+                                },
+                                Message = "alter is not supported in v1",
+                            });
+                            continue;
+                        }
+
                         if (IsIndexDifferent(currentIndex, indexEntry.Value))
                         {
                             skipped.Add(new SkippedItem
