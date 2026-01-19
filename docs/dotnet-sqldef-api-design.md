@@ -5,7 +5,8 @@
 ターゲット:
 - ライブラリは **.NET Standard 2.0** を対象とする
   - 公開APIのサンプルは `record` / `required` / `init` などの言語機能に依存しない形で記述する
-  - 接続は **`Microsoft.Data.SqlClient.SqlConnection`** を利用する
+  - v1は SQL Server 専用のため、実装は **`Microsoft.Data.SqlClient.SqlConnection`** を利用する
+  - ただし `SqlSchemaDef.Core` の公開APIは可能な限り **`System.Data.Common.DbConnection`** に寄せ、Core が特定プロバイダに依存しない構成を推奨する
 
 ---
 
@@ -15,7 +16,7 @@
   - `SqlSchemaDef.Core.Planning`（Plan/Operation/Options/Diagnostics）
   - `SqlSchemaDef.Core.Model`（内部モデル。公開は最小にする）
 - `SqlSchemaDef.SqlServer`
-  - `SqlSchemaDef.SqlServer.Planning`（SQL Server向け Planner 実装）
+  - `SqlSchemaDef.SqlServer.Planning`（SQL Server向け Planner/Applier 実装）
 
 以降の型は、公開面を `SqlSchemaDef.Core.Planning` に寄せる想定。
 
@@ -31,6 +32,8 @@ await using var conn = new SqlConnection(connectionString);
 await conn.OpenAsync(ct);
 
 var planner = new SqlServerSchemaPlanner();
+var applier = new SqlServerSchemaApplier();
+
 var plan = await planner.PlanAsync(conn, desiredSql, new PlannerOptions(), ct);
 
 // レビュー用
@@ -39,7 +42,7 @@ var script = plan.ToScript();
 // 適用（dry-run の場合は呼ばない）
 if (!plan.IsEmpty)
 {
-    await plan.ApplyAsync(conn, new ApplyOptions(), ct);
+    await applier.ApplyAsync(conn, plan, new ApplyOptions(), ct);
 }
 ```
 
@@ -57,7 +60,7 @@ namespace SqlSchemaDef.Core.Planning;
 public interface ISchemaPlanner
 {
     Task<MigrationPlan> PlanAsync(
-        SqlConnection connection,
+        DbConnection connection,
         string desiredSql,
         PlannerOptions options = null,
         CancellationToken cancellationToken = default);
@@ -67,8 +70,27 @@ public interface ISchemaPlanner
 SQL Server専用実装は `SqlSchemaDef.SqlServer.Planning.SqlServerSchemaPlanner : ISchemaPlanner`。
 
 備考:
-- `DbConnection` を受けて DI/テストを容易にする（実装は `SqlConnection` を要求してもよいが、公開面は `DbConnection` が扱いやすい）
+- v1 は SQL Server 専用のため、`SqlServerSchemaPlanner` は `SqlConnection` を要求し、他の `DbConnection` が来た場合は例外にする
 - connection は呼び出し側が Open 済みを推奨。未 Open の場合の扱いは実装で明記する
+
+### 3.2 `ISchemaApplier`
+
+Applier は `MigrationPlan.Operations` を順序どおりに実行する（`-- Skipped:` は実行しない）。
+
+```csharp
+namespace SqlSchemaDef.Core.Planning;
+
+public interface ISchemaApplier
+{
+    Task ApplyAsync(
+        DbConnection connection,
+        MigrationPlan plan,
+        ApplyOptions options = null,
+        CancellationToken cancellationToken = default);
+}
+```
+
+SQL Server専用実装は `SqlSchemaDef.SqlServer.Planning.SqlServerSchemaApplier : ISchemaApplier`。
 
 ---
 
@@ -140,24 +162,23 @@ namespace SqlSchemaDef.Core.Planning;
 
 public sealed class MigrationPlan
 {
-    public PlanMetadata Metadata { get; set; }
+    public MigrationPlan(
+        PlanMetadata metadata,
+        IReadOnlyList<SqlOperation> operations,
+        IReadOnlyList<SkippedItem> skipped) => throw new NotImplementedException();
+
+    public PlanMetadata Metadata { get; }
 
     // 実行すべきSQL（追加のみ）
-    public IReadOnlyList<SqlOperation> Operations { get; set; }
+    public IReadOnlyList<SqlOperation> Operations { get; }
 
     // 実行しないが通知すべき差分
-    public IReadOnlyList<SkippedItem> Skipped { get; set; }
+    public IReadOnlyList<SkippedItem> Skipped { get; }
 
     public bool IsEmpty => Operations.Count == 0;
 
-    // レビュー用途のスクリプト（GOは使わない。実行は ApplyAsync）
+    // レビュー用途のスクリプト（GOは使わない。実行は ISchemaApplier.ApplyAsync）
     public string ToScript(ScriptOptions options = null) => throw new NotImplementedException();
-
-    // Applyはオプショナル。Coreではインターフェースのみ or 拡張メソッド化してもよい。
-    public Task ApplyAsync(
-        SqlConnection connection,
-        ApplyOptions options = null,
-        CancellationToken cancellationToken = default) => throw new NotImplementedException();
 }
 
 public sealed class PlanMetadata
@@ -173,8 +194,8 @@ public sealed class PlanMetadata
 ```
 
 備考:
-- `ApplyAsync` を `SqlSchemaDef.SqlServer` 側の `SqlServerApplier` に分離してもよい
-  - Core は plan の表現のみを提供し、DB依存は SqlServer パッケージに寄せる
+- Apply は `SqlSchemaDef.SqlServer` 側の `SqlServerSchemaApplier` に分離する（推奨）
+  - Core は plan の表現と ToScript を提供し、DB依存は SqlServer パッケージに寄せる
 
 ### 5.2 ScriptOptions（ToScriptの出力制御）
 
@@ -191,6 +212,9 @@ public sealed class ScriptOptions
 
     // SQL末尾に ; を付けるか（レビュー用）
     public bool TerminateWithSemicolon { get; set; } = true;
+
+    // OSに依存しない改行（スナップショット安定化のため）。既定は `\n`。
+    public string NewLine { get; set; } = "\n";
 }
 
 public enum ScriptHeaderMode
@@ -324,6 +348,7 @@ public sealed class DesiredSqlParseException : Exception
 
 public sealed class SqlDiagnostic
 {
+    public int? BatchIndex { get; set; }
     public string Message { get; set; }
     public int? Line { get; set; }
     public int? Column { get; set; }
@@ -331,7 +356,53 @@ public sealed class SqlDiagnostic
 }
 ```
 
-### 9.2 Apply失敗
+### 9.2 v1 非対応（desired）
+
+v1 の契約:
+- desired に許可外ステートメントが混ざれば即エラー
+- 許可ステートメント内の非対応機能（例: INDEX INCLUDE）も即エラー
+- dbo 固定違反も即エラー
+  - メッセージ規約は `dotnet-sqldef-scriptdom-visitor-spec.md` のテンプレートに準拠する
+
+```csharp
+namespace SqlSchemaDef.Core.Planning;
+
+public abstract class DesiredSqlException : Exception
+{
+    protected DesiredSqlException(string message, Exception inner = null) : base(message, inner) {}
+
+    public int? BatchIndex { get; set; }
+    public int? Line { get; set; }
+    public int? Column { get; set; }
+}
+
+public sealed class UnsupportedDesiredStatementException : DesiredSqlException
+{
+    public UnsupportedDesiredStatementException(string message) : base(message) {}
+    public string StatementType { get; set; }
+}
+
+public sealed class UnsupportedDesiredFeatureException : DesiredSqlException
+{
+    public UnsupportedDesiredFeatureException(string message) : base(message) {}
+    public string StatementType { get; set; }
+    public string FeatureName { get; set; }
+}
+
+public sealed class UnsupportedSchemaException : DesiredSqlException
+{
+    public UnsupportedSchemaException(string message) : base(message) {}
+    public string SchemaName { get; set; }
+}
+
+public sealed class UnsupportedBatchSeparatorException : DesiredSqlException
+{
+    public UnsupportedBatchSeparatorException(string message) : base(message) {}
+    public string SeparatorText { get; set; } // 例: "GO 2"
+}
+```
+
+### 9.3 Apply失敗
 
 ```csharp
 namespace SqlSchemaDef.Core.Planning;

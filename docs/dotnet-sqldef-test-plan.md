@@ -182,6 +182,14 @@
 - operations には出ない
 - `SkippedReason.NotNullAddNotSupported`
 
+### 5.5 current 側の非対応要素（v1）
+ケース（例）:
+- current に computed column / INCLUDE index / filtered index / descending key など v1非対応の要素が存在
+期待:
+- v1は変更/削除を出さないため operations には出ない
+- desired に無い場合は削除相当として `SkippedReason.DropNotSupported`
+- desired に同名オブジェクトがあるが定義差となる場合は変更相当として `SkippedReason.AlterNotSupported`
+
 ---
 
 ## 6. テストデータ設計（推奨）
@@ -198,7 +206,7 @@
 
 ## 7. 非機能テスト（v1で最低限）
 
-- **キャンセル**: `PlanAsync`/`ApplyAsync` が `CancellationToken` を尊重する（長めの desired で確認）
+- **キャンセル**: `ISchemaPlanner.PlanAsync` / `ISchemaApplier.ApplyAsync` が `CancellationToken` を尊重する（長めの desired で確認）
 - **決定性**: 同じ入力を N 回実行して `ToScript()` が一致（ユニットでOK）
 
 性能は v1 では “劣化がない” 程度の軽い確認に留める（必要ならベンチマークを別途用意）。
@@ -222,6 +230,6 @@
 ## 9. 受け入れ基準（v1の完了条件）
 
 - ユニット: 主要ケース（許可/不許可、非対応機能、順序、ToScript、Skipped）が網羅されている
-- 統合: “空DBから Apply→再Plan で空” を少なくとも 5〜10 パターンで確認できる
-- 例外メッセージ: batch/line/column が出ること（最低でも parse error / unsupported statement）
+- 統合: “空DBから Apply→再Plan で空” を少なくとも 5-10 パターンで確認できる
+- 例外メッセージ: batch index/line/column が出ること（最低でも parse error / unsupported statement）
 - 追加のみ: 変更/削除に該当するDDLが operations に混ざらないことをテストで担保

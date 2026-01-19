@@ -66,7 +66,7 @@
   - `sys.*` から dbo のメタデータを取得してモデル化
 - `SchemaDiffer`
   - current/desired モデルを比較し、追加のみの `MigrationPlan` を作成
-- `SqlServerApplier`
+- `SqlServerSchemaApplier`
   - `MigrationPlan` の operations をトランザクションで順次実行
 - `MigrationPlan.ToScript()`
   - 実行予定SQLと `-- Skipped:` をレビュー用に整形
@@ -226,9 +226,9 @@ NuGet想定:
   - デバッグ用CLI（導入・検証が速くなる）
 
 公開API（最小案）:
-- `Task<MigrationPlan> SchemaPlanner.PlanAsync(SqlConnection, string desiredSql, PlannerOptions)`
-- `Task MigrationPlan.ApplyAsync(SqlConnection, ApplyOptions)`
-- `string MigrationPlan.ToScript()`
+- `Task<MigrationPlan> ISchemaPlanner.PlanAsync(DbConnection, string desiredSql, PlannerOptions, CancellationToken)`
+- `Task ISchemaApplier.ApplyAsync(DbConnection, MigrationPlan, ApplyOptions, CancellationToken)`
+- `string MigrationPlan.ToScript(ScriptOptions options = null)`
 
 ---
 
