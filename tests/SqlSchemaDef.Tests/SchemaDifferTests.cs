@@ -271,4 +271,43 @@ public sealed class SchemaDifferTests
         Assert.Equal(SkippedReason.AlterNotSupported, skipped.Reason);
         Assert.Equal("dbo.Users.IX_Users_Name", skipped.Target.ToDisplayName());
     }
+
+    [Fact]
+    public void Diff_CurrentOnlyConstraintsAndIndexes_AreSkippedInOrder()
+    {
+        var desired = new DatabaseModel();
+        desired.GetOrAddTable("dbo", "Users");
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Constraints["UQ_USERS_NAME"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.Unique,
+            Name = "UQ_Users_Name",
+            Columns = new[] { "Name" },
+        };
+        currentTable.Constraints["CK_USERS_AGE"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.Check,
+            Name = "CK_Users_Age",
+            Definition = "(Age > 0)",
+        };
+        currentTable.Indexes["IX_USERS_NAME"] = new IndexModel
+        {
+            Name = "IX_Users_Name",
+            IsUnique = false,
+            KeyColumns = new[] { "Name" },
+        };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = new SchemaDiffer().Diff(current, desired, metadata);
+
+        var targets = plan.Skipped.Select(item => item.Target.ToDisplayName()).ToArray();
+        Assert.Equal(new[]
+        {
+            "dbo.Users.CK_Users_Age",
+            "dbo.Users.UQ_Users_Name",
+            "dbo.Users.IX_Users_Name",
+        }, targets);
+    }
 }
