@@ -47,4 +47,30 @@ public sealed class SchemaDifferTests
         Assert.Equal("ALTER TABLE dbo.Users ADD Name NVARCHAR (100) NULL", op.Sql);
         Assert.Equal("dbo.Users.Name", op.Target.ToDisplayName());
     }
+
+    [Fact]
+    public void Diff_WhenNotNullColumnMissing_IsSkipped()
+    {
+        var desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL, Age int NOT NULL)";
+        var desired = new DesiredSchemaLoader().Load(desiredSql);
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Columns["ID"] = new ColumnModel
+        {
+            Name = "Id",
+            SqlType = "int",
+            IsNullable = false,
+            IsIdentity = false,
+        };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = new SchemaDiffer().Diff(current, desired, metadata);
+
+        Assert.Empty(plan.Operations);
+
+        var skipped = Assert.Single(plan.Skipped);
+        Assert.Equal(SkippedReason.NotNullAddNotSupported, skipped.Reason);
+        Assert.Equal("dbo.Users.Age", skipped.Target.ToDisplayName());
+    }
 }
