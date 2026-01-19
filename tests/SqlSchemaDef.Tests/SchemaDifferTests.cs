@@ -209,4 +209,66 @@ public sealed class SchemaDifferTests
         var targets = plan.Skipped.Select(item => item.Target.ToDisplayName()).ToArray();
         Assert.Equal(new[] { "dbo.Alpha", "dbo.Beta" }, targets);
     }
+
+    [Fact]
+    public void Diff_WhenConstraintDefinitionDiffers_IsSkipped()
+    {
+        var desired = new DatabaseModel();
+        var desiredTable = desired.GetOrAddTable("dbo", "Users");
+        desiredTable.Constraints["PK_USERS"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.PrimaryKey,
+            Name = "PK_Users",
+            Columns = new[] { "Id" },
+        };
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Constraints["PK_USERS"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.PrimaryKey,
+            Name = "PK_Users",
+            Columns = new[] { "Id", "Name" },
+        };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = new SchemaDiffer().Diff(current, desired, metadata);
+
+        Assert.Empty(plan.Operations);
+
+        var skipped = Assert.Single(plan.Skipped);
+        Assert.Equal(SkippedReason.AlterNotSupported, skipped.Reason);
+        Assert.Equal("dbo.Users.PK_Users", skipped.Target.ToDisplayName());
+    }
+
+    [Fact]
+    public void Diff_WhenIndexDefinitionDiffers_IsSkipped()
+    {
+        var desired = new DatabaseModel();
+        var desiredTable = desired.GetOrAddTable("dbo", "Users");
+        desiredTable.Indexes["IX_USERS_NAME"] = new IndexModel
+        {
+            Name = "IX_Users_Name",
+            IsUnique = false,
+            KeyColumns = new[] { "Name" },
+        };
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Indexes["IX_USERS_NAME"] = new IndexModel
+        {
+            Name = "IX_Users_Name",
+            IsUnique = true,
+            KeyColumns = new[] { "Name" },
+        };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = new SchemaDiffer().Diff(current, desired, metadata);
+
+        Assert.Empty(plan.Operations);
+
+        var skipped = Assert.Single(plan.Skipped);
+        Assert.Equal(SkippedReason.AlterNotSupported, skipped.Reason);
+        Assert.Equal("dbo.Users.IX_Users_Name", skipped.Target.ToDisplayName());
+    }
 }
