@@ -1,4 +1,4 @@
-# dotnet-sqldef v1 実装タスクリスト（TDD版）
+﻿# dotnet-sqldef v1 実装タスクリスト（TDD版）
 
 目的: `docs/dotnet-sqldef-plan.md` の v1（SQL Server / dbo固定 / 追加のみ）を、**テスト駆動（Red → Green → Refactor）**で実装するための作業チェックリスト。
 
@@ -39,12 +39,12 @@
 
 参照: `docs/dotnet-sqldef-scriptdom-visitor-spec.md`（GO分割仕様）
 
-- [ ] テスト: `GO` の基本分割（大文字小文字、前後空白）
-- [ ] テスト: `-- GO` / `/* GO */` は区切らない
-- [ ] テスト: 最終バッチが空でもエラーにしない（空はスキップ）
-- [ ] テスト: `GO 2` は `UnsupportedBatchSeparatorException`（行番号付き）
-- [ ] 実装: `SqlSchemaDef.SqlServer` に `BatchSplitter`（`BatchIndex`/`StartLine`/`Text`）
-- [ ] リファクタ: 分割ロジックと行番号補正を整理（重複排除）
+- [x] テスト: `GO` の基本分割（大文字小文字、前後空白）
+- [x] テスト: `-- GO` / `/* GO */` は区切らない
+- [x] テスト: 最終バッチが空でもエラーにしない（空はスキップ）
+- [x] テスト: `GO 2` は `UnsupportedBatchSeparatorException`（行番号付き）
+- [x] 実装: `SqlSchemaDef.SqlServer` に `BatchSplitter`（`BatchIndex`/`StartLine`/`Text`）
+- [x] リファクタ: 分割ロジックと行番号補正を整理（重複排除）
 
 ---
 
@@ -53,10 +53,10 @@
 参照:
 - `docs/dotnet-sqldef-scriptdom-visitor-spec.md`（parser方針/例外テンプレ）
 
-- [ ] テスト: ScriptDom の parse error を `DesiredSqlParseException` で返す（`Diagnostics` 全件）
-- [ ] テスト: `Diagnostics` に `BatchIndex`/`Line`/`Column` が入る（`StartLine` 補正込み）
-- [ ] 実装: `DesiredSqlParser`（`TSql160Parser` 等を固定、`initialQuotedIdentifiers: true`）
-- [ ] 実装: parse error の `Line` を `StartLine` 加算して補正
+- [x] テスト: ScriptDom の parse error を `DesiredSqlParseException` で返す（`Diagnostics` 全件）
+- [x] テスト: `Diagnostics` に `BatchIndex`/`Line`/`Column` が入る（`StartLine` 補正込み）
+- [x] 実装: `DesiredSqlParser`（`TSql160Parser` 等を固定、`initialQuotedIdentifiers: true`）
+- [x] 実装: parse error の `Line` を `StartLine` 加算して補正
 
 ---
 
@@ -66,28 +66,28 @@
 - `docs/dotnet-sqldef-scriptdom-visitor-spec.md`（受理DDL/非対応機能/例外）
 
 ### 3.1 許可外ステートメント（即エラー）
-- [ ] テスト: 例）`CREATE VIEW` が `UnsupportedDesiredStatementException`
-- [ ] テスト: 例）`ALTER TABLE ... ALTER COLUMN` が `UnsupportedDesiredStatementException`
-- [ ] 実装: 許可外はテンプレ(A)で例外（batch/line/column を含める）
+- [x] テスト: 例）`CREATE VIEW` が `UnsupportedDesiredStatementException`
+- [x] テスト: 例）`ALTER TABLE ... ALTER COLUMN` が `UnsupportedDesiredStatementException`
+- [x] 実装: 許可外はテンプレ(A)で例外（batch/line/column を含める）
 
 ### 3.2 dbo 固定違反（即エラー）
-- [ ] テスト: `CREATE TABLE foo.X (...)` は `UnsupportedSchemaException`
-- [ ] テスト: FK参照先が dbo 以外は `UnsupportedSchemaException`
-- [ ] 実装: schema 解決と dbo 固定チェック
+- [x] テスト: `CREATE TABLE foo.X (...)` は `UnsupportedSchemaException`
+- [x] テスト: FK参照先が dbo 以外は `UnsupportedSchemaException`
+- [x] 実装: schema 解決と dbo 固定チェック
 
 ### 3.3 許可DDL内の非対応機能（即エラー）
-- [ ] テスト: `CREATE INDEX ... INCLUDE (...)` は `UnsupportedDesiredFeatureException`
-- [ ] テスト: filtered index（`WHERE ...`）は `UnsupportedDesiredFeatureException`
-- [ ] テスト: index `WITH (...)` / `ONLINE` は `UnsupportedDesiredFeatureException`
-- [ ] テスト: computed column は `UnsupportedDesiredFeatureException`
-- [ ] 実装: FeatureName/StatementType を埋めて例外化
+- [x] テスト: `CREATE INDEX ... INCLUDE (...)` は `UnsupportedDesiredFeatureException`
+- [x] テスト: filtered index（`WHERE ...`）は `UnsupportedDesiredFeatureException`
+- [x] テスト: index `WITH (...)` / `ONLINE` は `UnsupportedDesiredFeatureException`
+- [x] テスト: computed column は `UnsupportedDesiredFeatureException`
+- [x] 実装: FeatureName/StatementType を埋めて例外化
 
 ### 3.4 CreateTable/AlterTableAdd/CreateIndex のモデル化
-- [ ] テスト: `CREATE TABLE dbo.T (...)` が desired モデルに入る
-- [ ] テスト: `ALTER TABLE dbo.T ADD Col int NULL` が desired モデルに入る
+- [x] テスト: `CREATE TABLE dbo.T (...)` が desired モデルに入る
+- [x] テスト: `ALTER TABLE dbo.T ADD Col int NULL` が desired モデルに入る
 - [ ] テスト: `ALTER TABLE dbo.T ADD Col int NOT NULL` は既定で skipped（`NotNullAddNotSupported`）になる（※方針に合わせて）
-- [ ] テスト: `CREATE UNIQUE INDEX ...` が desired モデルに入る
-- [ ] 実装: Visitor + 最小中間モデル（v1に必要な最小限）
+- [x] テスト: `CREATE UNIQUE INDEX ...` が desired モデルに入る
+- [x] 実装: Visitor + 最小中間モデル（v1に必要な最小限）
 
 ---
 
@@ -96,9 +96,9 @@
 参照: `docs/dotnet-sqldef-syscatalog-queries.md`
 
 - [ ] テスト（統合 or 低レベル）: tables/columns の取得結果をモデル化できる
-- [ ] テスト（ユニット）: 型文字列化（`nvarchar(max)`、`decimal(p,s)` 等）の期待値
+- [x] テスト（ユニット）: 型文字列化（`nvarchar(max)`、`decimal(p,s)` 等）の期待値
 - [ ] 実装: sys 取得SQLをコード化（dbo固定）
-- [ ] 実装: 型文字列化ユーティリティ
+- [x] 実装: 型文字列化ユーティリティ
 - [ ] 実装: current 側の v1非対応要素（computed/INCLUDE/filtered/descending 等）の検出と扱い（skippedに寄せる方針で固定）
 
 ---
