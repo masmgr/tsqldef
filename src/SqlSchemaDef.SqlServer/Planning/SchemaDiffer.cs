@@ -43,8 +43,23 @@ namespace SqlSchemaDef.SqlServer.Planning
                     foreach (var columnEntry in desiredTable.Columns.OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase))
                     {
                         var desiredColumn = columnEntry.Value;
-                        if (currentTable.Columns.ContainsKey(columnEntry.Key))
+                        if (currentTable.Columns.TryGetValue(columnEntry.Key, out var currentColumn))
                         {
+                            if (IsColumnDifferent(currentColumn, desiredColumn))
+                            {
+                                skipped.Add(new SkippedItem
+                                {
+                                    Reason = SkippedReason.AlterNotSupported,
+                                    Target = new SqlObjectRef
+                                    {
+                                        Type = SqlObjectType.Column,
+                                        Schema = desiredTable.Schema,
+                                        ParentName = desiredTable.Name,
+                                        Name = desiredColumn.Name,
+                                    },
+                                    Message = "alter is not supported in v1",
+                                });
+                            }
                             continue;
                         }
 
@@ -67,12 +82,50 @@ namespace SqlSchemaDef.SqlServer.Planning
 
                         addColumnOps.Add(AddColumnOperation(desiredTable, desiredColumn));
                     }
+
+                    foreach (var currentColumnEntry in currentTable.Columns.OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase))
+                    {
+                        if (desiredTable.Columns.ContainsKey(currentColumnEntry.Key))
+                        {
+                            continue;
+                        }
+
+                        skipped.Add(new SkippedItem
+                        {
+                            Reason = SkippedReason.DropNotSupported,
+                            Target = new SqlObjectRef
+                            {
+                                Type = SqlObjectType.Column,
+                                Schema = desiredTable.Schema,
+                                ParentName = desiredTable.Name,
+                                Name = currentColumnEntry.Value.Name,
+                            },
+                            Message = "drop is not supported in v1",
+                        });
+                    }
                 }
 
                 foreach (var constraintEntry in desiredTable.Constraints.OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase))
                 {
-                    if (hasCurrentTable && currentTable.Constraints.ContainsKey(constraintEntry.Key))
+                    if (hasCurrentTable && currentTable.Constraints.TryGetValue(constraintEntry.Key, out var currentConstraint))
                     {
+                        if (IsConstraintDifferent(currentConstraint, constraintEntry.Value))
+                        {
+                            skipped.Add(new SkippedItem
+                            {
+                                Reason = SkippedReason.AlterNotSupported,
+                                Target = new SqlObjectRef
+                                {
+                                    Type = constraintEntry.Value.Kind == ConstraintKind.ForeignKey
+                                        ? SqlObjectType.ForeignKey
+                                        : SqlObjectType.Constraint,
+                                    Schema = desiredTable.Schema,
+                                    ParentName = desiredTable.Name,
+                                    Name = constraintEntry.Value.Name,
+                                },
+                                Message = "alter is not supported in v1",
+                            });
+                        }
                         continue;
                     }
 
@@ -90,13 +143,95 @@ namespace SqlSchemaDef.SqlServer.Planning
 
                 foreach (var indexEntry in desiredTable.Indexes.OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase))
                 {
-                    if (hasCurrentTable && currentTable.Indexes.ContainsKey(indexEntry.Key))
+                    if (hasCurrentTable && currentTable.Indexes.TryGetValue(indexEntry.Key, out var currentIndex))
                     {
+                        if (IsIndexDifferent(currentIndex, indexEntry.Value))
+                        {
+                            skipped.Add(new SkippedItem
+                            {
+                                Reason = SkippedReason.AlterNotSupported,
+                                Target = new SqlObjectRef
+                                {
+                                    Type = SqlObjectType.Index,
+                                    Schema = desiredTable.Schema,
+                                    ParentName = desiredTable.Name,
+                                    Name = indexEntry.Value.Name,
+                                },
+                                Message = "alter is not supported in v1",
+                            });
+                        }
                         continue;
                     }
 
                     createIndexOps.Add(CreateIndexOperation(desiredTable, indexEntry.Value));
                 }
+
+                if (hasCurrentTable)
+                {
+                    foreach (var currentConstraintEntry in currentTable.Constraints.OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase))
+                    {
+                        if (desiredTable.Constraints.ContainsKey(currentConstraintEntry.Key))
+                        {
+                            continue;
+                        }
+
+                        skipped.Add(new SkippedItem
+                        {
+                            Reason = SkippedReason.DropNotSupported,
+                            Target = new SqlObjectRef
+                            {
+                                Type = currentConstraintEntry.Value.Kind == ConstraintKind.ForeignKey
+                                    ? SqlObjectType.ForeignKey
+                                    : SqlObjectType.Constraint,
+                                Schema = desiredTable.Schema,
+                                ParentName = desiredTable.Name,
+                                Name = currentConstraintEntry.Value.Name,
+                            },
+                            Message = "drop is not supported in v1",
+                        });
+                    }
+
+                    foreach (var currentIndexEntry in currentTable.Indexes.OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase))
+                    {
+                        if (desiredTable.Indexes.ContainsKey(currentIndexEntry.Key))
+                        {
+                            continue;
+                        }
+
+                        skipped.Add(new SkippedItem
+                        {
+                            Reason = SkippedReason.DropNotSupported,
+                            Target = new SqlObjectRef
+                            {
+                                Type = SqlObjectType.Index,
+                                Schema = desiredTable.Schema,
+                                ParentName = desiredTable.Name,
+                                Name = currentIndexEntry.Value.Name,
+                            },
+                            Message = "drop is not supported in v1",
+                        });
+                    }
+                }
+            }
+
+            foreach (var currentEntry in current.Tables.OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase))
+            {
+                if (desired.Tables.ContainsKey(currentEntry.Key))
+                {
+                    continue;
+                }
+
+                skipped.Add(new SkippedItem
+                {
+                    Reason = SkippedReason.DropNotSupported,
+                    Target = new SqlObjectRef
+                    {
+                        Type = SqlObjectType.Table,
+                        Schema = currentEntry.Value.Schema,
+                        Name = currentEntry.Value.Name,
+                    },
+                    Message = "drop is not supported in v1",
+                });
             }
 
             var operations = new List<SqlOperation>();
@@ -182,6 +317,101 @@ namespace SqlSchemaDef.SqlServer.Planning
         private static string JoinColumns(IReadOnlyList<string> columns)
         {
             return columns == null || columns.Count == 0 ? string.Empty : string.Join(", ", columns);
+        }
+
+        private static bool IsColumnDifferent(ColumnModel current, ColumnModel desired)
+        {
+            if (!string.Equals(current.SqlType, desired.SqlType, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (current.IsNullable != desired.IsNullable)
+            {
+                return true;
+            }
+
+            if (current.IsIdentity != desired.IsIdentity)
+            {
+                return true;
+            }
+
+            if (!string.Equals(current.DefaultExpression ?? string.Empty, desired.DefaultExpression ?? string.Empty, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool IsConstraintDifferent(ConstraintModel current, ConstraintModel desired)
+        {
+            if (current.Kind != desired.Kind)
+            {
+                return true;
+            }
+
+            switch (current.Kind)
+            {
+                case ConstraintKind.PrimaryKey:
+                case ConstraintKind.Unique:
+                    return !SequenceEqual(current.Columns, desired.Columns);
+                case ConstraintKind.Check:
+                    return !string.Equals(current.Definition ?? string.Empty, desired.Definition ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+                case ConstraintKind.ForeignKey:
+                    if (!string.Equals(current.ReferenceSchema ?? "dbo", desired.ReferenceSchema ?? "dbo", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return true;
+                    }
+                    if (!string.Equals(current.ReferenceTable ?? string.Empty, desired.ReferenceTable ?? string.Empty, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return true;
+                    }
+                    if (!SequenceEqual(current.Columns, desired.Columns))
+                    {
+                        return true;
+                    }
+                    if (!SequenceEqual(current.ReferenceColumns, desired.ReferenceColumns))
+                    {
+                        return true;
+                    }
+                    return false;
+                default:
+                    return true;
+            }
+        }
+
+        private static bool IsIndexDifferent(IndexModel current, IndexModel desired)
+        {
+            if (current.IsUnique != desired.IsUnique)
+            {
+                return true;
+            }
+
+            return !SequenceEqual(current.KeyColumns, desired.KeyColumns);
+        }
+
+        private static bool SequenceEqual(IReadOnlyList<string> left, IReadOnlyList<string> right)
+        {
+            if (ReferenceEquals(left, right))
+            {
+                return true;
+            }
+
+            if (left == null || right == null || left.Count != right.Count)
+            {
+                return false;
+            }
+
+            for (var i = 0; i < left.Count; i++)
+            {
+                if (!string.Equals(left[i], right[i], StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         private static SqlOperation CreateTableOperation(TableModel table)

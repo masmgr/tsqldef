@@ -121,4 +121,52 @@ public sealed class SchemaDifferTests
         Assert.Contains("CREATE INDEX IX_Users_Name", plan.Operations[3].Sql);
         Assert.Contains("FOREIGN KEY (TeamId) REFERENCES dbo.Teams (Id)", plan.Operations[4].Sql);
     }
+
+    [Fact]
+    public void Diff_WhenTableOnlyInCurrent_IsSkipped()
+    {
+        var desired = new DatabaseModel();
+        var current = new DatabaseModel();
+        current.GetOrAddTable("dbo", "OldTable");
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = new SchemaDiffer().Diff(current, desired, metadata);
+
+        var skipped = Assert.Single(plan.Skipped);
+        Assert.Equal(SkippedReason.DropNotSupported, skipped.Reason);
+        Assert.Equal("dbo.OldTable", skipped.Target.ToDisplayName());
+    }
+
+    [Fact]
+    public void Diff_WhenColumnDefinitionDiffers_IsSkipped()
+    {
+        var desired = new DatabaseModel();
+        var desiredTable = desired.GetOrAddTable("dbo", "Users");
+        desiredTable.Columns["AGE"] = new ColumnModel
+        {
+            Name = "Age",
+            SqlType = "int",
+            IsNullable = true,
+            IsIdentity = false,
+        };
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Columns["AGE"] = new ColumnModel
+        {
+            Name = "Age",
+            SqlType = "bigint",
+            IsNullable = true,
+            IsIdentity = false,
+        };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = new SchemaDiffer().Diff(current, desired, metadata);
+
+        Assert.Empty(plan.Operations);
+
+        var skipped = Assert.Single(plan.Skipped);
+        Assert.Equal(SkippedReason.AlterNotSupported, skipped.Reason);
+        Assert.Equal("dbo.Users.Age", skipped.Target.ToDisplayName());
+    }
 }
