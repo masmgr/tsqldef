@@ -335,4 +335,53 @@ public sealed class SchemaDifferTests
         Assert.Equal(OperationKind.CreateTable, plan.Operations[1].Kind);
         Assert.Equal(OperationKind.AddForeignKey, plan.Operations[2].Kind);
     }
+
+    [Fact]
+    public void Diff_CurrentOnlyItemsAcrossTables_AreSkippedDeterministically()
+    {
+        var desired = new DatabaseModel();
+        desired.GetOrAddTable("dbo", "Alpha");
+        desired.GetOrAddTable("dbo", "Beta");
+
+        var current = new DatabaseModel();
+        var currentAlpha = current.GetOrAddTable("dbo", "Alpha");
+        currentAlpha.Constraints["CK_ALPHA"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.Check,
+            Name = "CK_Alpha",
+            Definition = "(1=1)",
+        };
+        currentAlpha.Indexes["IX_ALPHA"] = new IndexModel
+        {
+            Name = "IX_Alpha",
+            IsUnique = false,
+            KeyColumns = new[] { "Id" },
+        };
+
+        var currentBeta = current.GetOrAddTable("dbo", "Beta");
+        currentBeta.Constraints["UQ_BETA"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.Unique,
+            Name = "UQ_Beta",
+            Columns = new[] { "Name" },
+        };
+        currentBeta.Indexes["IX_BETA"] = new IndexModel
+        {
+            Name = "IX_Beta",
+            IsUnique = false,
+            KeyColumns = new[] { "Name" },
+        };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = new SchemaDiffer().Diff(current, desired, metadata);
+
+        var targets = plan.Skipped.Select(item => item.Target.ToDisplayName()).ToArray();
+        Assert.Equal(new[]
+        {
+            "dbo.Alpha.CK_Alpha",
+            "dbo.Alpha.IX_Alpha",
+            "dbo.Beta.UQ_Beta",
+            "dbo.Beta.IX_Beta",
+        }, targets);
+    }
 }
