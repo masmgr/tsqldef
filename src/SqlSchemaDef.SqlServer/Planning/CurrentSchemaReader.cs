@@ -26,15 +26,24 @@ namespace SqlSchemaDef.SqlServer.Planning
             public bool IsIdentity { get; set; }
         }
 
+        internal sealed class DefaultRow
+        {
+            public int ObjectId { get; set; }
+            public int ColumnId { get; set; }
+            public string DefaultDefinition { get; set; }
+        }
+
         internal static DatabaseModel BuildModel(
             IEnumerable<TableRow> tables,
-            IEnumerable<ColumnRow> columns)
+            IEnumerable<ColumnRow> columns,
+            IEnumerable<DefaultRow> defaults = null)
         {
             if (tables == null) throw new ArgumentNullException(nameof(tables));
             if (columns == null) throw new ArgumentNullException(nameof(columns));
 
             var model = new DatabaseModel();
             var tableMap = new Dictionary<int, TableModel>();
+            var defaultMap = BuildDefaultMap(defaults);
 
             foreach (var table in tables)
             {
@@ -68,7 +77,7 @@ namespace SqlSchemaDef.SqlServer.Planning
                         column.Scale),
                     IsNullable = column.IsNullable,
                     IsIdentity = column.IsIdentity,
-                    DefaultExpression = null,
+                    DefaultExpression = GetDefaultDefinition(defaultMap, column.ObjectId, column.ColumnId),
                     IsFromAlterAdd = false,
                 };
 
@@ -76,6 +85,37 @@ namespace SqlSchemaDef.SqlServer.Planning
             }
 
             return model;
+        }
+
+        private static Dictionary<(int ObjectId, int ColumnId), string> BuildDefaultMap(IEnumerable<DefaultRow> defaults)
+        {
+            var map = new Dictionary<(int ObjectId, int ColumnId), string>();
+            if (defaults == null)
+            {
+                return map;
+            }
+
+            foreach (var item in defaults)
+            {
+                if (item == null) continue;
+
+                map[(item.ObjectId, item.ColumnId)] = item.DefaultDefinition;
+            }
+
+            return map;
+        }
+
+        private static string GetDefaultDefinition(
+            Dictionary<(int ObjectId, int ColumnId), string> map,
+            int objectId,
+            int columnId)
+        {
+            if (map.TryGetValue((objectId, columnId), out var definition))
+            {
+                return definition;
+            }
+
+            return null;
         }
     }
 }

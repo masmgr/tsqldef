@@ -68,7 +68,17 @@ public sealed class CurrentSchemaReaderTests
             },
         };
 
-        var model = CurrentSchemaReader.BuildModel(tables, columns);
+        var defaults = new[]
+        {
+            new CurrentSchemaReader.DefaultRow
+            {
+                ObjectId = 1,
+                ColumnId = 2,
+                DefaultDefinition = "('unknown')",
+            },
+        };
+
+        var model = CurrentSchemaReader.BuildModel(tables, columns, defaults);
 
         Assert.Equal(2, model.Tables.Count);
 
@@ -85,6 +95,7 @@ public sealed class CurrentSchemaReaderTests
         Assert.Equal("nvarchar(100)", name.SqlType);
         Assert.True(name.IsNullable);
         Assert.False(name.IsIdentity);
+        Assert.Equal("('unknown')", name.DefaultExpression);
 
         var teams = model.Tables.Values.Single(table => table.Name == "Teams");
         var teamId = teams.Columns["TEAMID"];
