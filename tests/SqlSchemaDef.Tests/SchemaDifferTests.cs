@@ -73,4 +73,52 @@ public sealed class SchemaDifferTests
         Assert.Equal(SkippedReason.NotNullAddNotSupported, skipped.Reason);
         Assert.Equal("dbo.Users.Age", skipped.Target.ToDisplayName());
     }
+
+    [Fact]
+    public void Diff_WhenConstraintsAndIndexesMissing_EmitsOperationsInOrder()
+    {
+        var desiredSql = string.Join("\n", new[]
+        {
+            "CREATE TABLE dbo.Users (",
+            "  Id int NOT NULL,",
+            "  TeamId int NOT NULL,",
+            "  Name nvarchar(100) NULL,",
+            "  Age int NULL,",
+            "  CONSTRAINT PK_Users PRIMARY KEY (Id),",
+            "  CONSTRAINT UQ_Users_Name UNIQUE (Name),",
+            "  CONSTRAINT CK_Users_Age CHECK (Age > 0)",
+            ")",
+            "CREATE INDEX IX_Users_Name ON dbo.Users (Name)",
+            "ALTER TABLE dbo.Users ADD CONSTRAINT FK_Users_Teams FOREIGN KEY (TeamId) REFERENCES dbo.Teams (Id)",
+        });
+
+        var desired = new DesiredSchemaLoader().Load(desiredSql);
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+        currentTable.Columns["TEAMID"] = new ColumnModel { Name = "TeamId", SqlType = "int", IsNullable = false };
+        currentTable.Columns["NAME"] = new ColumnModel { Name = "Name", SqlType = "nvarchar(100)", IsNullable = true };
+        currentTable.Columns["AGE"] = new ColumnModel { Name = "Age", SqlType = "int", IsNullable = true };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = new SchemaDiffer().Diff(current, desired, metadata);
+
+        var kinds = plan.Operations.Select(op => op.Kind).ToArray();
+        Assert.Equal(new[]
+        {
+            OperationKind.AddConstraint,
+            OperationKind.AddConstraint,
+            OperationKind.AddConstraint,
+            OperationKind.CreateIndex,
+            OperationKind.AddForeignKey,
+        }, kinds);
+
+        var constraintSql = plan.Operations.Take(3).Select(op => op.Sql).ToArray();
+        Assert.Contains(constraintSql, sql => sql.Contains("CONSTRAINT PK_Users PRIMARY KEY"));
+        Assert.Contains(constraintSql, sql => sql.Contains("CONSTRAINT UQ_Users_Name UNIQUE"));
+        Assert.Contains(constraintSql, sql => sql.Contains("CONSTRAINT CK_Users_Age CHECK"));
+        Assert.Contains("CREATE INDEX IX_Users_Name", plan.Operations[3].Sql);
+        Assert.Contains("FOREIGN KEY (TeamId) REFERENCES dbo.Teams (Id)", plan.Operations[4].Sql);
+    }
 }
