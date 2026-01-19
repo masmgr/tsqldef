@@ -24,6 +24,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\SqlSchemaDef.Core\SqlSchemaDef.Core.csproj" />
+    <ProjectReference Include="..\..\src\SqlSchemaDef.SqlServer\SqlSchemaDef.SqlServer.csproj" />
   </ItemGroup>
 
 </Project>
