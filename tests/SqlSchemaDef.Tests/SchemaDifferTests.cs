@@ -433,4 +433,45 @@ public sealed class SchemaDifferTests
             "dbo.Beta.Old",
         }, targets);
     }
+
+    [Fact]
+    public void Diff_CurrentOnlyForeignKeysAcrossTables_AreSkippedDeterministically()
+    {
+        var desired = new DatabaseModel();
+        desired.GetOrAddTable("dbo", "Alpha");
+        desired.GetOrAddTable("dbo", "Beta");
+
+        var current = new DatabaseModel();
+        var currentAlpha = current.GetOrAddTable("dbo", "Alpha");
+        currentAlpha.Constraints["FK_ALPHA_BETA"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.ForeignKey,
+            Name = "FK_Alpha_Beta",
+            Columns = new[] { "BetaId" },
+            ReferenceSchema = "dbo",
+            ReferenceTable = "Beta",
+            ReferenceColumns = new[] { "Id" },
+        };
+
+        var currentBeta = current.GetOrAddTable("dbo", "Beta");
+        currentBeta.Constraints["FK_BETA_ALPHA"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.ForeignKey,
+            Name = "FK_Beta_Alpha",
+            Columns = new[] { "AlphaId" },
+            ReferenceSchema = "dbo",
+            ReferenceTable = "Alpha",
+            ReferenceColumns = new[] { "Id" },
+        };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = new SchemaDiffer().Diff(current, desired, metadata);
+
+        var targets = plan.Skipped.Select(item => item.Target.ToDisplayName()).ToArray();
+        Assert.Equal(new[]
+        {
+            "dbo.Alpha.FK_Alpha_Beta",
+            "dbo.Beta.FK_Beta_Alpha",
+        }, targets);
+    }
 }
