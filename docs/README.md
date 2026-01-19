@@ -6,4 +6,4 @@
 3. `dotnet-sqldef-scriptdom-visitor-spec.md`（desired SQL の受理範囲と変換仕様）
 4. `dotnet-sqldef-syscatalog-queries.md`（current schema 取得SQL）
 5. `dotnet-sqldef-test-plan.md`（テスト計画）
-
+6. `dotnet-sqldef-implementation-task-list.md`（実装タスクリスト / TDD）

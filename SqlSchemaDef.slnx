@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/SqlSchemaDef.Cli/SqlSchemaDef.Cli.csproj" />
+    <Project Path="src/SqlSchemaDef.Core/SqlSchemaDef.Core.csproj" />
+    <Project Path="src/SqlSchemaDef.SqlServer/SqlSchemaDef.SqlServer.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SqlSchemaDef.Tests/SqlSchemaDef.Tests.csproj" />
+  </Folder>
+</Solution>
