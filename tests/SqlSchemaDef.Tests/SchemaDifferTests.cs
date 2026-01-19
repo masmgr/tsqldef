@@ -169,4 +169,44 @@ public sealed class SchemaDifferTests
         Assert.Equal(SkippedReason.AlterNotSupported, skipped.Reason);
         Assert.Equal("dbo.Users.Age", skipped.Target.ToDisplayName());
     }
+
+    [Fact]
+    public void Diff_IsDeterministicAcrossInsertionOrder()
+    {
+        var firstDesired = new DatabaseModel();
+        var firstAlpha = firstDesired.GetOrAddTable("dbo", "Alpha");
+        firstAlpha.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+        var firstBeta = firstDesired.GetOrAddTable("dbo", "Beta");
+        firstBeta.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+
+        var secondDesired = new DatabaseModel();
+        var secondBeta = secondDesired.GetOrAddTable("dbo", "Beta");
+        secondBeta.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+        var secondAlpha = secondDesired.GetOrAddTable("dbo", "Alpha");
+        secondAlpha.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var firstPlan = new SchemaDiffer().Diff(new DatabaseModel(), firstDesired, metadata);
+        var secondPlan = new SchemaDiffer().Diff(new DatabaseModel(), secondDesired, metadata);
+
+        var firstTargets = firstPlan.Operations.Select(op => op.Target.ToDisplayName()).ToArray();
+        var secondTargets = secondPlan.Operations.Select(op => op.Target.ToDisplayName()).ToArray();
+
+        Assert.Equal(firstTargets, secondTargets);
+        Assert.Equal(new[] { "dbo.Alpha", "dbo.Beta" }, firstTargets);
+    }
+
+    [Fact]
+    public void Diff_SkippedOrdering_IsDeterministic()
+    {
+        var current = new DatabaseModel();
+        current.GetOrAddTable("dbo", "Beta");
+        current.GetOrAddTable("dbo", "Alpha");
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = new SchemaDiffer().Diff(current, new DatabaseModel(), metadata);
+
+        var targets = plan.Skipped.Select(item => item.Target.ToDisplayName()).ToArray();
+        Assert.Equal(new[] { "dbo.Alpha", "dbo.Beta" }, targets);
+    }
 }
