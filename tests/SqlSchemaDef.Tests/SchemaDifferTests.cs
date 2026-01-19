@@ -384,4 +384,53 @@ public sealed class SchemaDifferTests
             "dbo.Beta.IX_Beta",
         }, targets);
     }
+
+    [Fact]
+    public void Diff_CurrentOnlyColumnsAcrossTables_AreSkippedDeterministically()
+    {
+        var desired = new DatabaseModel();
+        desired.GetOrAddTable("dbo", "Alpha");
+        desired.GetOrAddTable("dbo", "Beta");
+
+        var current = new DatabaseModel();
+        var currentAlpha = current.GetOrAddTable("dbo", "Alpha");
+        currentAlpha.Columns["ID"] = new ColumnModel
+        {
+            Name = "Id",
+            SqlType = "int",
+            IsNullable = false,
+        };
+        currentAlpha.Columns["LEGACY"] = new ColumnModel
+        {
+            Name = "Legacy",
+            SqlType = "int",
+            IsNullable = true,
+        };
+
+        var currentBeta = current.GetOrAddTable("dbo", "Beta");
+        currentBeta.Columns["ID"] = new ColumnModel
+        {
+            Name = "Id",
+            SqlType = "int",
+            IsNullable = false,
+        };
+        currentBeta.Columns["OLD"] = new ColumnModel
+        {
+            Name = "Old",
+            SqlType = "int",
+            IsNullable = true,
+        };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = new SchemaDiffer().Diff(current, desired, metadata);
+
+        var targets = plan.Skipped.Select(item => item.Target.ToDisplayName()).ToArray();
+        Assert.Equal(new[]
+        {
+            "dbo.Alpha.Id",
+            "dbo.Alpha.Legacy",
+            "dbo.Beta.Id",
+            "dbo.Beta.Old",
+        }, targets);
+    }
 }
