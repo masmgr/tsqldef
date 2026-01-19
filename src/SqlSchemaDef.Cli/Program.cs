@@ -11,7 +11,13 @@ namespace SqlSchemaDef.Cli
 {
     internal static class Program
     {
-        private static int PrintUsage()
+        private const int ExitOk = 0;
+        private const int ExitUsage = 2;
+        private const int ExitDesiredParseError = 10;
+        private const int ExitDesiredUnsupported = 11;
+        private const int ExitApplyFailed = 20;
+
+        private static int PrintUsage(int exitCode)
         {
             Console.Error.WriteLine("Usage:");
             Console.Error.WriteLine("  SqlSchemaDef.Cli --connection <connectionString> --file <desired.sql> [--apply]");
@@ -19,7 +25,7 @@ namespace SqlSchemaDef.Cli
             Console.Error.WriteLine("Notes:");
             Console.Error.WriteLine("  - Without --apply, prints the review script (dry-run).");
             Console.Error.WriteLine("  - v1 is additive-only (dbo fixed by default).");
-            return 2;
+            return exitCode;
         }
 
         private static string GetArg(IReadOnlyList<string> args, ref int i)
@@ -61,42 +67,75 @@ namespace SqlSchemaDef.Cli
                             break;
                         case "--help":
                         case "-h":
-                            return PrintUsage();
+                            return PrintUsage(ExitOk);
                         default:
                             Console.Error.WriteLine("Unknown arg: " + a);
-                            return PrintUsage();
+                            return PrintUsage(ExitUsage);
                     }
                 }
             }
             catch (Exception ex)
             {
                 Console.Error.WriteLine(ex.Message);
-                return PrintUsage();
+                return PrintUsage(ExitUsage);
             }
 
             if (string.IsNullOrWhiteSpace(connectionString) || string.IsNullOrWhiteSpace(filePath))
             {
-                return PrintUsage();
+                return PrintUsage(ExitUsage);
             }
 
             var desiredSql = await File.ReadAllTextAsync(filePath).ConfigureAwait(false);
 
-            await using var conn = new SqlConnection(connectionString);
-            await conn.OpenAsync().ConfigureAwait(false);
-
             var planner = new SqlServerSchemaPlanner();
             var applier = new SqlServerSchemaApplier();
 
-            var plan = await planner.PlanAsync(conn, desiredSql, new PlannerOptions()).ConfigureAwait(false);
-
-            Console.Write(plan.ToScript(new ScriptOptions { HeaderMode = ScriptHeaderMode.DryRunStyle }));
-
-            if (apply && !plan.IsEmpty)
+            try
             {
-                await applier.ApplyAsync(conn, plan, new ApplyOptions()).ConfigureAwait(false);
-            }
+                await using var conn = new SqlConnection(connectionString);
+                await conn.OpenAsync().ConfigureAwait(false);
 
-            return 0;
+                var plan = await planner.PlanAsync(conn, desiredSql, new PlannerOptions()).ConfigureAwait(false);
+
+                Console.Write(plan.ToScript(new ScriptOptions { HeaderMode = ScriptHeaderMode.DryRunStyle }));
+
+                if (apply && !plan.IsEmpty)
+                {
+                    await applier.ApplyAsync(conn, plan, new ApplyOptions()).ConfigureAwait(false);
+                }
+
+                return ExitOk;
+            }
+            catch (DesiredSqlParseException ex)
+            {
+                Console.Error.WriteLine(ex.Message);
+                return ExitDesiredParseError;
+            }
+            catch (UnsupportedDesiredStatementException ex)
+            {
+                Console.Error.WriteLine(ex.Message);
+                return ExitDesiredUnsupported;
+            }
+            catch (UnsupportedDesiredFeatureException ex)
+            {
+                Console.Error.WriteLine(ex.Message);
+                return ExitDesiredUnsupported;
+            }
+            catch (UnsupportedSchemaException ex)
+            {
+                Console.Error.WriteLine(ex.Message);
+                return ExitDesiredUnsupported;
+            }
+            catch (ApplyFailedException ex)
+            {
+                Console.Error.WriteLine(ex.Message);
+                return ExitApplyFailed;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine(ex.ToString());
+                return 1;
+            }
         }
     }
 }
