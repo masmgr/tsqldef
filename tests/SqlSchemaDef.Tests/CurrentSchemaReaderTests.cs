@@ -78,7 +78,27 @@ public sealed class CurrentSchemaReaderTests
             },
         };
 
-        var model = CurrentSchemaReader.BuildModel(tables, columns, defaults);
+        var keyConstraints = new[]
+        {
+            new CurrentSchemaReader.KeyConstraintRow
+            {
+                ObjectId = 1,
+                ConstraintName = "PK_Users",
+                ConstraintType = "PK",
+                KeyOrdinal = 1,
+                ColumnName = "Id",
+            },
+            new CurrentSchemaReader.KeyConstraintRow
+            {
+                ObjectId = 1,
+                ConstraintName = "UQ_Users_Name",
+                ConstraintType = "UQ",
+                KeyOrdinal = 1,
+                ColumnName = "Name",
+            },
+        };
+
+        var model = CurrentSchemaReader.BuildModel(tables, columns, defaults, keyConstraints);
 
         Assert.Equal(2, model.Tables.Count);
 
@@ -96,6 +116,17 @@ public sealed class CurrentSchemaReaderTests
         Assert.True(name.IsNullable);
         Assert.False(name.IsIdentity);
         Assert.Equal("('unknown')", name.DefaultExpression);
+
+        Assert.True(users.Constraints.ContainsKey("PK_USERS"));
+        Assert.True(users.Constraints.ContainsKey("UQ_USERS_NAME"));
+
+        var pk = users.Constraints["PK_USERS"];
+        Assert.Equal(ConstraintKind.PrimaryKey, pk.Kind);
+        Assert.Equal("Id", pk.Columns.Single());
+
+        var uq = users.Constraints["UQ_USERS_NAME"];
+        Assert.Equal(ConstraintKind.Unique, uq.Kind);
+        Assert.Equal("Name", uq.Columns.Single());
 
         var teams = model.Tables.Values.Single(table => table.Name == "Teams");
         var teamId = teams.Columns["TEAMID"];
