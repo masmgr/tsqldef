@@ -72,7 +72,9 @@ public sealed class CliSmokeTests
         {
             Console.SetOut(originalOut);
             Console.SetError(originalError);
-            try { File.Delete(tempFile); } catch { }
+            try
+            { File.Delete(tempFile); }
+            catch { }
         }
     }
 }

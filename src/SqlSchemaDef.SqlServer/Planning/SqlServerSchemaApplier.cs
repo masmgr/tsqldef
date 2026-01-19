@@ -21,8 +21,10 @@ namespace SqlSchemaDef.SqlServer.Planning
             ApplyOptions options = null,
             CancellationToken cancellationToken = default)
         {
-            if (connection == null) throw new ArgumentNullException(nameof(connection));
-            if (plan == null) throw new ArgumentNullException(nameof(plan));
+            if (connection == null)
+                throw new ArgumentNullException(nameof(connection));
+            if (plan == null)
+                throw new ArgumentNullException(nameof(plan));
 
             var sqlConnection = connection as SqlConnection;
             if (sqlConnection == null)

@@ -14,8 +14,10 @@ namespace SqlSchemaDef.SqlServer.Planning
 
         public TableModel GetOrAddTable(string schema, string name)
         {
-            if (string.IsNullOrWhiteSpace(schema)) throw new ArgumentException("Schema is required.", nameof(schema));
-            if (string.IsNullOrWhiteSpace(name)) throw new ArgumentException("Table name is required.", nameof(name));
+            if (string.IsNullOrWhiteSpace(schema))
+                throw new ArgumentException("Schema is required.", nameof(schema));
+            if (string.IsNullOrWhiteSpace(name))
+                throw new ArgumentException("Table name is required.", nameof(name));
 
             var key = IdentifierHelper.BuildTableKey(schema, name);
             if (!Tables.TryGetValue(key, out var table))

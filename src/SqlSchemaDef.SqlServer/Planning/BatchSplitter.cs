@@ -25,7 +25,8 @@ namespace SqlSchemaDef.SqlServer.Planning
     {
         public static IReadOnlyList<SqlBatch> Split(string sql)
         {
-            if (sql == null) throw new ArgumentNullException(nameof(sql));
+            if (sql == null)
+                throw new ArgumentNullException(nameof(sql));
 
             var batches = new List<SqlBatch>();
             var current = new StringBuilder();
@@ -72,10 +73,12 @@ namespace SqlSchemaDef.SqlServer.Planning
             StringBuilder current,
             int startLine)
         {
-            if (current.Length == 0) return;
+            if (current.Length == 0)
+                return;
 
             var text = current.ToString();
-            if (string.IsNullOrWhiteSpace(text)) return;
+            if (string.IsNullOrWhiteSpace(text))
+                return;
 
             batches.Add(new SqlBatch(batches.Count, startLine, text));
         }

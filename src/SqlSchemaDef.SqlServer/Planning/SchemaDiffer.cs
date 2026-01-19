@@ -14,9 +14,12 @@ namespace SqlSchemaDef.SqlServer.Planning
             PlanMetadata metadata,
             PlannerOptions options = null)
         {
-            if (current == null) throw new ArgumentNullException(nameof(current));
-            if (desired == null) throw new ArgumentNullException(nameof(desired));
-            if (metadata == null) throw new ArgumentNullException(nameof(metadata));
+            if (current == null)
+                throw new ArgumentNullException(nameof(current));
+            if (desired == null)
+                throw new ArgumentNullException(nameof(desired));
+            if (metadata == null)
+                throw new ArgumentNullException(nameof(metadata));
 
             options = options ?? new PlannerOptions();
 

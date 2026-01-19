@@ -6,10 +6,12 @@ namespace SqlSchemaDef.SqlServer.Planning
     {
         public static string Format(string typeName, int maxLength, byte precision, byte scale)
         {
-            if (typeName == null) throw new ArgumentNullException(nameof(typeName));
+            if (typeName == null)
+                throw new ArgumentNullException(nameof(typeName));
 
             var name = typeName.Trim().ToLowerInvariant();
-            if (name.Length == 0) throw new ArgumentException("Type name is required.", nameof(typeName));
+            if (name.Length == 0)
+                throw new ArgumentException("Type name is required.", nameof(typeName));
 
             switch (name)
             {
@@ -35,8 +37,10 @@ namespace SqlSchemaDef.SqlServer.Planning
 
         private static string FormatLength(int maxLength)
         {
-            if (maxLength < 0) return "(max)";
-            if (maxLength == 0) return string.Empty;
+            if (maxLength < 0)
+                return "(max)";
+            if (maxLength == 0)
+                return string.Empty;
             return "(" + maxLength + ")";
         }
     }

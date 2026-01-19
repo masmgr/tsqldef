@@ -206,8 +206,10 @@ ORDER BY pt.name, fk.name, fkc.constraint_column_id;";
             string schema,
             CancellationToken cancellationToken = default)
         {
-            if (connection == null) throw new ArgumentNullException(nameof(connection));
-            if (string.IsNullOrWhiteSpace(schema)) throw new ArgumentException("Schema is required.", nameof(schema));
+            if (connection == null)
+                throw new ArgumentNullException(nameof(connection));
+            if (string.IsNullOrWhiteSpace(schema))
+                throw new ArgumentException("Schema is required.", nameof(schema));
 
             var tables = await ReadTablesAsync(connection, schema, cancellationToken).ConfigureAwait(false);
             var columns = await ReadColumnsAsync(connection, schema, cancellationToken).ConfigureAwait(false);
@@ -475,8 +477,10 @@ ORDER BY pt.name, fk.name, fkc.constraint_column_id;";
             IEnumerable<ForeignKeyRow> foreignKeys = null,
             IEnumerable<IndexRow> indexes = null)
         {
-            if (tables == null) throw new ArgumentNullException(nameof(tables));
-            if (columns == null) throw new ArgumentNullException(nameof(columns));
+            if (tables == null)
+                throw new ArgumentNullException(nameof(tables));
+            if (columns == null)
+                throw new ArgumentNullException(nameof(columns));
 
             var model = new DatabaseModel();
             var tableMap = new Dictionary<int, TableModel>();
@@ -488,7 +492,8 @@ ORDER BY pt.name, fk.name, fkc.constraint_column_id;";
 
             foreach (var table in tables)
             {
-                if (table == null) continue;
+                if (table == null)
+                    continue;
 
                 if (!string.Equals(table.SchemaName, "dbo", StringComparison.OrdinalIgnoreCase))
                 {
@@ -501,7 +506,8 @@ ORDER BY pt.name, fk.name, fkc.constraint_column_id;";
 
             foreach (var column in columns)
             {
-                if (column == null) continue;
+                if (column == null)
+                    continue;
 
                 if (!tableMap.TryGetValue(column.ObjectId, out var table))
                 {
@@ -544,7 +550,8 @@ ORDER BY pt.name, fk.name, fkc.constraint_column_id;";
 
             foreach (var item in defaults)
             {
-                if (item == null) continue;
+                if (item == null)
+                    continue;
 
                 map[(item.ObjectId, item.ColumnId)] = item.DefaultDefinition;
             }
@@ -576,7 +583,8 @@ ORDER BY pt.name, fk.name, fkc.constraint_column_id;";
 
             foreach (var item in keyConstraints)
             {
-                if (item == null) continue;
+                if (item == null)
+                    continue;
 
                 var key = (item.ObjectId, item.ConstraintName ?? string.Empty);
                 if (!groups.TryGetValue(key, out var list))
@@ -654,7 +662,8 @@ ORDER BY pt.name, fk.name, fkc.constraint_column_id;";
 
             foreach (var item in checkConstraints)
             {
-                if (item == null) continue;
+                if (item == null)
+                    continue;
 
                 var key = (item.ObjectId, item.ConstraintName ?? string.Empty);
                 if (!groups.TryGetValue(key, out var list))
@@ -708,7 +717,8 @@ ORDER BY pt.name, fk.name, fkc.constraint_column_id;";
 
             foreach (var item in foreignKeys)
             {
-                if (item == null) continue;
+                if (item == null)
+                    continue;
 
                 var key = (item.ParentObjectId, item.ConstraintName ?? string.Empty);
                 if (!groups.TryGetValue(key, out var list))
@@ -784,7 +794,8 @@ ORDER BY pt.name, fk.name, fkc.constraint_column_id;";
 
             foreach (var item in indexes)
             {
-                if (item == null) continue;
+                if (item == null)
+                    continue;
 
                 var key = (item.ObjectId, item.IndexName ?? string.Empty);
                 if (!groups.TryGetValue(key, out var list))

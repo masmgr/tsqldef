@@ -11,14 +11,16 @@ namespace SqlSchemaDef.SqlServer.Planning
     {
         public DatabaseModel Load(string desiredSql)
         {
-            if (desiredSql == null) throw new ArgumentNullException(nameof(desiredSql));
+            if (desiredSql == null)
+                throw new ArgumentNullException(nameof(desiredSql));
 
             return Load(desiredSql, new PlannerOptions(), out _);
         }
 
         public DatabaseModel Load(string desiredSql, PlannerOptions options, out IReadOnlyList<SkippedItem> skipped)
         {
-            if (desiredSql == null) throw new ArgumentNullException(nameof(desiredSql));
+            if (desiredSql == null)
+                throw new ArgumentNullException(nameof(desiredSql));
             options = options ?? new PlannerOptions();
 
             var model = new DatabaseModel();
@@ -58,7 +60,8 @@ namespace SqlSchemaDef.SqlServer.Planning
 
         public void VisitBatch(TSqlFragment fragment, int batchIndex, int batchStartLine)
         {
-            if (fragment == null) throw new ArgumentNullException(nameof(fragment));
+            if (fragment == null)
+                throw new ArgumentNullException(nameof(fragment));
 
             _batchIndex = batchIndex;
             _batchStartLine = batchStartLine;

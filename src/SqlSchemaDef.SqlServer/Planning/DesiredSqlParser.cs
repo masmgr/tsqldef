@@ -11,7 +11,8 @@ namespace SqlSchemaDef.SqlServer.Planning
     {
         public IReadOnlyList<TSqlFragment> ParseBatches(IEnumerable<SqlBatch> batches)
         {
-            if (batches == null) throw new ArgumentNullException(nameof(batches));
+            if (batches == null)
+                throw new ArgumentNullException(nameof(batches));
 
             var fragments = new List<TSqlFragment>();
             var diagnostics = new List<SqlDiagnostic>();
@@ -19,7 +20,8 @@ namespace SqlSchemaDef.SqlServer.Planning
 
             foreach (var batch in batches)
             {
-                if (batch == null) throw new ArgumentNullException(nameof(batches), "Batch cannot be null.");
+                if (batch == null)
+                    throw new ArgumentNullException(nameof(batches), "Batch cannot be null.");
 
                 IList<ParseError> errors;
                 TSqlFragment fragment;
