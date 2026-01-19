@@ -5,8 +5,23 @@ on:
   pull_request:
 
 jobs:
-  test:
+  build-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    permissions:
+      contents: read
+
+    concurrency:
+      group: ci-${{ github.ref }}
+      cancel-in-progress: true
+
+    env:
+      DOTNET_NOLOGO: "true"
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      CONFIGURATION: Release
+      SOLUTION: SqlSchemaDef.sln
+
     services:
       sqlserver:
         image: mcr.microsoft.com/mssql/server:2022-latest
@@ -16,7 +31,7 @@ jobs:
         ports:
           - 1433:1433
         options: >-
-          --health-cmd "bash -c 'echo > /dev/tcp/localhost/1433'"
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P 'Your_password123' -Q 'SELECT 1'"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 20
@@ -27,12 +42,21 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "8.0.x"
+          cache: true
+          cache-dependency-path: |
+            **/*.csproj
+            **/*.props
+            **/*.targets
+            global.json
+            NuGet.config
+
+      - name: Restore
+        run: dotnet restore ${{ env.SOLUTION }}
 
       - name: Build
-        run: dotnet build SqlSchemaDef.sln -c Release
+        run: dotnet build ${{ env.SOLUTION }} -c ${{ env.CONFIGURATION }} --no-restore
 
       - name: Test
         env:
           SQLSCHEMADEF_TEST_CONNECTION_STRING: "Server=localhost,1433;User Id=sa;Password=Your_password123;Encrypt=False;TrustServerCertificate=True;Initial Catalog=master"
-        run: dotnet test SqlSchemaDef.sln -c Release
-
+        run: dotnet test ${{ env.SOLUTION }} -c ${{ env.CONFIGURATION }} --no-build
