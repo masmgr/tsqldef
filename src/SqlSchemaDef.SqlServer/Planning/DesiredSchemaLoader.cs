@@ -13,18 +13,27 @@ namespace SqlSchemaDef.SqlServer.Planning
         {
             if (desiredSql == null) throw new ArgumentNullException(nameof(desiredSql));
 
+            return Load(desiredSql, new PlannerOptions(), out _);
+        }
+
+        public DatabaseModel Load(string desiredSql, PlannerOptions options, out IReadOnlyList<SkippedItem> skipped)
+        {
+            if (desiredSql == null) throw new ArgumentNullException(nameof(desiredSql));
+            options = options ?? new PlannerOptions();
+
+            var model = new DatabaseModel();
+            var visitor = new DesiredModelBuilderVisitor(model, options);
+
             var batches = BatchSplitter.Split(desiredSql);
             var parser = new DesiredSqlParser();
             var fragments = parser.ParseBatches(batches);
-
-            var model = new DatabaseModel();
-            var visitor = new DesiredModelBuilderVisitor(model);
 
             for (var i = 0; i < fragments.Count; i++)
             {
                 visitor.VisitBatch(fragments[i], batches[i].BatchIndex, batches[i].StartLine);
             }
 
+            skipped = visitor.GetSkippedItems();
             return model;
         }
     }
@@ -34,13 +43,18 @@ namespace SqlSchemaDef.SqlServer.Planning
         private static readonly SqlScriptGenerator ScriptGenerator = new Sql160ScriptGenerator();
 
         private readonly DatabaseModel _model;
+        private readonly PlannerOptions _options;
+        private readonly List<SkippedItem> _skipped = new List<SkippedItem>();
         private int _batchIndex;
         private int _batchStartLine;
 
-        public DesiredModelBuilderVisitor(DatabaseModel model)
+        public DesiredModelBuilderVisitor(DatabaseModel model, PlannerOptions options)
         {
             _model = model ?? throw new ArgumentNullException(nameof(model));
+            _options = options ?? throw new ArgumentNullException(nameof(options));
         }
+
+        public IReadOnlyList<SkippedItem> GetSkippedItems() => _skipped;
 
         public void VisitBatch(TSqlFragment fragment, int batchIndex, int batchStartLine)
         {
@@ -195,6 +209,25 @@ namespace SqlSchemaDef.SqlServer.Planning
                 DefaultExpression = column.DefaultConstraint == null ? null : GenerateScript(column.DefaultConstraint.Expression),
                 IsFromAlterAdd = isFromAlterAdd,
             };
+
+            if (isFromAlterAdd &&
+                !columnModel.IsNullable &&
+                _options.NotNullColumnAddBehavior == NotNullColumnAddBehavior.Skip)
+            {
+                _skipped.Add(new SkippedItem
+                {
+                    Reason = SkippedReason.NotNullAddNotSupported,
+                    Target = new SqlObjectRef
+                    {
+                        Type = SqlObjectType.Column,
+                        Schema = table.Schema,
+                        ParentName = table.Name,
+                        Name = columnModel.Name,
+                    },
+                    Message = "NOT NULL column add is not supported in v1",
+                });
+                return;
+            }
 
             table.Columns[IdentifierHelper.NormalizeNameKey(columnModel.Name)] = columnModel;
         }

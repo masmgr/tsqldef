@@ -134,15 +134,20 @@ public sealed class DesiredModelBuilderVisitorTests
     }
 
     [Fact]
-    public void Load_AlterTableAddNotNullColumn_TracksSource()
+    public void Load_AlterTableAddNotNullColumn_IsSkipped()
     {
         var loader = new DesiredSchemaLoader();
 
-        var model = loader.Load("ALTER TABLE dbo.Users ADD Age int NOT NULL");
-        var table = model.Tables.Values.Single();
-        var column = table.Columns["AGE"];
+        var model = loader.Load(
+            "ALTER TABLE dbo.Users ADD Age int NOT NULL",
+            new PlannerOptions(),
+            out var skipped);
 
-        Assert.False(column.IsNullable);
-        Assert.True(column.IsFromAlterAdd);
+        var table = model.Tables.Values.Single();
+        Assert.False(table.Columns.ContainsKey("AGE"));
+
+        var item = Assert.Single(skipped);
+        Assert.Equal(SkippedReason.NotNullAddNotSupported, item.Reason);
+        Assert.Equal("dbo.Users.Age", item.Target.ToDisplayName());
     }
 }

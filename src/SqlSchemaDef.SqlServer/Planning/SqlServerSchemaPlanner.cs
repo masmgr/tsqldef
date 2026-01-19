@@ -1,5 +1,6 @@
 using System;
 using System.Data.Common;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Data.SqlClient;
@@ -45,13 +46,22 @@ namespace SqlSchemaDef.SqlServer.Planning
             PlannerOptions options,
             CancellationToken cancellationToken)
         {
-            var desired = new DesiredSchemaLoader().Load(desiredSql);
+            var desiredLoader = new DesiredSchemaLoader();
+            var desired = desiredLoader.Load(desiredSql, options, out var desiredSkipped);
             var current = await new CurrentSchemaReader()
                 .ReadAsync(connection, metadata.Schema, cancellationToken)
                 .ConfigureAwait(false);
 
             var differ = new SchemaDiffer();
-            return differ.Diff(current, desired, metadata, options);
+            var plan = differ.Diff(current, desired, metadata, options);
+
+            if (desiredSkipped.Count == 0)
+            {
+                return plan;
+            }
+
+            var mergedSkipped = plan.Skipped.Concat(desiredSkipped).ToArray();
+            return new MigrationPlan(plan.Metadata, plan.Operations, mergedSkipped);
         }
     }
 }

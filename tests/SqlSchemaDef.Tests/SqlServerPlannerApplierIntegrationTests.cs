@@ -81,7 +81,10 @@ INSERT INTO dbo.Users (Id) VALUES (1);
             await cmd.ExecuteNonQueryAsync();
         }
 
-        var desiredSql = "ALTER TABLE dbo.Users ADD Age int NOT NULL";
+        var desiredSql = @"
+CREATE TABLE dbo.Users (Id int NOT NULL)
+ALTER TABLE dbo.Users ADD Age int NOT NULL
+";
 
         await using var conn2 = new SqlConnection(db.ConnectionString);
         await conn2.OpenAsync();
