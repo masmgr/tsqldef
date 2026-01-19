@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 using SqlSchemaDef.SqlServer.Planning;
 using Xunit;
@@ -191,5 +192,55 @@ public sealed class CurrentSchemaReaderTests
         var teams = model.Tables.Values.Single(table => table.Name == "Teams");
         var teamId = teams.Columns["TEAMID"];
         Assert.Equal("uniqueidentifier", teamId.SqlType);
+    }
+
+    [Fact]
+    public void BuildModel_ThrowsOnUnsupportedIndexFeatures()
+    {
+        var tables = new[]
+        {
+            new CurrentSchemaReader.TableRow
+            {
+                SchemaName = "dbo",
+                TableName = "Users",
+                ObjectId = 1,
+            },
+        };
+
+        var columns = new[]
+        {
+            new CurrentSchemaReader.ColumnRow
+            {
+                ObjectId = 1,
+                ColumnId = 1,
+                ColumnName = "Name",
+                IsNullable = true,
+                TypeName = "nvarchar",
+                MaxLength = 200,
+                Precision = 0,
+                Scale = 0,
+                IsComputed = false,
+                IsIdentity = false,
+            },
+        };
+
+        var indexes = new[]
+        {
+            new CurrentSchemaReader.IndexRow
+            {
+                ObjectId = 1,
+                IndexName = "IX_Users_Name",
+                IsUnique = false,
+                KeyOrdinal = 1,
+                IsIncludedColumn = true,
+                IsDescendingKey = false,
+                ColumnName = "Name",
+            },
+        };
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            CurrentSchemaReader.BuildModel(tables, columns, indexes: indexes));
+
+        Assert.Contains("Unsupported index feature", ex.Message);
     }
 }
