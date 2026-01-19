@@ -98,7 +98,17 @@ public sealed class CurrentSchemaReaderTests
             },
         };
 
-        var model = CurrentSchemaReader.BuildModel(tables, columns, defaults, keyConstraints);
+        var checkConstraints = new[]
+        {
+            new CurrentSchemaReader.CheckConstraintRow
+            {
+                ObjectId = 1,
+                ConstraintName = "CK_Users_Name",
+                Definition = "([Name] <> '')",
+            },
+        };
+
+        var model = CurrentSchemaReader.BuildModel(tables, columns, defaults, keyConstraints, checkConstraints);
 
         Assert.Equal(2, model.Tables.Count);
 
@@ -127,6 +137,10 @@ public sealed class CurrentSchemaReaderTests
         var uq = users.Constraints["UQ_USERS_NAME"];
         Assert.Equal(ConstraintKind.Unique, uq.Kind);
         Assert.Equal("Name", uq.Columns.Single());
+
+        var check = users.Constraints["CK_USERS_NAME"];
+        Assert.Equal(ConstraintKind.Check, check.Kind);
+        Assert.Equal("([Name] <> '')", check.Definition);
 
         var teams = model.Tables.Values.Single(table => table.Name == "Teams");
         var teamId = teams.Columns["TEAMID"];

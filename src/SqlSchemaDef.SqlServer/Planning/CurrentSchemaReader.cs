@@ -42,11 +42,19 @@ namespace SqlSchemaDef.SqlServer.Planning
             public string ColumnName { get; set; }
         }
 
+        internal sealed class CheckConstraintRow
+        {
+            public int ObjectId { get; set; }
+            public string ConstraintName { get; set; }
+            public string Definition { get; set; }
+        }
+
         internal static DatabaseModel BuildModel(
             IEnumerable<TableRow> tables,
             IEnumerable<ColumnRow> columns,
             IEnumerable<DefaultRow> defaults = null,
-            IEnumerable<KeyConstraintRow> keyConstraints = null)
+            IEnumerable<KeyConstraintRow> keyConstraints = null,
+            IEnumerable<CheckConstraintRow> checkConstraints = null)
         {
             if (tables == null) throw new ArgumentNullException(nameof(tables));
             if (columns == null) throw new ArgumentNullException(nameof(columns));
@@ -55,6 +63,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             var tableMap = new Dictionary<int, TableModel>();
             var defaultMap = BuildDefaultMap(defaults);
             var keyConstraintGroups = BuildKeyConstraintGroups(keyConstraints);
+            var checkConstraintGroups = BuildCheckConstraintGroups(checkConstraints);
 
             foreach (var table in tables)
             {
@@ -96,6 +105,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             }
 
             ApplyKeyConstraints(tableMap, keyConstraintGroups);
+            ApplyCheckConstraints(tableMap, checkConstraintGroups);
 
             return model;
         }
@@ -207,6 +217,60 @@ namespace SqlSchemaDef.SqlServer.Planning
             }
 
             throw new InvalidOperationException("Unsupported key constraint type.");
+        }
+
+        private static Dictionary<(int ObjectId, string ConstraintName), List<CheckConstraintRow>> BuildCheckConstraintGroups(
+            IEnumerable<CheckConstraintRow> checkConstraints)
+        {
+            var groups = new Dictionary<(int ObjectId, string ConstraintName), List<CheckConstraintRow>>();
+            if (checkConstraints == null)
+            {
+                return groups;
+            }
+
+            foreach (var item in checkConstraints)
+            {
+                if (item == null) continue;
+
+                var key = (item.ObjectId, item.ConstraintName ?? string.Empty);
+                if (!groups.TryGetValue(key, out var list))
+                {
+                    list = new List<CheckConstraintRow>();
+                    groups[key] = list;
+                }
+                list.Add(item);
+            }
+
+            return groups;
+        }
+
+        private static void ApplyCheckConstraints(
+            Dictionary<int, TableModel> tableMap,
+            Dictionary<(int ObjectId, string ConstraintName), List<CheckConstraintRow>> groups)
+        {
+            foreach (var entry in groups)
+            {
+                if (!tableMap.TryGetValue(entry.Key.ObjectId, out var table))
+                {
+                    throw new InvalidOperationException("Check constraint references an unknown table.");
+                }
+
+                var constraintName = entry.Key.ConstraintName;
+                if (string.IsNullOrWhiteSpace(constraintName))
+                {
+                    throw new InvalidOperationException("Check constraint name is required.");
+                }
+
+                var row = entry.Value[0];
+                var constraint = new ConstraintModel
+                {
+                    Kind = ConstraintKind.Check,
+                    Name = constraintName,
+                    Definition = row.Definition,
+                };
+
+                table.Constraints[IdentifierHelper.NormalizeNameKey(constraint.Name)] = constraint;
+            }
         }
     }
 }
