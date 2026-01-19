@@ -60,13 +60,25 @@ namespace SqlSchemaDef.SqlServer.Planning
             public string ReferencedColumnName { get; set; }
         }
 
+        internal sealed class IndexRow
+        {
+            public int ObjectId { get; set; }
+            public string IndexName { get; set; }
+            public bool IsUnique { get; set; }
+            public int KeyOrdinal { get; set; }
+            public bool IsIncludedColumn { get; set; }
+            public bool IsDescendingKey { get; set; }
+            public string ColumnName { get; set; }
+        }
+
         internal static DatabaseModel BuildModel(
             IEnumerable<TableRow> tables,
             IEnumerable<ColumnRow> columns,
             IEnumerable<DefaultRow> defaults = null,
             IEnumerable<KeyConstraintRow> keyConstraints = null,
             IEnumerable<CheckConstraintRow> checkConstraints = null,
-            IEnumerable<ForeignKeyRow> foreignKeys = null)
+            IEnumerable<ForeignKeyRow> foreignKeys = null,
+            IEnumerable<IndexRow> indexes = null)
         {
             if (tables == null) throw new ArgumentNullException(nameof(tables));
             if (columns == null) throw new ArgumentNullException(nameof(columns));
@@ -77,6 +89,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             var keyConstraintGroups = BuildKeyConstraintGroups(keyConstraints);
             var checkConstraintGroups = BuildCheckConstraintGroups(checkConstraints);
             var foreignKeyGroups = BuildForeignKeyGroups(foreignKeys);
+            var indexGroups = BuildIndexGroups(indexes);
 
             foreach (var table in tables)
             {
@@ -120,6 +133,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             ApplyKeyConstraints(tableMap, keyConstraintGroups);
             ApplyCheckConstraints(tableMap, checkConstraintGroups);
             ApplyForeignKeys(tableMap, foreignKeyGroups);
+            ApplyIndexes(tableMap, indexGroups);
 
             return model;
         }
@@ -357,6 +371,75 @@ namespace SqlSchemaDef.SqlServer.Planning
                 };
 
                 table.Constraints[IdentifierHelper.NormalizeNameKey(constraint.Name)] = constraint;
+            }
+        }
+
+        private static Dictionary<(int ObjectId, string IndexName), List<IndexRow>> BuildIndexGroups(
+            IEnumerable<IndexRow> indexes)
+        {
+            var groups = new Dictionary<(int ObjectId, string IndexName), List<IndexRow>>();
+            if (indexes == null)
+            {
+                return groups;
+            }
+
+            foreach (var item in indexes)
+            {
+                if (item == null) continue;
+
+                var key = (item.ObjectId, item.IndexName ?? string.Empty);
+                if (!groups.TryGetValue(key, out var list))
+                {
+                    list = new List<IndexRow>();
+                    groups[key] = list;
+                }
+                list.Add(item);
+            }
+
+            return groups;
+        }
+
+        private static void ApplyIndexes(
+            Dictionary<int, TableModel> tableMap,
+            Dictionary<(int ObjectId, string IndexName), List<IndexRow>> groups)
+        {
+            foreach (var entry in groups)
+            {
+                if (!tableMap.TryGetValue(entry.Key.ObjectId, out var table))
+                {
+                    throw new InvalidOperationException("Index references an unknown table.");
+                }
+
+                var indexName = entry.Key.IndexName;
+                if (string.IsNullOrWhiteSpace(indexName))
+                {
+                    throw new InvalidOperationException("Index name is required.");
+                }
+
+                var rows = entry.Value;
+                rows.Sort((left, right) => left.KeyOrdinal.CompareTo(right.KeyOrdinal));
+
+                var keyColumns = new List<string>(rows.Count);
+                var isUnique = false;
+                foreach (var row in rows)
+                {
+                    if (row.IsIncludedColumn || row.IsDescendingKey)
+                    {
+                        throw new InvalidOperationException("Unsupported index feature detected.");
+                    }
+
+                    isUnique = row.IsUnique;
+                    keyColumns.Add(row.ColumnName);
+                }
+
+                var index = new IndexModel
+                {
+                    Name = indexName,
+                    IsUnique = isUnique,
+                    KeyColumns = keyColumns,
+                };
+
+                table.Indexes[IdentifierHelper.NormalizeNameKey(index.Name)] = index;
             }
         }
     }

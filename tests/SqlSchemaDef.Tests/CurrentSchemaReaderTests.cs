@@ -122,7 +122,28 @@ public sealed class CurrentSchemaReaderTests
             },
         };
 
-        var model = CurrentSchemaReader.BuildModel(tables, columns, defaults, keyConstraints, checkConstraints, foreignKeys);
+        var indexes = new[]
+        {
+            new CurrentSchemaReader.IndexRow
+            {
+                ObjectId = 1,
+                IndexName = "IX_Users_Name",
+                IsUnique = false,
+                KeyOrdinal = 1,
+                IsIncludedColumn = false,
+                IsDescendingKey = false,
+                ColumnName = "Name",
+            },
+        };
+
+        var model = CurrentSchemaReader.BuildModel(
+            tables,
+            columns,
+            defaults,
+            keyConstraints,
+            checkConstraints,
+            foreignKeys,
+            indexes);
 
         Assert.Equal(2, model.Tables.Count);
 
@@ -162,6 +183,10 @@ public sealed class CurrentSchemaReaderTests
         Assert.Equal("Teams", fk.ReferenceTable);
         Assert.Equal("TeamId", fk.Columns.Single());
         Assert.Equal("TeamId", fk.ReferenceColumns.Single());
+
+        var ix = users.Indexes["IX_USERS_NAME"];
+        Assert.False(ix.IsUnique);
+        Assert.Equal("Name", ix.KeyColumns.Single());
 
         var teams = model.Tables.Values.Single(table => table.Name == "Teams");
         var teamId = teams.Columns["TEAMID"];
