@@ -85,7 +85,7 @@ Reference:
 ### 3.4 Model building for CreateTable / AlterTableAdd / CreateIndex
 - [x] Test: `CREATE TABLE dbo.T (...)` becomes part of the `desired` model
 - [x] Test: `ALTER TABLE dbo.T ADD Col int NULL` becomes part of the `desired` model
-- [ ] Test: `ALTER TABLE dbo.T ADD Col int NOT NULL` defaults to skipped (`NotNullAddNotSupported`) (align with policy)
+- [x] Test: `ALTER TABLE dbo.T ADD Col int NOT NULL` defaults to skipped (`NotNullAddNotSupported`) (align with policy)
 - [x] Test: `CREATE UNIQUE INDEX ...` becomes part of the `desired` model
 - [x] Implement: visitor + minimal intermediate model (only what v1 needs)
 
@@ -95,11 +95,11 @@ Reference:
 
 Reference: `docs/dotnet-sqldef-syscatalog-queries.md`
 
-- [ ] Test (integration or low-level): map table/column query results into the model
+- [x] Test (integration or low-level): map table/column query results into the model
 - [x] Test (unit): type stringification (e.g. `nvarchar(max)`, `decimal(p,s)`)
-- [ ] Implement: sys queries in code (fixed `dbo`)
+- [x] Implement: sys queries in code (fixed `dbo`)
 - [x] Implement: type stringification utility
-- [ ] Implement: detect and handle v1-unsupported elements in `current` (computed/INCLUDE/filtered/descending, etc.) (policy: prefer skipped)
+- [x] Implement: detect and handle v1-unsupported elements in `current` (computed/INCLUDE/filtered/descending, etc.) (policy: prefer skipped)
 
 ---
 
@@ -110,22 +110,22 @@ References:
 - `docs/dotnet-sqldef-test-plan.md` (ordering/skipped)
 
 ### 5.1 Additive-only operations
-- [ ] Test: if missing in `current`, emit `CREATE TABLE`
-- [ ] Test: if missing in `current`, emit `ALTER TABLE ADD COLUMN` (nullable only)
-- [ ] Test: if missing in `current`, emit PK/UQ/CK
-- [ ] Test: if missing in `current`, emit INDEX
-- [ ] Test: FK is emitted after referenced tables are created (ordering)
-- [ ] Implement: `SchemaDiffer` (generate operations)
+- [x] Test: if missing in `current`, emit `CREATE TABLE`
+- [x] Test: if missing in `current`, emit `ALTER TABLE ADD COLUMN` (nullable only)
+- [x] Test: if missing in `current`, emit PK/UQ/CK
+- [x] Test: if missing in `current`, emit INDEX
+- [x] Test: FK is emitted after referenced tables are created (ordering)
+- [x] Implement: `SchemaDiffer` (generate operations)
 
 ### 5.2 Alter/drop become skipped
-- [ ] Test: exists only in `current` (drop-equivalent) becomes `SkippedReason.DropNotSupported`
-- [ ] Test: definition differences (alter-equivalent) become `SkippedReason.AlterNotSupported`
-- [ ] Test: v1-unsupported elements in `current` do not become operations and are collected as skipped (align with policy)
-- [ ] Implement: collect `SkippedItem` (lock down `Target`/`Message` conventions)
+- [x] Test: exists only in `current` (drop-equivalent) becomes `SkippedReason.DropNotSupported`
+- [x] Test: definition differences (alter-equivalent) become `SkippedReason.AlterNotSupported`
+- [x] Test: v1-unsupported elements in `current` do not become operations and are collected as skipped (align with policy)
+- [x] Implement: collect `SkippedItem` (lock down `Target`/`Message` conventions)
 
 ### 5.3 Determinism (ordering + tie-breaking by name)
-- [ ] Test: for the same input, `Operations`/`Skipped` order is always identical
-- [ ] Implement: sort by `OperationKind` + name
+- [x] Test: for the same input, `Operations`/`Skipped` order is always identical
+- [x] Implement: sort by `OperationKind` + name
 
 ---
 
@@ -136,10 +136,10 @@ Reference:
 
 - [x] Test: header output for an empty plan
 - [x] Test: formatting for operations + skipped
-- [ ] Test: `TerminateWithSemicolon=false` output
-- [ ] Test: `IncludeSkipped=false` output
-- [ ] Test: newlines follow `ScriptOptions.NewLine` (default `\n` for stable snapshots)
-- [ ] Implement: finalize `ToScript()` spec (wording/order)
+- [x] Test: `TerminateWithSemicolon=false` output
+- [x] Test: `IncludeSkipped=false` output
+- [x] Test: newlines follow `ScriptOptions.NewLine` (default `\n` for stable snapshots)
+- [x] Implement: finalize `ToScript()` spec (wording/order)
 
 ---
 
@@ -148,20 +148,20 @@ Reference:
 Reference:
 - `docs/dotnet-sqldef-api-design.md` (`ApplyFailedException` contract)
 
-- [ ] Test (integration): execute operations in order and make the DB converge toward `desired`
-- [ ] Test (integration): on failure, `ApplyFailedException.Operation` is usable
-- [ ] Test (integration): `TransactionMode=SingleTransaction` runs in one transaction (rollback on failure)
-- [ ] Implement: lock down `SqlServerSchemaApplier` behavior (logging/exceptions/cancellation)
+- [x] Test (integration): execute operations in order and make the DB converge toward `desired`
+- [x] Test (integration): on failure, `ApplyFailedException.Operation` is usable
+- [x] Test (integration): `TransactionMode=SingleTransaction` runs in one transaction (rollback on failure)
+- [x] Implement: lock down `SqlServerSchemaApplier` behavior (logging/exceptions/cancellation)
 
 ---
 
 ## 8. CLI (minimal → ops-friendly)
 
-- [ ] Smoke test: `--help` prints usage
-- [ ] Smoke test: dry-run prints `ToScript()` (exit code 0)
+- [x] Smoke test: `--help` prints usage
+- [x] Smoke test: dry-run prints `ToScript()` (exit code 0)
 - [ ] Smoke test (optional): `--apply` runs Apply
-- [ ] Implement: exit code conventions (parse/unsupported/apply failure)
-- [ ] Implement: decide policy for `--schema` (v1 is fixed `dbo`; can be hidden/unimplemented for future)
+- [x] Implement: exit code conventions (parse/unsupported/apply failure)
+- [x] Implement: decide policy for `--schema` (v1 is fixed `dbo`; can be hidden/unimplemented for future)
 
 ---
 
@@ -169,17 +169,16 @@ Reference:
 
 Reference: `docs/dotnet-sqldef-test-plan.md`
 
-- [ ] Test infra: start Docker SQL Server (inject connection string via env var)
-- [ ] Test infra: 1 test = 1 DB (unique DB name; avoid parallel collisions)
-- [ ] Test: idempotency (empty DB → Plan/Apply → Plan again yields `IsEmpty == true`) for 5–10 patterns
-- [ ] Test: extra objects in `current` do not produce DROP (prefer skipped)
-- [ ] Test: “existing rows + NOT NULL column add” becomes skipped
+- [x] Test infra: start Docker SQL Server (inject connection string via env var)
+- [x] Test infra: 1 test = 1 DB (unique DB name; avoid parallel collisions)
+- [x] Test: idempotency (empty DB → Plan/Apply → Plan again yields `IsEmpty == true`) for 5–10 patterns
+- [x] Test: extra objects in `current` do not produce DROP (prefer skipped)
+- [x] Test: “existing rows + NOT NULL column add” becomes skipped
 
 ---
 
 ## 10. CI / quality
 
-- [ ] CI: always run unit tests (`dotnet test`)
-- [ ] CI: integration tests start Docker service + print logs on failure
+- [x] CI: always run unit tests (`dotnet test`)
+- [x] CI: integration tests start Docker service + print logs on failure
 - [ ] Docs: if specs change, update related docs (plan/api/spec/test plan) accordingly
-
