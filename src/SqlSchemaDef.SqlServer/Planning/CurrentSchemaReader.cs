@@ -49,12 +49,24 @@ namespace SqlSchemaDef.SqlServer.Planning
             public string Definition { get; set; }
         }
 
+        internal sealed class ForeignKeyRow
+        {
+            public int ParentObjectId { get; set; }
+            public string ConstraintName { get; set; }
+            public string ReferencedSchemaName { get; set; }
+            public string ReferencedTableName { get; set; }
+            public int Ordinal { get; set; }
+            public string ParentColumnName { get; set; }
+            public string ReferencedColumnName { get; set; }
+        }
+
         internal static DatabaseModel BuildModel(
             IEnumerable<TableRow> tables,
             IEnumerable<ColumnRow> columns,
             IEnumerable<DefaultRow> defaults = null,
             IEnumerable<KeyConstraintRow> keyConstraints = null,
-            IEnumerable<CheckConstraintRow> checkConstraints = null)
+            IEnumerable<CheckConstraintRow> checkConstraints = null,
+            IEnumerable<ForeignKeyRow> foreignKeys = null)
         {
             if (tables == null) throw new ArgumentNullException(nameof(tables));
             if (columns == null) throw new ArgumentNullException(nameof(columns));
@@ -64,6 +76,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             var defaultMap = BuildDefaultMap(defaults);
             var keyConstraintGroups = BuildKeyConstraintGroups(keyConstraints);
             var checkConstraintGroups = BuildCheckConstraintGroups(checkConstraints);
+            var foreignKeyGroups = BuildForeignKeyGroups(foreignKeys);
 
             foreach (var table in tables)
             {
@@ -106,6 +119,7 @@ namespace SqlSchemaDef.SqlServer.Planning
 
             ApplyKeyConstraints(tableMap, keyConstraintGroups);
             ApplyCheckConstraints(tableMap, checkConstraintGroups);
+            ApplyForeignKeys(tableMap, foreignKeyGroups);
 
             return model;
         }
@@ -267,6 +281,79 @@ namespace SqlSchemaDef.SqlServer.Planning
                     Kind = ConstraintKind.Check,
                     Name = constraintName,
                     Definition = row.Definition,
+                };
+
+                table.Constraints[IdentifierHelper.NormalizeNameKey(constraint.Name)] = constraint;
+            }
+        }
+
+        private static Dictionary<(int ParentObjectId, string ConstraintName), List<ForeignKeyRow>> BuildForeignKeyGroups(
+            IEnumerable<ForeignKeyRow> foreignKeys)
+        {
+            var groups = new Dictionary<(int ParentObjectId, string ConstraintName), List<ForeignKeyRow>>();
+            if (foreignKeys == null)
+            {
+                return groups;
+            }
+
+            foreach (var item in foreignKeys)
+            {
+                if (item == null) continue;
+
+                var key = (item.ParentObjectId, item.ConstraintName ?? string.Empty);
+                if (!groups.TryGetValue(key, out var list))
+                {
+                    list = new List<ForeignKeyRow>();
+                    groups[key] = list;
+                }
+                list.Add(item);
+            }
+
+            return groups;
+        }
+
+        private static void ApplyForeignKeys(
+            Dictionary<int, TableModel> tableMap,
+            Dictionary<(int ParentObjectId, string ConstraintName), List<ForeignKeyRow>> groups)
+        {
+            foreach (var entry in groups)
+            {
+                if (!tableMap.TryGetValue(entry.Key.ParentObjectId, out var table))
+                {
+                    throw new InvalidOperationException("Foreign key references an unknown table.");
+                }
+
+                var constraintName = entry.Key.ConstraintName;
+                if (string.IsNullOrWhiteSpace(constraintName))
+                {
+                    throw new InvalidOperationException("Foreign key name is required.");
+                }
+
+                var rows = entry.Value;
+                rows.Sort((left, right) => left.Ordinal.CompareTo(right.Ordinal));
+
+                var referenceSchema = rows[0].ReferencedSchemaName;
+                if (!string.Equals(referenceSchema, "dbo", StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException("Foreign key references unsupported schema.");
+                }
+
+                var parentColumns = new List<string>(rows.Count);
+                var referencedColumns = new List<string>(rows.Count);
+                foreach (var row in rows)
+                {
+                    parentColumns.Add(row.ParentColumnName);
+                    referencedColumns.Add(row.ReferencedColumnName);
+                }
+
+                var constraint = new ConstraintModel
+                {
+                    Kind = ConstraintKind.ForeignKey,
+                    Name = constraintName,
+                    Columns = parentColumns,
+                    ReferenceSchema = "dbo",
+                    ReferenceTable = rows[0].ReferencedTableName,
+                    ReferenceColumns = referencedColumns,
                 };
 
                 table.Constraints[IdentifierHelper.NormalizeNameKey(constraint.Name)] = constraint;

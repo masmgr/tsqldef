@@ -108,7 +108,21 @@ public sealed class CurrentSchemaReaderTests
             },
         };
 
-        var model = CurrentSchemaReader.BuildModel(tables, columns, defaults, keyConstraints, checkConstraints);
+        var foreignKeys = new[]
+        {
+            new CurrentSchemaReader.ForeignKeyRow
+            {
+                ParentObjectId = 1,
+                ConstraintName = "FK_Users_Teams",
+                ReferencedSchemaName = "dbo",
+                ReferencedTableName = "Teams",
+                Ordinal = 1,
+                ParentColumnName = "TeamId",
+                ReferencedColumnName = "TeamId",
+            },
+        };
+
+        var model = CurrentSchemaReader.BuildModel(tables, columns, defaults, keyConstraints, checkConstraints, foreignKeys);
 
         Assert.Equal(2, model.Tables.Count);
 
@@ -141,6 +155,13 @@ public sealed class CurrentSchemaReaderTests
         var check = users.Constraints["CK_USERS_NAME"];
         Assert.Equal(ConstraintKind.Check, check.Kind);
         Assert.Equal("([Name] <> '')", check.Definition);
+
+        var fk = users.Constraints["FK_USERS_TEAMS"];
+        Assert.Equal(ConstraintKind.ForeignKey, fk.Kind);
+        Assert.Equal("dbo", fk.ReferenceSchema);
+        Assert.Equal("Teams", fk.ReferenceTable);
+        Assert.Equal("TeamId", fk.Columns.Single());
+        Assert.Equal("TeamId", fk.ReferenceColumns.Single());
 
         var teams = model.Tables.Values.Single(table => table.Name == "Teams");
         var teamId = teams.Columns["TEAMID"];
