@@ -76,7 +76,10 @@ namespace SqlSchemaDef.SqlServer.Planning
                         }
                         catch (Exception ex)
                         {
-                            throw new ApplyFailedException("Failed to apply operation.", op, ex);
+                            throw new ApplyFailedException(
+                                "Failed to apply operation: " + (op.Description ?? op.Kind.ToString()),
+                                op,
+                                ex);
                         }
                     }
                 }
@@ -85,6 +88,22 @@ namespace SqlSchemaDef.SqlServer.Planning
                 {
                     tx.Commit();
                 }
+            }
+            catch
+            {
+                if (tx != null)
+                {
+                    try
+                    {
+                        tx.Rollback();
+                    }
+                    catch
+                    {
+                        // Ignore rollback failures (connection might be broken).
+                    }
+                }
+
+                throw;
             }
             finally
             {

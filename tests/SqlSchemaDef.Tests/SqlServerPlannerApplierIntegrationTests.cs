@@ -92,4 +92,39 @@ INSERT INTO dbo.Users (Id) VALUES (1);
         Assert.True(plan.IsEmpty);
         Assert.Contains(plan.Skipped, s => s.Reason == SkippedReason.NotNullAddNotSupported);
     }
+
+    [Fact]
+    public async Task Apply_OnFailure_ThrowsApplyFailedExceptionWithOperation()
+    {
+        var master = GetMasterConnectionStringOrNull();
+        if (string.IsNullOrWhiteSpace(master))
+        {
+            return;
+        }
+
+        await using var db = await SqlServerTestDatabase.CreateAsync(master);
+        await using var conn = new SqlConnection(db.ConnectionString);
+        await conn.OpenAsync();
+
+        var plan = new MigrationPlan(
+            new PlanMetadata { Schema = "dbo" },
+            new[]
+            {
+                new SqlOperation
+                {
+                    Kind = OperationKind.CreateTable,
+                    Description = "Invalid SQL",
+                    Sql = "THIS_IS_NOT_VALID_SQL",
+                    Target = new SqlObjectRef { Type = SqlObjectType.Table, Schema = "dbo", Name = "X" },
+                },
+            },
+            Array.Empty<SkippedItem>());
+
+        var applier = new SqlServerSchemaApplier();
+        var ex = await Assert.ThrowsAsync<ApplyFailedException>(() =>
+            applier.ApplyAsync(conn, plan, new ApplyOptions()));
+
+        Assert.NotNull(ex.Operation);
+        Assert.Equal("Invalid SQL", ex.Operation.Description);
+    }
 }
