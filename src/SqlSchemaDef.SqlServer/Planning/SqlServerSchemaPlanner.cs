@@ -35,13 +35,23 @@ namespace SqlSchemaDef.SqlServer.Planning
                 ServerVersion = sqlConnection.ServerVersion,
             };
 
-            // TODO: Implement v1 planner:
-            // - Parse desired SQL with ScriptDom
-            // - Read current schema via sys catalog
-            // - Diff (additive-only) -> operations + skipped
-            var plan = new MigrationPlan(metadata, Array.Empty<SqlOperation>(), Array.Empty<SkippedItem>());
-            return Task.FromResult(plan);
+            return PlanInternalAsync(sqlConnection, desiredSql, metadata, options, cancellationToken);
+        }
+
+        private static async Task<MigrationPlan> PlanInternalAsync(
+            SqlConnection connection,
+            string desiredSql,
+            PlanMetadata metadata,
+            PlannerOptions options,
+            CancellationToken cancellationToken)
+        {
+            var desired = new DesiredSchemaLoader().Load(desiredSql);
+            var current = await new CurrentSchemaReader()
+                .ReadAsync(connection, metadata.Schema, cancellationToken)
+                .ConfigureAwait(false);
+
+            var differ = new SchemaDiffer();
+            return differ.Diff(current, desired, metadata, options);
         }
     }
 }
-
