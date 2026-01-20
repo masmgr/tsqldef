@@ -8,3 +8,4 @@ Recommended reading order:
 5. `dotnet-sqldef-test-plan.md` (test plan)
 6. `dotnet-sqldef-implementation-task-list.md` (implementation task list / TDD)
 
+Note: `dotnet-sqldef-plan.md` also includes short-term product milestones (`v0.1`→`v0.4`) on top of the v1 engine design.

@@ -239,3 +239,53 @@ Public API (minimal draft):
 - v1.2: support alters (ALTER COLUMN, DEFAULT/CK changes, index redefinition)
 - v2: drop the fixed-`dbo` limitation and support `TargetSchemas`, views/triggers, etc.
 
+---
+
+## 12. Release Milestones (v0.1 → v0.4)
+
+This doc describes the **v1 engine** (“additive-only, safety first”). Separately, we will ship incremental product milestones as `v0.x` with progressively better CLI UX, safety rails, and plan formats.
+
+### v0.1: export / plan / apply (tables + columns + indexes)
+
+User-facing:
+- `export`: output a stable `desired.sql` equivalent for the current DB (minimum: tables/columns/indexes)
+- `plan`: compute a plan from `desired.sql` and print a dry-run script
+- `apply`: apply a plan to the DB (still additive-only)
+
+Exit criteria:
+- Running `export` then `plan` against the same DB yields `IsEmpty == true` (or only expected `Skipped` items)
+- Planning/apply order remains safe: `CREATE TABLE` → `ADD COLUMN` → `CREATE INDEX`
+
+Notes:
+- Constraints/FKs can be omitted from `export` in v0.1 (or exported but not required for “exit”)
+
+### v0.2: constraints (PK/UQ/CK) + FK additions
+
+User-facing:
+- Plan/apply supports additive-only creation for PK/UQ/CK/FK
+- DEFAULTs are supported as part of `CREATE TABLE` / `ADD COLUMN` definitions; “add/alter DEFAULT for an existing column” remains non-goal for the v1 engine and is reported as `Skipped`
+- FK operations are emitted **after** referenced objects exist (safe ordering)
+
+Exit criteria:
+- A DB that differs only by “missing constraints/FKs” converges after apply, then re-plan is empty
+- Differences that require alters/drops are never executed and are reported as `Skipped`
+
+### v0.3: dangerous operation blocking + options + JSON plan
+
+User-facing:
+- “Dangerous/non-additive” diffs are explicitly blocked with clear reporting and exit codes
+- Options for filtering scope (schema/table include/exclude) and output formats
+- JSON plan: `plan --format json` and `apply --plan plan.json` (desired SQL not required at apply time)
+
+Exit criteria:
+- The tool never executes non-additive DDL even if `desired.sql` suggests it
+- JSON plan has a versioned schema and round-trips without losing fidelity (SQL + metadata + skipped)
+
+### v0.4: rebuild “proposal” (swap SQL generation only)
+
+User-facing:
+- For non-additive diffs (e.g., column type change), emit a **proposal**: shadow table + copy + swap SQL
+- Proposals are **not applied automatically**; they are review output only
+
+Exit criteria:
+- Non-additive diffs can produce actionable “swap SQL” instead of only `Skipped`

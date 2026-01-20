@@ -182,3 +182,68 @@ Reference: `docs/dotnet-sqldef-test-plan.md`
 - [x] CI: always run unit tests (`dotnet test`)
 - [x] CI: integration tests start Docker service + print logs on failure
 - [x] Docs: if specs change, update related docs (plan/api/spec/test plan) accordingly
+
+---
+
+## 11. v0.1 Product milestone: export / plan / apply (tables + columns + indexes)
+
+Goal: make the existing v1 engine easy to use from the CLI and add an `export` command to bootstrap `desired.sql`.
+
+### 11.1 CLI UX: subcommands + file IO
+- [ ] Test: `--help` shows `export|plan|apply` and examples
+- [ ] Implement: `SqlSchemaDef.Cli` subcommands
+  - `export --connection ... [--out desired.sql]`
+  - `plan --connection ... --file desired.sql [--format script|json]`
+  - `apply --connection ... (--file desired.sql | --plan plan.json)`
+
+### 11.2 Export: current schema → desired.sql (minimum set)
+- [ ] Test (integration): `export` then `plan` returns `IsEmpty == true` for the same DB (or only expected `Skipped`)
+- [ ] Implement: `SqlServerSchemaExporter` (or equivalent) to render stable DDL for:
+  - `CREATE TABLE` with columns (types/nullability/identity/default as stored)
+  - `CREATE [UNIQUE] INDEX` (v1-supported subset only)
+- [ ] Decide: what to do for unsupported `current` features (prefer omit + `-- Skipped:` style notes in export output)
+
+---
+
+## 12. v0.2 Product milestone: constraints + foreign keys (additive-only)
+
+Goal: ship additive-only constraint/FK creation with a safe apply order.
+
+Status note:
+- Most v0.2 capabilities correspond to the already-implemented v1 engine tasks in sections `3`/`4`/`5`/`7`/`9` above.
+- v1 treats DEFAULT differences as non-additive (Skipped); v0.2 does not expand that policy.
+
+- [ ] Verify via integration tests: missing PK/UQ/CK/FK converge after apply, then `Plan` becomes empty
+- [ ] Add (unit) tests for any remaining edge cases: composite keys ordering, multi-column FKs, determinism across batches
+
+---
+
+## 13. v0.3 Product milestone: dangerous operation blocking + options + JSON plan
+
+Goal: harden safety and enable machine-readable plans for CI/CD workflows.
+
+### 13.1 Safety rail: strict mode / exit codes
+- [ ] Test: `plan --strict` exits non-zero if any `Skipped` items exist
+- [ ] Implement: CLI `--strict` option and exit code convention
+- [ ] Test: `apply` refuses to run if the plan contains any non-additive operations (should be impossible, but validate defensively)
+
+### 13.2 JSON plan format
+- [ ] Decide: JSON schema versioning policy (e.g. `PlanFormatVersion = 1` in `PlanMetadata`)
+- [ ] Test: `plan --format json` produces deterministic JSON (stable ordering)
+- [ ] Test: `apply --plan plan.json` applies the same operations as script mode
+- [ ] Implement: JSON serialization/deserialization of `MigrationPlan` (Core types) with a stable contract
+
+### 13.3 Scope filters
+- [ ] Test: `--include/--exclude` filters tables for plan generation (does not change parsing rules)
+- [ ] Implement: `PlannerOptions` extensions + CLI wiring (v1 is fixed `dbo`, but table filtering is still useful)
+
+---
+
+## 14. v0.4 Product milestone: rebuild proposal (swap SQL only)
+
+Goal: for non-additive diffs, generate actionable “manual migration” SQL without executing it.
+
+- [ ] Decide: proposal representation (`RebuildProposal` list in `MigrationPlan.Metadata` or a separate section)
+- [ ] Test: type change diff produces a proposal with shadow table + copy + swap steps
+- [ ] Implement: proposal generator (no apply support)
+- [ ] CLI: `plan --emit-swap-sql` prints proposals after the normal v1 plan output
