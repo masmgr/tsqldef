@@ -259,6 +259,66 @@ CREATE UNIQUE INDEX IX_Users_Email ON dbo.Users (Email)
     }
 
     [Fact]
+    public async Task MissingConstraintsAndForeignKeys_ConvergeAfterApply()
+    {
+        var master = GetMasterConnectionStringOrNull();
+        if (string.IsNullOrWhiteSpace(master))
+        {
+            return;
+        }
+
+        await using var db = await SqlServerTestDatabase.CreateAsync(master);
+
+        await using (var conn = new SqlConnection(db.ConnectionString))
+        {
+            await conn.OpenAsync();
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = @"
+CREATE TABLE dbo.Teams (Id int NOT NULL, Name nvarchar(100) NOT NULL);
+CREATE TABLE dbo.Users (
+  Id int NOT NULL,
+  TeamId int NOT NULL,
+  Email nvarchar(255) NOT NULL,
+  Age int NULL
+);";
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        var desiredSql = @"
+CREATE TABLE dbo.Teams (
+  Id int NOT NULL,
+  Name nvarchar(100) NOT NULL,
+  CONSTRAINT PK_Teams PRIMARY KEY (Id),
+  CONSTRAINT UQ_Teams_Name UNIQUE (Name)
+)
+CREATE TABLE dbo.Users (
+  Id int NOT NULL,
+  TeamId int NOT NULL,
+  Email nvarchar(255) NOT NULL,
+  Age int NULL,
+  CONSTRAINT PK_Users PRIMARY KEY (Id),
+  CONSTRAINT UQ_Users_Email UNIQUE (Email),
+  CONSTRAINT CK_Users_Age CHECK (Age > 0)
+)
+ALTER TABLE dbo.Users ADD CONSTRAINT FK_Users_Teams FOREIGN KEY (TeamId) REFERENCES dbo.Teams (Id)
+";
+
+        await using var conn2 = new SqlConnection(db.ConnectionString);
+        await conn2.OpenAsync();
+
+        var planner = new SqlServerSchemaPlanner();
+        var applier = new SqlServerSchemaApplier();
+
+        var plan1 = await planner.PlanAsync(conn2, desiredSql, new PlannerOptions());
+        Assert.False(plan1.IsEmpty);
+
+        await applier.ApplyAsync(conn2, plan1, new ApplyOptions());
+
+        var plan2 = await planner.PlanAsync(conn2, desiredSql, new PlannerOptions());
+        Assert.True(plan2.IsEmpty);
+    }
+
+    [Fact]
     public async Task Apply_OnFailure_ThrowsApplyFailedExceptionWithOperation()
     {
         var master = GetMasterConnectionStringOrNull();

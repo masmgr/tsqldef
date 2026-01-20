@@ -195,6 +195,140 @@ public sealed class CurrentSchemaReaderTests
     }
 
     [Fact]
+    public void BuildModel_CompositeKeysAndForeignKeys_PreserveOrdinalOrder()
+    {
+        var tables = new[]
+        {
+            new CurrentSchemaReader.TableRow
+            {
+                SchemaName = "dbo",
+                TableName = "Users",
+                ObjectId = 1,
+            },
+            new CurrentSchemaReader.TableRow
+            {
+                SchemaName = "dbo",
+                TableName = "Teams",
+                ObjectId = 2,
+            },
+        };
+
+        var columns = new[]
+        {
+            new CurrentSchemaReader.ColumnRow
+            {
+                ObjectId = 1,
+                ColumnId = 1,
+                ColumnName = "UserId",
+                IsNullable = false,
+                TypeName = "int",
+                MaxLength = 0,
+                Precision = 0,
+                Scale = 0,
+                IsComputed = false,
+                IsIdentity = false,
+            },
+            new CurrentSchemaReader.ColumnRow
+            {
+                ObjectId = 1,
+                ColumnId = 2,
+                ColumnName = "TeamId",
+                IsNullable = false,
+                TypeName = "int",
+                MaxLength = 0,
+                Precision = 0,
+                Scale = 0,
+                IsComputed = false,
+                IsIdentity = false,
+            },
+            new CurrentSchemaReader.ColumnRow
+            {
+                ObjectId = 2,
+                ColumnId = 1,
+                ColumnName = "TeamId",
+                IsNullable = false,
+                TypeName = "int",
+                MaxLength = 0,
+                Precision = 0,
+                Scale = 0,
+                IsComputed = false,
+                IsIdentity = false,
+            },
+            new CurrentSchemaReader.ColumnRow
+            {
+                ObjectId = 2,
+                ColumnId = 2,
+                ColumnName = "UserId",
+                IsNullable = false,
+                TypeName = "int",
+                MaxLength = 0,
+                Precision = 0,
+                Scale = 0,
+                IsComputed = false,
+                IsIdentity = false,
+            },
+        };
+
+        var keyConstraints = new[]
+        {
+            new CurrentSchemaReader.KeyConstraintRow
+            {
+                ObjectId = 1,
+                ConstraintName = "PK_Users",
+                ConstraintType = "PK",
+                KeyOrdinal = 2,
+                ColumnName = "TeamId",
+            },
+            new CurrentSchemaReader.KeyConstraintRow
+            {
+                ObjectId = 1,
+                ConstraintName = "PK_Users",
+                ConstraintType = "PK",
+                KeyOrdinal = 1,
+                ColumnName = "UserId",
+            },
+        };
+
+        var foreignKeys = new[]
+        {
+            new CurrentSchemaReader.ForeignKeyRow
+            {
+                ParentObjectId = 1,
+                ConstraintName = "FK_Users_Teams",
+                ReferencedSchemaName = "dbo",
+                ReferencedTableName = "Teams",
+                Ordinal = 2,
+                ParentColumnName = "TeamId",
+                ReferencedColumnName = "TeamId",
+            },
+            new CurrentSchemaReader.ForeignKeyRow
+            {
+                ParentObjectId = 1,
+                ConstraintName = "FK_Users_Teams",
+                ReferencedSchemaName = "dbo",
+                ReferencedTableName = "Teams",
+                Ordinal = 1,
+                ParentColumnName = "UserId",
+                ReferencedColumnName = "UserId",
+            },
+        };
+
+        var model = CurrentSchemaReader.BuildModel(
+            tables,
+            columns,
+            keyConstraints: keyConstraints,
+            foreignKeys: foreignKeys);
+
+        var users = model.Tables.Values.Single(table => table.Name == "Users");
+        var pk = users.Constraints["PK_USERS"];
+        Assert.Equal(new[] { "UserId", "TeamId" }, pk.Columns);
+
+        var fk = users.Constraints["FK_USERS_TEAMS"];
+        Assert.Equal(new[] { "UserId", "TeamId" }, fk.Columns);
+        Assert.Equal(new[] { "UserId", "TeamId" }, fk.ReferenceColumns);
+    }
+
+    [Fact]
     public void BuildModel_TracksUnsupportedIndexFeatures()
     {
         var tables = new[]

@@ -213,8 +213,8 @@ Status note:
 - Most v0.2 capabilities correspond to the already-implemented v1 engine tasks in sections `3`/`4`/`5`/`7`/`9` above.
 - v1 treats DEFAULT differences as non-additive (Skipped); v0.2 does not expand that policy.
 
-- [ ] Verify via integration tests: missing PK/UQ/CK/FK converge after apply, then `Plan` becomes empty
-- [ ] Add (unit) tests for any remaining edge cases: composite keys ordering, multi-column FKs, determinism across batches
+- [x] Verify via integration tests: missing PK/UQ/CK/FK converge after apply, then `Plan` becomes empty
+- [x] Add (unit) tests for any remaining edge cases: composite keys ordering, multi-column FKs, determinism across batches
 
 ---
 

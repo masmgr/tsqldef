@@ -223,6 +223,53 @@ public sealed class SchemaDifferTests
     }
 
     [Fact]
+    public void Diff_IsDeterministicAcrossBatches()
+    {
+        var firstSql = string.Join("\n", new[]
+        {
+            "CREATE TABLE dbo.Beta (Id int NOT NULL)",
+            "GO",
+            "CREATE TABLE dbo.Alpha (Id int NOT NULL)",
+            "GO",
+            "ALTER TABLE dbo.Beta ADD CONSTRAINT PK_Beta PRIMARY KEY (Id)",
+            "GO",
+            "ALTER TABLE dbo.Alpha ADD CONSTRAINT PK_Alpha PRIMARY KEY (Id)",
+        });
+
+        var secondSql = string.Join("\n", new[]
+        {
+            "CREATE TABLE dbo.Alpha (Id int NOT NULL)",
+            "GO",
+            "ALTER TABLE dbo.Alpha ADD CONSTRAINT PK_Alpha PRIMARY KEY (Id)",
+            "GO",
+            "CREATE TABLE dbo.Beta (Id int NOT NULL)",
+            "GO",
+            "ALTER TABLE dbo.Beta ADD CONSTRAINT PK_Beta PRIMARY KEY (Id)",
+        });
+
+        var loader = new DesiredSchemaLoader();
+        var firstDesired = loader.Load(firstSql);
+        var secondDesired = loader.Load(secondSql);
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var differ = new SchemaDiffer();
+        var firstPlan = differ.Diff(new DatabaseModel(), firstDesired, metadata);
+        var secondPlan = differ.Diff(new DatabaseModel(), secondDesired, metadata);
+
+        var firstTargets = firstPlan.Operations.Select(op => op.Target.ToDisplayName()).ToArray();
+        var secondTargets = secondPlan.Operations.Select(op => op.Target.ToDisplayName()).ToArray();
+
+        Assert.Equal(firstTargets, secondTargets);
+        Assert.Equal(new[]
+        {
+            "dbo.Alpha",
+            "dbo.Beta",
+            "dbo.Alpha.PK_Alpha",
+            "dbo.Beta.PK_Beta",
+        }, firstTargets);
+    }
+
+    [Fact]
     public void Diff_SkippedOrdering_IsDeterministic()
     {
         var current = new DatabaseModel();
