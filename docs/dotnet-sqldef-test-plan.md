@@ -39,6 +39,9 @@ Targets:
 ### 3.1 .NET test runner
 - xUnit (recommended) or NUnit/MSTest (any is fine)
 - Snapshot testing: Verify.Xunit, etc. (golden output for `ToScript()`)
+- Coverage collection (Cobertura):
+  - `dotnet test SqlSchemaDef.sln -c Release --collect "XPlat Code Coverage" --settings coverlet.runsettings --results-directory TestResults`
+  - Note: integration tests are no-op when `SQLSCHEMADEF_TEST_CONNECTION_STRING` is unset, so local coverage will mainly reflect unit tests unless you provide a real SQL Server.
 
 ### 3.2 SQL Server (integration tests)
 - Docker: `mcr.microsoft.com/mssql/server` (e.g. `2019-latest`)
@@ -142,6 +145,17 @@ Cases:
 
 Assertions:
 - Snapshot tests (golden files) for easy diff review
+
+### 4.7 CLI: argument validation and exit codes
+Purpose:
+- Ensure CLI fails fast with actionable messages (without needing a DB)
+
+Key cases:
+- no args: prints usage and returns `ExitUsage`
+- unknown command/arg: prints usage and returns `ExitUsage`
+- missing arg value (e.g. `--file` with no value): returns non-zero and prints exception
+- unsupported `plan --format` in v0.1: prints error and returns `ExitUsage`
+- `apply --plan plan.json`: prints “not supported” and returns `ExitUsage`
 
 ---
 
