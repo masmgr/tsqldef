@@ -159,7 +159,7 @@ Reference:
 
 - [x] Smoke test: `--help` prints usage
 - [x] Smoke test: dry-run prints `ToScript()` (exit code 0)
-- [ ] Smoke test (optional): `--apply` runs Apply
+- [x] Smoke test (optional): `--apply` runs Apply
 - [x] Implement: exit code conventions (parse/unsupported/apply failure)
 - [x] Implement: decide policy for `--schema` (v1 is fixed `dbo`; can be hidden/unimplemented for future)
 
