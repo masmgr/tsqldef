@@ -336,4 +336,38 @@ CREATE UNIQUE INDEX IX_Users_Email ON dbo.Users (Email)
         var count = Convert.ToInt32(scalar);
         Assert.Equal(0, count);
     }
+
+    [Fact]
+    public async Task ExportThenPlan_IsEmpty()
+    {
+        var master = GetMasterConnectionStringOrNull();
+        if (string.IsNullOrWhiteSpace(master))
+        {
+            return;
+        }
+
+        await using var db = await SqlServerTestDatabase.CreateAsync(master);
+
+        await using (var conn = new SqlConnection(db.ConnectionString))
+        {
+            await conn.OpenAsync();
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = @"
+CREATE TABLE dbo.Users (Id int NOT NULL, Name nvarchar(50) NULL);
+CREATE INDEX IX_Users_Name ON dbo.Users (Name);
+";
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        await using var conn2 = new SqlConnection(db.ConnectionString);
+        await conn2.OpenAsync();
+
+        var exporter = new SqlServerSchemaExporter();
+        var export = await exporter.ExportAsync(conn2, new ExportOptions());
+
+        var planner = new SqlServerSchemaPlanner();
+        var plan = await planner.PlanAsync(conn2, export.Script, new PlannerOptions());
+
+        Assert.True(plan.IsEmpty);
+    }
 }

@@ -20,10 +20,12 @@ namespace SqlSchemaDef.Cli
         private static int PrintUsage(int exitCode)
         {
             Console.Error.WriteLine("Usage:");
-            Console.Error.WriteLine("  SqlSchemaDef.Cli --connection <connectionString> --file <desired.sql> [--apply]");
+            Console.Error.WriteLine("  SqlSchemaDef.Cli export --connection <connectionString> [--out <desired.sql>]");
+            Console.Error.WriteLine("  SqlSchemaDef.Cli plan --connection <connectionString> --file <desired.sql> [--format script]");
+            Console.Error.WriteLine("  SqlSchemaDef.Cli apply --connection <connectionString> --file <desired.sql>");
             Console.Error.WriteLine();
             Console.Error.WriteLine("Notes:");
-            Console.Error.WriteLine("  - Without --apply, prints the review script (dry-run).");
+            Console.Error.WriteLine("  - plan prints the review script (dry-run).");
             Console.Error.WriteLine("  - v1 is additive-only (dbo fixed by default).");
             return exitCode;
         }
@@ -41,43 +43,180 @@ namespace SqlSchemaDef.Cli
 
         public static async Task<int> Main(string[] args)
         {
-            var argsList = args.ToList();
-
-            string? connectionString = null;
-            string? filePath = null;
-            var apply = false;
-
             try
             {
-                for (int i = 0; i < argsList.Count; i++)
-                {
-                    var a = argsList[i];
-                    switch (a)
-                    {
-                        case "--connection":
-                        case "-c":
-                            connectionString = GetArg(argsList, ref i);
-                            break;
-                        case "--file":
-                        case "-f":
-                            filePath = GetArg(argsList, ref i);
-                            break;
-                        case "--apply":
-                            apply = true;
-                            break;
-                        case "--help":
-                        case "-h":
-                            return PrintUsage(ExitOk);
-                        default:
-                            Console.Error.WriteLine("Unknown arg: " + a);
-                            return PrintUsage(ExitUsage);
-                    }
-                }
+                return await RunAsync(args).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine(ex.Message);
+                return HandleException(ex);
+            }
+        }
+
+        private static async Task<int> RunAsync(string[] args)
+        {
+            if (args == null || args.Length == 0)
+            {
                 return PrintUsage(ExitUsage);
+            }
+
+            if (args.Length == 1 && (args[0] == "--help" || args[0] == "-h"))
+            {
+                return PrintUsage(ExitOk);
+            }
+
+            var command = args[0];
+            var argsList = args.Skip(1).ToList();
+
+            switch (command)
+            {
+                case "export":
+                    return await RunExportAsync(argsList).ConfigureAwait(false);
+                case "plan":
+                    return await RunPlanAsync(argsList).ConfigureAwait(false);
+                case "apply":
+                    return await RunApplyAsync(argsList).ConfigureAwait(false);
+                case "--help":
+                case "-h":
+                    return PrintUsage(ExitOk);
+                default:
+                    Console.Error.WriteLine("Unknown command: " + command);
+                    return PrintUsage(ExitUsage);
+            }
+        }
+
+        private static async Task<int> RunExportAsync(IReadOnlyList<string> args)
+        {
+            string? connectionString = null;
+            string? outPath = null;
+
+            for (int i = 0; i < args.Count; i++)
+            {
+                var a = args[i];
+                switch (a)
+                {
+                    case "--connection":
+                    case "-c":
+                        connectionString = GetArg(args, ref i);
+                        break;
+                    case "--out":
+                    case "-o":
+                        outPath = GetArg(args, ref i);
+                        break;
+                    case "--help":
+                    case "-h":
+                        return PrintUsage(ExitOk);
+                    default:
+                        Console.Error.WriteLine("Unknown arg: " + a);
+                        return PrintUsage(ExitUsage);
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(connectionString))
+            {
+                return PrintUsage(ExitUsage);
+            }
+
+            await using var conn = new SqlConnection(connectionString);
+            await conn.OpenAsync().ConfigureAwait(false);
+
+            var exporter = new SqlServerSchemaExporter();
+            var result = await exporter.ExportAsync(conn, new ExportOptions()).ConfigureAwait(false);
+
+            if (string.IsNullOrWhiteSpace(outPath))
+            {
+                Console.Write(result.Script);
+            }
+            else
+            {
+                await File.WriteAllTextAsync(outPath, result.Script).ConfigureAwait(false);
+            }
+
+            return ExitOk;
+        }
+
+        private static async Task<int> RunPlanAsync(IReadOnlyList<string> args)
+        {
+            string? connectionString = null;
+            string? filePath = null;
+            var format = "script";
+
+            for (int i = 0; i < args.Count; i++)
+            {
+                var a = args[i];
+                switch (a)
+                {
+                    case "--connection":
+                    case "-c":
+                        connectionString = GetArg(args, ref i);
+                        break;
+                    case "--file":
+                    case "-f":
+                        filePath = GetArg(args, ref i);
+                        break;
+                    case "--format":
+                        format = GetArg(args, ref i);
+                        break;
+                    case "--help":
+                    case "-h":
+                        return PrintUsage(ExitOk);
+                    default:
+                        Console.Error.WriteLine("Unknown arg: " + a);
+                        return PrintUsage(ExitUsage);
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(connectionString) || string.IsNullOrWhiteSpace(filePath))
+            {
+                return PrintUsage(ExitUsage);
+            }
+
+            if (!string.Equals(format, "script", StringComparison.OrdinalIgnoreCase))
+            {
+                Console.Error.WriteLine("Unsupported format in v0.1: " + format);
+                return PrintUsage(ExitUsage);
+            }
+
+            var desiredSql = await File.ReadAllTextAsync(filePath).ConfigureAwait(false);
+
+            await using var conn = new SqlConnection(connectionString);
+            await conn.OpenAsync().ConfigureAwait(false);
+
+            var planner = new SqlServerSchemaPlanner();
+            var plan = await planner.PlanAsync(conn, desiredSql, new PlannerOptions()).ConfigureAwait(false);
+
+            Console.Write(plan.ToScript(new ScriptOptions { HeaderMode = ScriptHeaderMode.DryRunStyle }));
+            return ExitOk;
+        }
+
+        private static async Task<int> RunApplyAsync(IReadOnlyList<string> args)
+        {
+            string? connectionString = null;
+            string? filePath = null;
+
+            for (int i = 0; i < args.Count; i++)
+            {
+                var a = args[i];
+                switch (a)
+                {
+                    case "--connection":
+                    case "-c":
+                        connectionString = GetArg(args, ref i);
+                        break;
+                    case "--file":
+                    case "-f":
+                        filePath = GetArg(args, ref i);
+                        break;
+                    case "--plan":
+                        Console.Error.WriteLine("plan.json is not supported in v0.1.");
+                        return PrintUsage(ExitUsage);
+                    case "--help":
+                    case "-h":
+                        return PrintUsage(ExitOk);
+                    default:
+                        Console.Error.WriteLine("Unknown arg: " + a);
+                        return PrintUsage(ExitUsage);
+                }
             }
 
             if (string.IsNullOrWhiteSpace(connectionString) || string.IsNullOrWhiteSpace(filePath))
@@ -87,54 +226,45 @@ namespace SqlSchemaDef.Cli
 
             var desiredSql = await File.ReadAllTextAsync(filePath).ConfigureAwait(false);
 
+            await using var conn = new SqlConnection(connectionString);
+            await conn.OpenAsync().ConfigureAwait(false);
+
             var planner = new SqlServerSchemaPlanner();
-            var applier = new SqlServerSchemaApplier();
+            var plan = await planner.PlanAsync(conn, desiredSql, new PlannerOptions()).ConfigureAwait(false);
 
-            try
-            {
-                await using var conn = new SqlConnection(connectionString);
-                await conn.OpenAsync().ConfigureAwait(false);
+            Console.Write(plan.ToScript(new ScriptOptions { HeaderMode = ScriptHeaderMode.DryRunStyle }));
 
-                var plan = await planner.PlanAsync(conn, desiredSql, new PlannerOptions()).ConfigureAwait(false);
+            if (!plan.IsEmpty)
+            {
+                var applier = new SqlServerSchemaApplier();
+                await applier.ApplyAsync(conn, plan, new ApplyOptions()).ConfigureAwait(false);
+            }
 
-                Console.Write(plan.ToScript(new ScriptOptions { HeaderMode = ScriptHeaderMode.DryRunStyle }));
+            return ExitOk;
+        }
 
-                if (apply && !plan.IsEmpty)
-                {
-                    await applier.ApplyAsync(conn, plan, new ApplyOptions()).ConfigureAwait(false);
-                }
-
-                return ExitOk;
-            }
-            catch (DesiredSqlParseException ex)
+        private static int HandleException(Exception ex)
+        {
+            switch (ex)
             {
-                Console.Error.WriteLine(ex.Message);
-                return ExitDesiredParseError;
-            }
-            catch (UnsupportedDesiredStatementException ex)
-            {
-                Console.Error.WriteLine(ex.Message);
-                return ExitDesiredUnsupported;
-            }
-            catch (UnsupportedDesiredFeatureException ex)
-            {
-                Console.Error.WriteLine(ex.Message);
-                return ExitDesiredUnsupported;
-            }
-            catch (UnsupportedSchemaException ex)
-            {
-                Console.Error.WriteLine(ex.Message);
-                return ExitDesiredUnsupported;
-            }
-            catch (ApplyFailedException ex)
-            {
-                Console.Error.WriteLine(ex.Message);
-                return ExitApplyFailed;
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine(ex.ToString());
-                return 1;
+                case DesiredSqlParseException parse:
+                    Console.Error.WriteLine(parse.Message);
+                    return ExitDesiredParseError;
+                case UnsupportedDesiredStatementException statement:
+                    Console.Error.WriteLine(statement.Message);
+                    return ExitDesiredUnsupported;
+                case UnsupportedDesiredFeatureException feature:
+                    Console.Error.WriteLine(feature.Message);
+                    return ExitDesiredUnsupported;
+                case UnsupportedSchemaException schema:
+                    Console.Error.WriteLine(schema.Message);
+                    return ExitDesiredUnsupported;
+                case ApplyFailedException applyFailed:
+                    Console.Error.WriteLine(applyFailed.Message);
+                    return ExitApplyFailed;
+                default:
+                    Console.Error.WriteLine(ex.ToString());
+                    return 1;
             }
         }
     }

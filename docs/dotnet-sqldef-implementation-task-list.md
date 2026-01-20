@@ -190,18 +190,18 @@ Reference: `docs/dotnet-sqldef-test-plan.md`
 Goal: make the existing v1 engine easy to use from the CLI and add an `export` command to bootstrap `desired.sql`.
 
 ### 11.1 CLI UX: subcommands + file IO
-- [ ] Test: `--help` shows `export|plan|apply` and examples
-- [ ] Implement: `SqlSchemaDef.Cli` subcommands
+- [x] Test: `--help` shows `export|plan|apply` and examples
+- [x] Implement: `SqlSchemaDef.Cli` subcommands
   - `export --connection ... [--out desired.sql]`
   - `plan --connection ... --file desired.sql [--format script|json]`
   - `apply --connection ... (--file desired.sql | --plan plan.json)`
 
 ### 11.2 Export: current schema → desired.sql (minimum set)
-- [ ] Test (integration): `export` then `plan` returns `IsEmpty == true` for the same DB (or only expected `Skipped`)
-- [ ] Implement: `SqlServerSchemaExporter` (or equivalent) to render stable DDL for:
+- [x] Test (integration): `export` then `plan` returns `IsEmpty == true` for the same DB (or only expected `Skipped`)
+- [x] Implement: `SqlServerSchemaExporter` (or equivalent) to render stable DDL for:
   - `CREATE TABLE` with columns (types/nullability/identity/default as stored)
   - `CREATE [UNIQUE] INDEX` (v1-supported subset only)
-- [ ] Decide: what to do for unsupported `current` features (prefer omit + `-- Skipped:` style notes in export output)
+- [x] Decide: what to do for unsupported `current` features (prefer omit + `-- Skipped:` style notes in export output)
 
 ---
 

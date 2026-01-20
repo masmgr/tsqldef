@@ -62,6 +62,7 @@ public sealed class CliSmokeTests
 
             var exitCode = await SqlSchemaDef.Cli.Program.Main(new[]
             {
+                "plan",
                 "--connection", new SqlConnectionStringBuilder(master) { InitialCatalog = db.DatabaseName }.ConnectionString,
                 "--file", tempFile,
             });
@@ -106,9 +107,9 @@ public sealed class CliSmokeTests
 
             var exitCode = await SqlSchemaDef.Cli.Program.Main(new[]
             {
+                "apply",
                 "--connection", new SqlConnectionStringBuilder(master) { InitialCatalog = db.DatabaseName }.ConnectionString,
                 "--file", tempFile,
-                "--apply",
             });
 
             Assert.Equal(0, exitCode);

@@ -14,6 +14,6 @@ namespace SqlSchemaDef.Core.Planning
         AlterNotSupported = 2,
         NotNullAddNotSupported = 3,
         UnsupportedFeatureInDesired = 4,
+        UnsupportedFeatureInCurrent = 5,
     }
 }
-
