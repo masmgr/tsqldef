@@ -28,6 +28,9 @@ Targets:
 
 3) (Optional) **Smoke (if a CLI exists)**
 - End-to-end exercise of the execution path (a light CI final step)
+  - `--help` prints usage
+  - dry-run prints `ToScript()` to stdout
+  - `--apply` executes operations and changes the DB (verify via sys catalog)
 
 ---
 
@@ -236,4 +239,3 @@ Optional matrix:
 - Integration: at least 5–10 patterns validate “empty DB → Apply → Plan again is empty”
 - Exception messages: include batch index/line/column (at least for parse errors and unsupported statements)
 - Additive-only: tests ensure no alter/drop DDL appears in operations
-

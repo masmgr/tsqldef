@@ -181,4 +181,4 @@ Reference: `docs/dotnet-sqldef-test-plan.md`
 
 - [x] CI: always run unit tests (`dotnet test`)
 - [x] CI: integration tests start Docker service + print logs on failure
-- [ ] Docs: if specs change, update related docs (plan/api/spec/test plan) accordingly
+- [x] Docs: if specs change, update related docs (plan/api/spec/test plan) accordingly
