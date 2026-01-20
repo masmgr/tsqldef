@@ -59,4 +59,12 @@ jobs:
       - name: Test
         env:
           SQLSCHEMADEF_TEST_CONNECTION_STRING: "Server=localhost,1433;User Id=sa;Password=Your_password123;Encrypt=False;TrustServerCertificate=True;Initial Catalog=master"
-        run: dotnet test ${{ env.SOLUTION }} -c ${{ env.CONFIGURATION }} --no-build
+        run: dotnet test ${{ env.SOLUTION }} -c ${{ env.CONFIGURATION }} --no-build --collect "XPlat Code Coverage" --settings coverlet.runsettings --results-directory TestResults
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: TestResults/**/coverage.cobertura.xml
+          if-no-files-found: warn
