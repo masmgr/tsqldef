@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Data;
+using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Data.SqlClient;
@@ -9,9 +10,24 @@ namespace SqlSchemaDef.SqlServer.Planning
 {
     internal sealed class CurrentSchemaReader
     {
+        private static int GetInt32(SqlDataReader reader, int ordinal)
+        {
+            var value = reader.GetValue(ordinal);
+            if (value is int intValue)
+                return intValue;
+            if (value is short shortValue)
+                return shortValue;
+            if (value is byte byteValue)
+                return byteValue;
+            if (value is long longValue)
+                return checked((int)longValue);
+
+            return Convert.ToInt32(value, CultureInfo.InvariantCulture);
+        }
+
         private const string TablesSql = @"
-SELECT
-  s.name AS schema_name,
+ SELECT
+   s.name AS schema_name,
   t.name AS table_name,
   t.object_id
 FROM sys.tables AS t
@@ -377,7 +393,7 @@ ORDER BY pt.name, fk.name, fkc.constraint_column_id;";
                         ObjectId = reader.GetInt32(2),
                         ConstraintName = reader.GetString(3),
                         ConstraintType = reader.GetString(4),
-                        KeyOrdinal = reader.GetInt32(6),
+                        KeyOrdinal = GetInt32(reader, 6),
                         ColumnName = reader.GetString(7),
                     });
                 }
@@ -423,7 +439,7 @@ ORDER BY pt.name, fk.name, fkc.constraint_column_id;";
                         ObjectId = reader.GetInt32(2),
                         IndexName = reader.GetString(4),
                         IsUnique = reader.GetBoolean(5),
-                        KeyOrdinal = reader.GetInt32(9),
+                        KeyOrdinal = GetInt32(reader, 9),
                         IsIncludedColumn = reader.GetBoolean(10),
                         IsDescendingKey = reader.GetBoolean(11),
                         ColumnName = reader.GetString(12),

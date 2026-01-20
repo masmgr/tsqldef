@@ -123,6 +123,32 @@ public sealed class SchemaDifferTests
     }
 
     [Fact]
+    public void Diff_WhenCheckConstraintDefinitionHasNoParentheses_WrapsIt()
+    {
+        var desired = new DatabaseModel();
+        var desiredUsers = desired.GetOrAddTable("dbo", "Users");
+        desiredUsers.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+        desiredUsers.Columns["AGE"] = new ColumnModel { Name = "Age", SqlType = "int", IsNullable = true };
+        desiredUsers.Constraints["CK_USERS_AGE"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.Check,
+            Name = "CK_Users_Age",
+            Definition = "Age > 0",
+        };
+
+        var current = new DatabaseModel();
+        var currentUsers = current.GetOrAddTable("dbo", "Users");
+        currentUsers.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+        currentUsers.Columns["AGE"] = new ColumnModel { Name = "Age", SqlType = "int", IsNullable = true };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = new SchemaDiffer().Diff(current, desired, metadata);
+
+        var operation = Assert.Single(plan.Operations);
+        Assert.Contains("CONSTRAINT CK_Users_Age CHECK (Age > 0)", operation.Sql);
+    }
+
+    [Fact]
     public void Diff_WhenTableOnlyInCurrent_IsSkipped()
     {
         var desired = new DatabaseModel();

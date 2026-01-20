@@ -351,7 +351,18 @@ namespace SqlSchemaDef.SqlServer.Planning
                 case ConstraintKind.Unique:
                     return prefix + "UNIQUE (" + JoinColumns(constraint.Columns) + ")";
                 case ConstraintKind.Check:
-                    return prefix + "CHECK " + (constraint.Definition ?? string.Empty);
+                    var definition = (constraint.Definition ?? string.Empty).Trim();
+                    if (definition.Length == 0)
+                    {
+                        throw new InvalidOperationException("CHECK constraint definition is required.");
+                    }
+
+                    if (definition.StartsWith("(", StringComparison.Ordinal) && definition.EndsWith(")", StringComparison.Ordinal))
+                    {
+                        return prefix + "CHECK " + definition;
+                    }
+
+                    return prefix + "CHECK (" + definition + ")";
                 case ConstraintKind.ForeignKey:
                     var referenceSchema = string.IsNullOrWhiteSpace(constraint.ReferenceSchema)
                         ? "dbo"
