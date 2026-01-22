@@ -342,7 +342,8 @@ namespace SqlSchemaDef.SqlServer.Planning
 
         private static string BuildAddConstraintSql(TableModel table, ConstraintModel constraint)
         {
-            var prefix = "ALTER TABLE " + table.Schema + "." + table.Name + " ADD CONSTRAINT " + constraint.Name + " ";
+            var prefix = "ALTER TABLE " + table.Schema + "." + IdentifierHelper.EscapeIfKeyword(table.Name) +
+                         " ADD CONSTRAINT " + constraint.Name + " ";
 
             switch (constraint.Kind)
             {
@@ -368,7 +369,8 @@ namespace SqlSchemaDef.SqlServer.Planning
                         ? "dbo"
                         : constraint.ReferenceSchema;
                     return prefix + "FOREIGN KEY (" + JoinColumns(constraint.Columns) + ") REFERENCES " +
-                           referenceSchema + "." + constraint.ReferenceTable + " (" + JoinColumns(constraint.ReferenceColumns) + ")";
+                           referenceSchema + "." + IdentifierHelper.EscapeIfKeyword(constraint.ReferenceTable) +
+                           " (" + JoinColumns(constraint.ReferenceColumns) + ")";
                 default:
                     throw new InvalidOperationException("Unsupported constraint kind.");
             }
@@ -378,7 +380,8 @@ namespace SqlSchemaDef.SqlServer.Planning
         {
             var unique = index.IsUnique ? "UNIQUE " : string.Empty;
             var sql = "CREATE " + unique + "INDEX " + index.Name + " ON " +
-                      table.Schema + "." + table.Name + " (" + JoinIndexColumns(index.KeyColumns) + ")";
+                      table.Schema + "." + IdentifierHelper.EscapeIfKeyword(table.Name) +
+                      " (" + JoinIndexColumns(index.KeyColumns) + ")";
 
             if (index.IncludeColumns != null && index.IncludeColumns.Count > 0)
             {
@@ -390,7 +393,19 @@ namespace SqlSchemaDef.SqlServer.Planning
 
         private static string JoinColumns(IReadOnlyList<string> columns)
         {
-            return columns == null || columns.Count == 0 ? string.Empty : string.Join(", ", columns);
+            if (columns == null || columns.Count == 0)
+            {
+                return string.Empty;
+            }
+
+            var escaped = new string[columns.Count];
+            for (var i = 0; i < columns.Count; i++)
+            {
+                var name = columns[i];
+                escaped[i] = string.IsNullOrWhiteSpace(name) ? string.Empty : IdentifierHelper.EscapeIfKeyword(name);
+            }
+
+            return string.Join(", ", escaped);
         }
 
         private static string JoinIndexColumns(IReadOnlyList<IndexKeyColumn> columns)
@@ -410,7 +425,8 @@ namespace SqlSchemaDef.SqlServer.Planning
                     continue;
                 }
 
-                parts[i] = column.IsDescending ? column.Name + " DESC" : column.Name;
+                var name = IdentifierHelper.EscapeIfKeyword(column.Name);
+                parts[i] = column.IsDescending ? name + " DESC" : name;
             }
 
             return string.Join(", ", parts);
@@ -570,8 +586,8 @@ namespace SqlSchemaDef.SqlServer.Planning
 
         private static SqlOperation AddColumnOperation(TableModel table, ColumnModel column)
         {
-            var sql = "ALTER TABLE " + table.Schema + "." + table.Name +
-                      " ADD " + column.Name + " " + column.SqlType + " " +
+            var sql = "ALTER TABLE " + table.Schema + "." + IdentifierHelper.EscapeIfKeyword(table.Name) +
+                      " ADD " + IdentifierHelper.EscapeIfKeyword(column.Name) + " " + column.SqlType + " " +
                       (column.IsNullable ? "NULL" : "NOT NULL");
 
             return new SqlOperation
@@ -592,7 +608,7 @@ namespace SqlSchemaDef.SqlServer.Planning
         private static string BuildCreateTableSql(TableModel table)
         {
             var sb = new StringBuilder();
-            sb.Append("CREATE TABLE ").Append(table.Schema).Append(".").Append(table.Name).Append(" (");
+            sb.Append("CREATE TABLE ").Append(table.Schema).Append(".").Append(IdentifierHelper.EscapeIfKeyword(table.Name)).Append(" (");
 
             var columns = table.Columns.Values
                 .OrderBy(column => IdentifierHelper.NormalizeNameKey(column.Name), StringComparer.OrdinalIgnoreCase)
@@ -606,7 +622,7 @@ namespace SqlSchemaDef.SqlServer.Planning
                     sb.Append(", ");
                 }
 
-                sb.Append(column.Name)
+                sb.Append(IdentifierHelper.EscapeIfKeyword(column.Name))
                     .Append(" ")
                     .Append(column.SqlType)
                     .Append(" ")

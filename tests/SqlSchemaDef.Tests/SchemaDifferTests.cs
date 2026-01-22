@@ -24,6 +24,20 @@ public sealed class SchemaDifferTests
     }
 
     [Fact]
+    public void Diff_WhenIdentifiersAreKeywords_EscapesInSql()
+    {
+        var desiredSql = "CREATE TABLE dbo.[User] ([Select] int NOT NULL)";
+        var desired = new DesiredSchemaLoader().Load(desiredSql);
+        var current = new DatabaseModel();
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = new SchemaDiffer().Diff(current, desired, metadata);
+
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal("CREATE TABLE dbo.[User] ([Select] INT NOT NULL)", op.Sql);
+    }
+
+    [Fact]
     public void Diff_WhenColumnMissing_EmitsAddColumn()
     {
         var desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL, Name nvarchar(100) NULL)";

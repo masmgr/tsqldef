@@ -197,7 +197,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             }
 
             var sb = new StringBuilder();
-            sb.Append("CREATE TABLE ").Append(table.Schema).Append(".").Append(table.Name).Append(" (");
+            sb.Append("CREATE TABLE ").Append(table.Schema).Append(".").Append(IdentifierHelper.EscapeIfKeyword(table.Name)).Append(" (");
 
             for (var i = 0; i < exportable.Count; i++)
             {
@@ -207,7 +207,7 @@ namespace SqlSchemaDef.SqlServer.Planning
                     sb.Append(", ");
                 }
 
-                sb.Append(column.Name)
+                sb.Append(IdentifierHelper.EscapeIfKeyword(column.Name))
                     .Append(" ")
                     .Append(column.SqlType);
 
@@ -266,11 +266,12 @@ namespace SqlSchemaDef.SqlServer.Planning
 
             var unique = index.IsUnique ? "UNIQUE " : string.Empty;
             var sql = "CREATE " + unique + "INDEX " + index.Name + " ON " +
-                      table.Schema + "." + table.Name + " (" + JoinIndexColumns(index.KeyColumns) + ")";
+                      table.Schema + "." + IdentifierHelper.EscapeIfKeyword(table.Name) + " (" + JoinIndexColumns(index.KeyColumns) + ")";
 
             if (index.IncludeColumns != null && index.IncludeColumns.Count > 0)
             {
-                sql += " INCLUDE (" + string.Join(", ", index.IncludeColumns) + ")";
+                var include = index.IncludeColumns.Select(IdentifierHelper.EscapeIfKeyword);
+                sql += " INCLUDE (" + string.Join(", ", include) + ")";
             }
 
             return sql;
@@ -293,7 +294,8 @@ namespace SqlSchemaDef.SqlServer.Planning
                     continue;
                 }
 
-                parts[i] = column.IsDescending ? column.Name + " DESC" : column.Name;
+                var name = IdentifierHelper.EscapeIfKeyword(column.Name);
+                parts[i] = column.IsDescending ? name + " DESC" : name;
             }
 
             return string.Join(", ", parts);
