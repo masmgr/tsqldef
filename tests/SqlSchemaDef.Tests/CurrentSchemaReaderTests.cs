@@ -187,7 +187,8 @@ public sealed class CurrentSchemaReaderTests
 
         var ix = users.Indexes["IX_USERS_NAME"];
         Assert.False(ix.IsUnique);
-        Assert.Equal("Name", ix.KeyColumns.Single());
+        Assert.Equal("Name", ix.KeyColumns.Single().Name);
+        Assert.False(ix.KeyColumns.Single().IsDescending);
 
         var teams = model.Tables.Values.Single(table => table.Name == "Teams");
         var teamId = teams.Columns["TEAMID"];
@@ -329,7 +330,7 @@ public sealed class CurrentSchemaReaderTests
     }
 
     [Fact]
-    public void BuildModel_TracksUnsupportedIndexFeatures()
+    public void BuildModel_IndexIncludeAndSortOrder_AreCaptured()
     {
         var tables = new[]
         {
@@ -356,6 +357,19 @@ public sealed class CurrentSchemaReaderTests
                 IsComputed = false,
                 IsIdentity = false,
             },
+            new CurrentSchemaReader.ColumnRow
+            {
+                ObjectId = 1,
+                ColumnId = 2,
+                ColumnName = "Age",
+                IsNullable = true,
+                TypeName = "int",
+                MaxLength = 0,
+                Precision = 0,
+                Scale = 0,
+                IsComputed = false,
+                IsIdentity = false,
+            },
         };
 
         var indexes = new[]
@@ -366,9 +380,19 @@ public sealed class CurrentSchemaReaderTests
                 IndexName = "IX_Users_Name",
                 IsUnique = false,
                 KeyOrdinal = 1,
+                IsIncludedColumn = false,
+                IsDescendingKey = true,
+                ColumnName = "Name",
+            },
+            new CurrentSchemaReader.IndexRow
+            {
+                ObjectId = 1,
+                IndexName = "IX_Users_Name",
+                IsUnique = false,
+                KeyOrdinal = 0,
                 IsIncludedColumn = true,
                 IsDescendingKey = false,
-                ColumnName = "Name",
+                ColumnName = "Age",
             },
         };
 
@@ -377,6 +401,10 @@ public sealed class CurrentSchemaReaderTests
         var index = table.Indexes.Values.Single();
 
         Assert.Equal("IX_Users_Name", index.Name);
-        Assert.Equal("IndexInclude", index.UnsupportedFeature);
+        Assert.Null(index.UnsupportedFeature);
+        Assert.Single(index.KeyColumns);
+        Assert.Equal("Name", index.KeyColumns[0].Name);
+        Assert.True(index.KeyColumns[0].IsDescending);
+        Assert.Equal("Age", Assert.Single(index.IncludeColumns));
     }
 }

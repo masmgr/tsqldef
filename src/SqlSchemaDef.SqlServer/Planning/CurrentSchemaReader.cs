@@ -846,20 +846,15 @@ ORDER BY pt.name, fk.name, fkc.constraint_column_id;";
                 rows.Sort((left, right) => left.KeyOrdinal.CompareTo(right.KeyOrdinal));
 
                 var isUnique = false;
-                var keyColumns = new List<string>();
-                string unsupportedFeature = null;
+                var keyColumns = new List<IndexKeyColumn>();
+                var includeColumns = new List<string>();
                 foreach (var row in rows)
                 {
                     isUnique = row.IsUnique;
 
-                    if (row.IsDescendingKey)
-                    {
-                        unsupportedFeature = unsupportedFeature ?? "IndexSortOrder";
-                    }
-
                     if (row.IsIncludedColumn)
                     {
-                        unsupportedFeature = unsupportedFeature ?? "IndexInclude";
+                        includeColumns.Add(row.ColumnName);
                         continue;
                     }
 
@@ -868,7 +863,11 @@ ORDER BY pt.name, fk.name, fkc.constraint_column_id;";
                         continue;
                     }
 
-                    keyColumns.Add(row.ColumnName);
+                    keyColumns.Add(new IndexKeyColumn
+                    {
+                        Name = row.ColumnName,
+                        IsDescending = row.IsDescendingKey,
+                    });
                 }
 
                 var index = new IndexModel
@@ -876,7 +875,7 @@ ORDER BY pt.name, fk.name, fkc.constraint_column_id;";
                     Name = indexName,
                     IsUnique = isUnique,
                     KeyColumns = keyColumns,
-                    UnsupportedFeature = unsupportedFeature,
+                    IncludeColumns = includeColumns.Count == 0 ? null : includeColumns,
                 };
 
                 table.Indexes[IdentifierHelper.NormalizeNameKey(index.Name)] = index;

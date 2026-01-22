@@ -377,13 +377,43 @@ namespace SqlSchemaDef.SqlServer.Planning
         private static string BuildCreateIndexSql(TableModel table, IndexModel index)
         {
             var unique = index.IsUnique ? "UNIQUE " : string.Empty;
-            return "CREATE " + unique + "INDEX " + index.Name + " ON " +
-                   table.Schema + "." + table.Name + " (" + JoinColumns(index.KeyColumns) + ")";
+            var sql = "CREATE " + unique + "INDEX " + index.Name + " ON " +
+                      table.Schema + "." + table.Name + " (" + JoinIndexColumns(index.KeyColumns) + ")";
+
+            if (index.IncludeColumns != null && index.IncludeColumns.Count > 0)
+            {
+                sql += " INCLUDE (" + JoinColumns(index.IncludeColumns) + ")";
+            }
+
+            return sql;
         }
 
         private static string JoinColumns(IReadOnlyList<string> columns)
         {
             return columns == null || columns.Count == 0 ? string.Empty : string.Join(", ", columns);
+        }
+
+        private static string JoinIndexColumns(IReadOnlyList<IndexKeyColumn> columns)
+        {
+            if (columns == null || columns.Count == 0)
+            {
+                return string.Empty;
+            }
+
+            var parts = new string[columns.Count];
+            for (var i = 0; i < columns.Count; i++)
+            {
+                var column = columns[i];
+                if (column == null || string.IsNullOrWhiteSpace(column.Name))
+                {
+                    parts[i] = string.Empty;
+                    continue;
+                }
+
+                parts[i] = column.IsDescending ? column.Name + " DESC" : column.Name;
+            }
+
+            return string.Join(", ", parts);
         }
 
         private static bool IsColumnDifferent(ColumnModel current, ColumnModel desired)
@@ -455,7 +485,12 @@ namespace SqlSchemaDef.SqlServer.Planning
                 return true;
             }
 
-            return !SequenceEqual(current.KeyColumns, desired.KeyColumns);
+            if (!SequenceEqual(current.KeyColumns, desired.KeyColumns))
+            {
+                return true;
+            }
+
+            return !SequenceEqual(current.IncludeColumns, desired.IncludeColumns);
         }
 
         private static bool SequenceEqual(IReadOnlyList<string> left, IReadOnlyList<string> right)
@@ -473,6 +508,41 @@ namespace SqlSchemaDef.SqlServer.Planning
             for (var i = 0; i < left.Count; i++)
             {
                 if (!string.Equals(left[i], right[i], StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static bool SequenceEqual(IReadOnlyList<IndexKeyColumn> left, IReadOnlyList<IndexKeyColumn> right)
+        {
+            if (ReferenceEquals(left, right))
+            {
+                return true;
+            }
+
+            if (left == null || right == null || left.Count != right.Count)
+            {
+                return false;
+            }
+
+            for (var i = 0; i < left.Count; i++)
+            {
+                var leftItem = left[i];
+                var rightItem = right[i];
+                if (leftItem == null || rightItem == null)
+                {
+                    return false;
+                }
+
+                if (!string.Equals(leftItem.Name, rightItem.Name, StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+
+                if (leftItem.IsDescending != rightItem.IsDescending)
                 {
                     return false;
                 }

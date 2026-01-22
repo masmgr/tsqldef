@@ -304,7 +304,7 @@ public sealed class SqlDiagnostic
 
 v1 contract:
 - If `desired` contains unsupported statements: immediate error
-- If supported statements include unsupported features (e.g. `CREATE INDEX ... INCLUDE`): immediate error
+- If supported statements include unsupported features (e.g. `CREATE INDEX ... WHERE`): immediate error
 - Any schema other than `dbo`: immediate error
   - Message templates follow `dotnet-sqldef-scriptdom-visitor-spec.md`
 
@@ -397,4 +397,3 @@ Either attach `Summary` to `MigrationPlan`, or provide `MigrationPlan.GetSummary
   - `PlanAsync` / `ApplyAsync` accept and honor `CancellationToken` during DB access and loops
 - Logging:
   - Allow implementations to accept `ILogger` (via options or ctor injection)
-

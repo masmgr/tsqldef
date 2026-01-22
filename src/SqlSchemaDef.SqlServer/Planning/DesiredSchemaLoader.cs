@@ -155,11 +155,6 @@ namespace SqlSchemaDef.SqlServer.Planning
             var (schema, tableName) = ResolveSchemaAndName(node.OnName, node);
             var table = _model.GetOrAddTable(schema, tableName);
 
-            if (node.IncludeColumns != null && node.IncludeColumns.Count > 0)
-            {
-                throw CreateUnsupportedFeatureException(node, "CreateIndexStatement", "IndexInclude");
-            }
-
             if (node.FilterPredicate != null)
             {
                 throw CreateUnsupportedFeatureException(node, "CreateIndexStatement", "IndexFilter");
@@ -170,15 +165,24 @@ namespace SqlSchemaDef.SqlServer.Planning
                 throw CreateUnsupportedFeatureException(node, "CreateIndexStatement", "IndexOptions");
             }
 
-            var keyColumns = new List<string>();
+            var keyColumns = new List<IndexKeyColumn>();
             foreach (var column in node.Columns)
             {
-                if (column.SortOrder != SortOrder.NotSpecified)
+                var columnName = column.Column.MultiPartIdentifier.Identifiers.Last().Value;
+                keyColumns.Add(new IndexKeyColumn
                 {
-                    throw CreateUnsupportedFeatureException(node, "CreateIndexStatement", "IndexSortOrder");
-                }
+                    Name = columnName,
+                    IsDescending = column.SortOrder == SortOrder.Descending,
+                });
+            }
 
-                keyColumns.Add(column.Column.MultiPartIdentifier.Identifiers.Last().Value);
+            var includeColumns = new List<string>();
+            if (node.IncludeColumns != null && node.IncludeColumns.Count > 0)
+            {
+                foreach (var include in node.IncludeColumns)
+                {
+                    includeColumns.Add(include.MultiPartIdentifier.Identifiers.Last().Value);
+                }
             }
 
             var index = new IndexModel
@@ -186,6 +190,7 @@ namespace SqlSchemaDef.SqlServer.Planning
                 Name = RequireIdentifier(node.Name, node, "IndexName", "CreateIndexStatement"),
                 IsUnique = node.Unique,
                 KeyColumns = keyColumns,
+                IncludeColumns = includeColumns.Count == 0 ? null : includeColumns,
             };
 
             table.Indexes[IdentifierHelper.NormalizeNameKey(index.Name)] = index;

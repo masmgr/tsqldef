@@ -265,8 +265,38 @@ namespace SqlSchemaDef.SqlServer.Planning
             }
 
             var unique = index.IsUnique ? "UNIQUE " : string.Empty;
-            return "CREATE " + unique + "INDEX " + index.Name + " ON " +
-                   table.Schema + "." + table.Name + " (" + string.Join(", ", index.KeyColumns) + ")";
+            var sql = "CREATE " + unique + "INDEX " + index.Name + " ON " +
+                      table.Schema + "." + table.Name + " (" + JoinIndexColumns(index.KeyColumns) + ")";
+
+            if (index.IncludeColumns != null && index.IncludeColumns.Count > 0)
+            {
+                sql += " INCLUDE (" + string.Join(", ", index.IncludeColumns) + ")";
+            }
+
+            return sql;
+        }
+
+        private static string JoinIndexColumns(IReadOnlyList<IndexKeyColumn> columns)
+        {
+            if (columns == null || columns.Count == 0)
+            {
+                return string.Empty;
+            }
+
+            var parts = new string[columns.Count];
+            for (var i = 0; i < columns.Count; i++)
+            {
+                var column = columns[i];
+                if (column == null || string.IsNullOrWhiteSpace(column.Name))
+                {
+                    parts[i] = string.Empty;
+                    continue;
+                }
+
+                parts[i] = column.IsDescending ? column.Name + " DESC" : column.Name;
+            }
+
+            return string.Join(", ", parts);
         }
     }
 }

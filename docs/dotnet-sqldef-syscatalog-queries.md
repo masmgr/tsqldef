@@ -246,8 +246,8 @@ ORDER BY t.name, i.name, ic.is_included_column, ic.key_ordinal, c.name;
 ```
 
 v1 handling:
-- `ic.is_included_column = 1` (INCLUDE) is unsupported in v1; if present in `desired`, fail fast
-- If `current` contains INCLUDE/filtered/etc., treat it like a drop-equivalent and report via `-- Skipped:`
+- `ic.is_included_column = 1` (INCLUDE) and `ic.is_descending_key = 1` (DESC) are supported in v1
+- If `current` contains filtered indexes or other advanced options (not captured here), treat as unsupported when detected and report via `-- Skipped:`
 
 ---
 
@@ -328,4 +328,3 @@ Required in v1:
 - 7: FK
 
 Build the `current` model from these results, then compute the additive-only plan (`MigrationPlan`) against the `desired` model (ScriptDom).
-

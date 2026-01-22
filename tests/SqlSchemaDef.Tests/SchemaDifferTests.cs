@@ -123,6 +123,35 @@ public sealed class SchemaDifferTests
     }
 
     [Fact]
+    public void Diff_WhenIndexHasIncludeAndSortOrder_EmitsCreateIndex()
+    {
+        var desiredSql = string.Join("\n", new[]
+        {
+            "CREATE TABLE dbo.Users (",
+            "  Id int NOT NULL,",
+            "  Name nvarchar(100) NULL,",
+            "  Age int NULL",
+            ")",
+            "CREATE INDEX IX_Users_Name ON dbo.Users (Name DESC) INCLUDE (Age)",
+        });
+
+        var desired = new DesiredSchemaLoader().Load(desiredSql);
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+        currentTable.Columns["NAME"] = new ColumnModel { Name = "Name", SqlType = "nvarchar(100)", IsNullable = true };
+        currentTable.Columns["AGE"] = new ColumnModel { Name = "Age", SqlType = "int", IsNullable = true };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = new SchemaDiffer().Diff(current, desired, metadata);
+
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal(OperationKind.CreateIndex, op.Kind);
+        Assert.Equal("CREATE INDEX IX_Users_Name ON dbo.Users (Name DESC) INCLUDE (Age)", op.Sql);
+    }
+
+    [Fact]
     public void Diff_WhenCheckConstraintDefinitionHasNoParentheses_WrapsIt()
     {
         var desired = new DatabaseModel();
@@ -323,7 +352,7 @@ public sealed class SchemaDifferTests
         {
             Name = "IX_Users_Name",
             IsUnique = false,
-            KeyColumns = new[] { "Name" },
+            KeyColumns = new[] { new IndexKeyColumn { Name = "Name" } },
         };
 
         var current = new DatabaseModel();
@@ -332,7 +361,7 @@ public sealed class SchemaDifferTests
         {
             Name = "IX_Users_Name",
             IsUnique = true,
-            KeyColumns = new[] { "Name" },
+            KeyColumns = new[] { new IndexKeyColumn { Name = "Name" } },
         };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
@@ -346,7 +375,7 @@ public sealed class SchemaDifferTests
     }
 
     [Fact]
-    public void Diff_WhenCurrentHasUnsupportedFeature_IsSkipped()
+    public void Diff_WhenIndexIncludeDiffers_IsSkipped()
     {
         var desired = new DatabaseModel();
         var desiredTable = desired.GetOrAddTable("dbo", "Users");
@@ -354,7 +383,7 @@ public sealed class SchemaDifferTests
         {
             Name = "IX_Users_Name",
             IsUnique = false,
-            KeyColumns = new[] { "Name" },
+            KeyColumns = new[] { new IndexKeyColumn { Name = "Name" } },
         };
 
         var current = new DatabaseModel();
@@ -363,8 +392,8 @@ public sealed class SchemaDifferTests
         {
             Name = "IX_Users_Name",
             IsUnique = false,
-            KeyColumns = new[] { "Name" },
-            UnsupportedFeature = "IndexInclude",
+            KeyColumns = new[] { new IndexKeyColumn { Name = "Name" } },
+            IncludeColumns = new[] { "Age" },
         };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
@@ -401,7 +430,7 @@ public sealed class SchemaDifferTests
         {
             Name = "IX_Users_Name",
             IsUnique = false,
-            KeyColumns = new[] { "Name" },
+            KeyColumns = new[] { new IndexKeyColumn { Name = "Name" } },
         };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
@@ -460,7 +489,7 @@ public sealed class SchemaDifferTests
         {
             Name = "IX_Alpha",
             IsUnique = false,
-            KeyColumns = new[] { "Id" },
+            KeyColumns = new[] { new IndexKeyColumn { Name = "Id" } },
         };
 
         var currentBeta = current.GetOrAddTable("dbo", "Beta");
@@ -474,7 +503,7 @@ public sealed class SchemaDifferTests
         {
             Name = "IX_Beta",
             IsUnique = false,
-            KeyColumns = new[] { "Name" },
+            KeyColumns = new[] { new IndexKeyColumn { Name = "Name" } },
         };
 
         var metadata = new PlanMetadata { Schema = "dbo" };

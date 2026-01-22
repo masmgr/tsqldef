@@ -61,17 +61,22 @@ public sealed class DesiredModelBuilderVisitorTests
     }
 
     [Fact]
-    public void Load_UnsupportedFeature_Throws()
+    public void Load_IndexIncludeAndSortOrder_AreMapped()
     {
         var loader = new DesiredSchemaLoader();
 
-        var ex = Assert.Throws<UnsupportedDesiredFeatureException>(() =>
-            loader.Load("CREATE INDEX IX_T ON dbo.T (Id) INCLUDE (OtherId)"));
+        var model = loader.Load("CREATE INDEX IX_T ON dbo.T (Id DESC, Name) INCLUDE (OtherId)");
 
-        Assert.Equal(0, ex.BatchIndex);
-        Assert.Equal("CreateIndexStatement", ex.StatementType);
-        Assert.Equal("IndexInclude", ex.FeatureName);
-        Assert.Contains("Unsupported desired feature in v1", ex.Message);
+        var table = model.Tables.Values.Single();
+        var index = table.Indexes.Values.Single();
+
+        Assert.Equal("IX_T", index.Name);
+        Assert.Equal(2, index.KeyColumns.Count);
+        Assert.Equal("Id", index.KeyColumns[0].Name);
+        Assert.True(index.KeyColumns[0].IsDescending);
+        Assert.Equal("Name", index.KeyColumns[1].Name);
+        Assert.False(index.KeyColumns[1].IsDescending);
+        Assert.Equal("OtherId", Assert.Single(index.IncludeColumns));
     }
 
     [Fact]

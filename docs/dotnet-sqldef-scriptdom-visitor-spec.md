@@ -55,7 +55,7 @@ Anything else is an **immediate error** (to reliably stop when destructive/unsup
 ### 3.2 Guaranteeing “additive-only”
 Even within allowed statements, the following are prohibited in v1:
 - Anything other than `ADD` in `ALTER TABLE` (`AlterTableAlterColumnStatement`, etc.) (also disallowed by top-level rules)
-- `CREATE INDEX` with `INCLUDE` / `WHERE` (filtered) / `WITH(...)` / `ONLINE`, etc. (error)
+- `CREATE INDEX` with `WHERE` (filtered) / `WITH(...)` / `ONLINE`, etc. (error)
 - Computed columns, columnsets, compression, partitioning, special index types, etc. (error)
 
 ---
@@ -164,18 +164,20 @@ Add constraint:
 Accepted:
 - `CREATE INDEX IX ... ON dbo.T(col1, col2)`
 - `CREATE UNIQUE INDEX ...`
+- `CREATE INDEX ... ON dbo.T(col1 DESC, col2 ASC)` (explicit sort order)
+- `CREATE INDEX ... INCLUDE (col3, col4)`
 
 Rejected (error):
-- `INCLUDE (...)`
 - `WHERE ...` (filtered index)
 - `WITH (...)` (fillfactor/online, etc.)
 - `ON <filegroup/partition scheme>`, etc.
-- `ASC/DESC` (if present, treat as unsupported in v1; future expansion)
 
 Mapping:
 - `IndexModel.Name`
 - `IndexModel.IsUnique`
 - `IndexModel.KeyColumns` (ordered)
+- `IndexModel.IncludeColumns` (ordered)
+- Key column sort order (`ASC` / `DESC`) is preserved per column
 
 ---
 
@@ -203,7 +205,7 @@ Only CREATE TABLE / ALTER TABLE ... ADD ... / CREATE INDEX are supported.
 Found: {StatementType} at batch {BatchIndex}, line {Line}, column {Column}.
 ```
 
-#### (B) Unsupported feature (e.g. CREATE INDEX INCLUDE)
+#### (B) Unsupported feature (e.g. CREATE INDEX WHERE)
 ```
 Unsupported desired feature in v1 (additive-only).
 Feature: {FeatureName}. Statement: {StatementType}.
@@ -262,5 +264,4 @@ Recommended: override `ExplicitVisit(TSqlStatement node)` and only handle allowe
   - Future versions can relax this by emulating SQL Server’s auto-naming rules
 - Keep DEFAULT/CHECK expressions as raw strings
   - Since v1 does not emit alter DDL, do not normalize them
-- Advanced index features (INCLUDE/filtered/with/online/etc.) are unsupported in v1
-
+- Advanced index features (filtered/with/online/etc.) are unsupported in v1

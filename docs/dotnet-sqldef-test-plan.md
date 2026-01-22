@@ -87,7 +87,6 @@ Purpose:
 - Ensure unsupported features in v1 become errors (or Skipped if that is the v1 rule)
 
 Key cases (error recommended):
-- `CREATE INDEX ... INCLUDE (...)`
 - filtered index: `WHERE ...`
 - index `WITH (...)` / `ONLINE`
 - computed columns
@@ -203,7 +202,7 @@ Expected:
 
 ### 5.5 v1-unsupported elements in `current`
 Examples:
-- Computed columns / INCLUDE indexes / filtered indexes / descending keys exist in `current`
+- Computed columns / filtered indexes exist in `current`
 
 Expected:
 - v1 never emits alter/drop, so no operations are generated

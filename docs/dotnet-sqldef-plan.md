@@ -101,7 +101,8 @@ Goal: normalize `desired` and `current` into the same shape so they can be compa
 - `IndexModel`
   - `Name`
   - `IsUnique`
-  - `KeyColumns` (ordered)
+  - `KeyColumns` (ordered; per-column sort order preserved)
+  - `IncludeColumns` (ordered)
 
 Normalization (v1):
 - Keys are case-insensitive (schema fixed to `dbo`)
@@ -127,7 +128,7 @@ Normalization (v1):
 
 ### Rules to guarantee additive-only behavior
 - Allow only `ALTER TABLE ... ADD ...` (any `ALTER COLUMN`, etc. is an immediate error)
-- If an option cannot be interpreted safely in v1 (filtered index, INCLUDE, computed columns, special constraints, etc.), fail fast with an error to avoid incorrect diffs
+- If an option cannot be interpreted safely in v1 (filtered index, computed columns, special constraints, etc.), fail fast with an error to avoid incorrect diffs
 
 ---
 

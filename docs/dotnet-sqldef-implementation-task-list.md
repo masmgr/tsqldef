@@ -76,7 +76,6 @@ Reference:
 - [x] Implement: schema resolution and `dbo`-only validation
 
 ### 3.3 Unsupported features within allowed DDL (immediate error)
-- [x] Test: `CREATE INDEX ... INCLUDE (...)` throws `UnsupportedDesiredFeatureException`
 - [x] Test: filtered index (`WHERE ...`) throws `UnsupportedDesiredFeatureException`
 - [x] Test: index `WITH (...)` / `ONLINE` throws `UnsupportedDesiredFeatureException`
 - [x] Test: computed columns throw `UnsupportedDesiredFeatureException`
@@ -99,7 +98,7 @@ Reference: `docs/dotnet-sqldef-syscatalog-queries.md`
 - [x] Test (unit): type stringification (e.g. `nvarchar(max)`, `decimal(p,s)`)
 - [x] Implement: sys queries in code (fixed `dbo`)
 - [x] Implement: type stringification utility
-- [x] Implement: detect and handle v1-unsupported elements in `current` (computed/INCLUDE/filtered/descending, etc.) (policy: prefer skipped)
+- [x] Implement: detect and handle v1-unsupported elements in `current` (computed/filtered, etc.) (policy: prefer skipped)
 
 ---
 
