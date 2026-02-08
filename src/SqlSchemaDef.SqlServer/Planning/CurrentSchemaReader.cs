@@ -217,6 +217,14 @@ WHERE ps.name = @schema
   AND pt.is_ms_shipped = 0
 ORDER BY pt.name, fk.name, fkc.constraint_column_id;";
 
+        private const string ReadAllSql = TablesSql + "\n" +
+                                          ColumnsSql + "\n" +
+                                          DefaultsSql + "\n" +
+                                          KeyConstraintsSql + "\n" +
+                                          CheckConstraintsSql + "\n" +
+                                          IndexesSql + "\n" +
+                                          ForeignKeysSql;
+
         public static async Task<DatabaseModel> ReadAsync(
             SqlConnection connection,
             string schema,
@@ -227,13 +235,37 @@ ORDER BY pt.name, fk.name, fkc.constraint_column_id;";
             if (string.IsNullOrWhiteSpace(schema))
                 throw new ArgumentException("Schema is required.", nameof(schema));
 
-            var tables = await ReadTablesAsync(connection, schema, cancellationToken).ConfigureAwait(false);
-            var columns = await ReadColumnsAsync(connection, schema, cancellationToken).ConfigureAwait(false);
-            var defaults = await ReadDefaultsAsync(connection, schema, cancellationToken).ConfigureAwait(false);
-            var keyConstraints = await ReadKeyConstraintsAsync(connection, schema, cancellationToken).ConfigureAwait(false);
-            var checkConstraints = await ReadCheckConstraintsAsync(connection, schema, cancellationToken).ConfigureAwait(false);
-            var indexes = await ReadIndexesAsync(connection, schema, cancellationToken).ConfigureAwait(false);
-            var foreignKeys = await ReadForeignKeysAsync(connection, schema, cancellationToken).ConfigureAwait(false);
+            List<TableRow> tables;
+            List<ColumnRow> columns;
+            List<DefaultRow> defaults;
+            List<KeyConstraintRow> keyConstraints;
+            List<CheckConstraintRow> checkConstraints;
+            List<IndexRow> indexes;
+            List<ForeignKeyRow> foreignKeys;
+
+            using (var command = CreateCommand(connection, ReadAllSql, schema))
+            using (var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+            {
+                tables = await ReadTablesResultSetAsync(reader, cancellationToken).ConfigureAwait(false);
+
+                await MoveToNextResultSetAsync(reader, "columns", cancellationToken).ConfigureAwait(false);
+                columns = await ReadColumnsResultSetAsync(reader, cancellationToken).ConfigureAwait(false);
+
+                await MoveToNextResultSetAsync(reader, "defaults", cancellationToken).ConfigureAwait(false);
+                defaults = await ReadDefaultsResultSetAsync(reader, cancellationToken).ConfigureAwait(false);
+
+                await MoveToNextResultSetAsync(reader, "key constraints", cancellationToken).ConfigureAwait(false);
+                keyConstraints = await ReadKeyConstraintsResultSetAsync(reader, cancellationToken).ConfigureAwait(false);
+
+                await MoveToNextResultSetAsync(reader, "check constraints", cancellationToken).ConfigureAwait(false);
+                checkConstraints = await ReadCheckConstraintsResultSetAsync(reader, cancellationToken).ConfigureAwait(false);
+
+                await MoveToNextResultSetAsync(reader, "indexes", cancellationToken).ConfigureAwait(false);
+                indexes = await ReadIndexesResultSetAsync(reader, cancellationToken).ConfigureAwait(false);
+
+                await MoveToNextResultSetAsync(reader, "foreign keys", cancellationToken).ConfigureAwait(false);
+                foreignKeys = await ReadForeignKeysResultSetAsync(reader, cancellationToken).ConfigureAwait(false);
+            }
 
             return BuildModel(tables, columns, defaults, keyConstraints, checkConstraints, foreignKeys, indexes);
         }
@@ -304,174 +336,157 @@ ORDER BY pt.name, fk.name, fkc.constraint_column_id;";
             public string ColumnName { get; set; }
         }
 
-        private static async Task<List<TableRow>> ReadTablesAsync(
-            SqlConnection connection,
-            string schema,
+        private static async Task<List<TableRow>> ReadTablesResultSetAsync(
+            SqlDataReader reader,
             CancellationToken cancellationToken)
         {
-            using (var command = CreateCommand(connection, TablesSql, schema))
-            using (var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+            var results = new List<TableRow>();
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
-                var results = new List<TableRow>();
-                while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                results.Add(new TableRow
                 {
-                    results.Add(new TableRow
-                    {
-                        SchemaName = reader.GetString(0),
-                        TableName = reader.GetString(1),
-                        ObjectId = reader.GetInt32(2),
-                    });
-                }
-                return results;
+                    SchemaName = reader.GetString(0),
+                    TableName = reader.GetString(1),
+                    ObjectId = reader.GetInt32(2),
+                });
             }
+
+            return results;
         }
 
-        private static async Task<List<ColumnRow>> ReadColumnsAsync(
-            SqlConnection connection,
-            string schema,
+        private static async Task<List<ColumnRow>> ReadColumnsResultSetAsync(
+            SqlDataReader reader,
             CancellationToken cancellationToken)
         {
-            using (var command = CreateCommand(connection, ColumnsSql, schema))
-            using (var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+            var results = new List<ColumnRow>();
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
-                var results = new List<ColumnRow>();
-                while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                results.Add(new ColumnRow
                 {
-                    results.Add(new ColumnRow
-                    {
-                        ObjectId = reader.GetInt32(2),
-                        ColumnId = reader.GetInt32(3),
-                        ColumnName = reader.GetString(4),
-                        IsNullable = reader.GetBoolean(5),
-                        TypeName = reader.GetString(6),
-                        MaxLength = reader.GetInt16(7),
-                        Precision = reader.GetByte(8),
-                        Scale = reader.GetByte(9),
-                        IsComputed = reader.GetBoolean(10),
-                        IsIdentity = reader.GetInt32(11) != 0,
-                    });
-                }
-                return results;
+                    ObjectId = reader.GetInt32(2),
+                    ColumnId = reader.GetInt32(3),
+                    ColumnName = reader.GetString(4),
+                    IsNullable = reader.GetBoolean(5),
+                    TypeName = reader.GetString(6),
+                    MaxLength = reader.GetInt16(7),
+                    Precision = reader.GetByte(8),
+                    Scale = reader.GetByte(9),
+                    IsComputed = reader.GetBoolean(10),
+                    IsIdentity = reader.GetInt32(11) != 0,
+                });
             }
+
+            return results;
         }
 
-        private static async Task<List<DefaultRow>> ReadDefaultsAsync(
-            SqlConnection connection,
-            string schema,
+        private static async Task<List<DefaultRow>> ReadDefaultsResultSetAsync(
+            SqlDataReader reader,
             CancellationToken cancellationToken)
         {
-            using (var command = CreateCommand(connection, DefaultsSql, schema))
-            using (var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+            var results = new List<DefaultRow>();
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
-                var results = new List<DefaultRow>();
-                while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                results.Add(new DefaultRow
                 {
-                    results.Add(new DefaultRow
-                    {
-                        ObjectId = reader.GetInt32(2),
-                        ColumnId = reader.GetInt32(3),
-                        DefaultDefinition = reader.GetString(6),
-                    });
-                }
-                return results;
+                    ObjectId = reader.GetInt32(2),
+                    ColumnId = reader.GetInt32(3),
+                    DefaultDefinition = reader.GetString(6),
+                });
             }
+
+            return results;
         }
 
-        private static async Task<List<KeyConstraintRow>> ReadKeyConstraintsAsync(
-            SqlConnection connection,
-            string schema,
+        private static async Task<List<KeyConstraintRow>> ReadKeyConstraintsResultSetAsync(
+            SqlDataReader reader,
             CancellationToken cancellationToken)
         {
-            using (var command = CreateCommand(connection, KeyConstraintsSql, schema))
-            using (var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+            var results = new List<KeyConstraintRow>();
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
-                var results = new List<KeyConstraintRow>();
-                while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                results.Add(new KeyConstraintRow
                 {
-                    results.Add(new KeyConstraintRow
-                    {
-                        ObjectId = reader.GetInt32(2),
-                        ConstraintName = reader.GetString(3),
-                        ConstraintType = reader.GetString(4),
-                        KeyOrdinal = GetInt32(reader, 6),
-                        ColumnName = reader.GetString(7),
-                    });
-                }
-                return results;
+                    ObjectId = reader.GetInt32(2),
+                    ConstraintName = reader.GetString(3),
+                    ConstraintType = reader.GetString(4),
+                    KeyOrdinal = GetInt32(reader, 6),
+                    ColumnName = reader.GetString(7),
+                });
             }
+
+            return results;
         }
 
-        private static async Task<List<CheckConstraintRow>> ReadCheckConstraintsAsync(
-            SqlConnection connection,
-            string schema,
+        private static async Task<List<CheckConstraintRow>> ReadCheckConstraintsResultSetAsync(
+            SqlDataReader reader,
             CancellationToken cancellationToken)
         {
-            using (var command = CreateCommand(connection, CheckConstraintsSql, schema))
-            using (var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+            var results = new List<CheckConstraintRow>();
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
-                var results = new List<CheckConstraintRow>();
-                while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                results.Add(new CheckConstraintRow
                 {
-                    results.Add(new CheckConstraintRow
-                    {
-                        ObjectId = reader.GetInt32(2),
-                        ConstraintName = reader.GetString(3),
-                        Definition = reader.GetString(4),
-                    });
-                }
-                return results;
+                    ObjectId = reader.GetInt32(2),
+                    ConstraintName = reader.GetString(3),
+                    Definition = reader.GetString(4),
+                });
             }
+
+            return results;
         }
 
-        private static async Task<List<IndexRow>> ReadIndexesAsync(
-            SqlConnection connection,
-            string schema,
+        private static async Task<List<IndexRow>> ReadIndexesResultSetAsync(
+            SqlDataReader reader,
             CancellationToken cancellationToken)
         {
-            using (var command = CreateCommand(connection, IndexesSql, schema))
-            using (var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+            var results = new List<IndexRow>();
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
-                var results = new List<IndexRow>();
-                while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                results.Add(new IndexRow
                 {
-                    results.Add(new IndexRow
-                    {
-                        ObjectId = reader.GetInt32(2),
-                        IndexName = reader.GetString(4),
-                        IsUnique = reader.GetBoolean(5),
-                        KeyOrdinal = GetInt32(reader, 9),
-                        IsIncludedColumn = reader.GetBoolean(10),
-                        IsDescendingKey = reader.GetBoolean(11),
-                        ColumnName = reader.GetString(12),
-                    });
-                }
-                return results;
+                    ObjectId = reader.GetInt32(2),
+                    IndexName = reader.GetString(4),
+                    IsUnique = reader.GetBoolean(5),
+                    KeyOrdinal = GetInt32(reader, 9),
+                    IsIncludedColumn = reader.GetBoolean(10),
+                    IsDescendingKey = reader.GetBoolean(11),
+                    ColumnName = reader.GetString(12),
+                });
             }
+
+            return results;
         }
 
-        private static async Task<List<ForeignKeyRow>> ReadForeignKeysAsync(
-            SqlConnection connection,
-            string schema,
+        private static async Task<List<ForeignKeyRow>> ReadForeignKeysResultSetAsync(
+            SqlDataReader reader,
             CancellationToken cancellationToken)
         {
-            using (var command = CreateCommand(connection, ForeignKeysSql, schema))
-            using (var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+            var results = new List<ForeignKeyRow>();
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
-                var results = new List<ForeignKeyRow>();
-                while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                results.Add(new ForeignKeyRow
                 {
-                    results.Add(new ForeignKeyRow
-                    {
-                        ParentObjectId = reader.GetInt32(2),
-                        ConstraintName = reader.GetString(3),
-                        ReferencedSchemaName = reader.GetString(4),
-                        ReferencedTableName = reader.GetString(5),
-                        Ordinal = reader.GetInt32(7),
-                        ParentColumnName = reader.GetString(8),
-                        ReferencedColumnName = reader.GetString(9),
-                    });
-                }
-                return results;
+                    ParentObjectId = reader.GetInt32(2),
+                    ConstraintName = reader.GetString(3),
+                    ReferencedSchemaName = reader.GetString(4),
+                    ReferencedTableName = reader.GetString(5),
+                    Ordinal = reader.GetInt32(7),
+                    ParentColumnName = reader.GetString(8),
+                    ReferencedColumnName = reader.GetString(9),
+                });
+            }
+
+            return results;
+        }
+
+        private static async Task MoveToNextResultSetAsync(
+            SqlDataReader reader,
+            string resultSetName,
+            CancellationToken cancellationToken)
+        {
+            if (!await reader.NextResultAsync(cancellationToken).ConfigureAwait(false))
+            {
+                throw new InvalidOperationException("Expected schema result set for " + resultSetName + ".");
             }
         }
 
