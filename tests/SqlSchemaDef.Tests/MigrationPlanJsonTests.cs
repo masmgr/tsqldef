@@ -159,6 +159,105 @@ public sealed class MigrationPlanJsonTests
         Assert.Equal(1, metadata.PlanFormatVersion);
     }
 
+    [Fact]
+    public void ToJson_WithProposals_IncludesProposalsArray()
+    {
+        var plan = CreatePlanWithProposals();
+        var json = MigrationPlanSerializer.ToJson(plan);
+
+        Assert.Contains("\"proposals\"", json);
+        Assert.Contains("\"createShadowTable\"", json);
+        Assert.Contains("__Users_rebuild", json);
+    }
+
+    [Fact]
+    public void ToJson_WithoutProposals_OmitsProposalsKey()
+    {
+        var plan = CreateSamplePlan();
+        var json = MigrationPlanSerializer.ToJson(plan);
+
+        Assert.DoesNotContain("\"proposals\"", json);
+    }
+
+    [Fact]
+    public void FromJson_WithProposals_DeserializesCorrectly()
+    {
+        var plan = CreatePlanWithProposals();
+        var json = MigrationPlanSerializer.ToJson(plan);
+        var deserialized = MigrationPlanSerializer.FromJson(json);
+
+        Assert.Equal(1, deserialized.Proposals.Count);
+        Assert.Equal("Rebuild dbo.Users", deserialized.Proposals[0].Description);
+        Assert.Equal("dbo", deserialized.Proposals[0].Target.Schema);
+        Assert.Equal("Users", deserialized.Proposals[0].Target.Name);
+        Assert.Equal(2, deserialized.Proposals[0].Steps.Count);
+        Assert.Equal(RebuildStepKind.CreateShadowTable, deserialized.Proposals[0].Steps[0].Kind);
+        Assert.Equal(RebuildStepKind.CopyData, deserialized.Proposals[0].Steps[1].Kind);
+    }
+
+    [Fact]
+    public void FromJson_WithoutProposalsKey_DefaultsToEmpty()
+    {
+        var json = @"{""metadata"":{""planFormatVersion"":1},""operations"":[],""skipped"":[]}";
+        var deserialized = MigrationPlanSerializer.FromJson(json);
+
+        Assert.NotNull(deserialized.Proposals);
+        Assert.Empty(deserialized.Proposals);
+    }
+
+    [Fact]
+    public void RoundTrip_PreservesProposalSteps()
+    {
+        var plan = CreatePlanWithProposals();
+        var json = MigrationPlanSerializer.ToJson(plan);
+        var deserialized = MigrationPlanSerializer.FromJson(json);
+
+        var original = plan.Proposals[0];
+        var roundTripped = deserialized.Proposals[0];
+
+        Assert.Equal(original.Steps.Count, roundTripped.Steps.Count);
+        for (int i = 0; i < original.Steps.Count; i++)
+        {
+            Assert.Equal(original.Steps[i].Kind, roundTripped.Steps[i].Kind);
+            Assert.Equal(original.Steps[i].Description, roundTripped.Steps[i].Description);
+            Assert.Equal(original.Steps[i].Sql, roundTripped.Steps[i].Sql);
+        }
+
+        Assert.Equal(original.Script, roundTripped.Script);
+        Assert.Equal(original.Warning, roundTripped.Warning);
+    }
+
+    private static MigrationPlan CreatePlanWithProposals()
+    {
+        return new MigrationPlan(
+            new PlanMetadata { Schema = "dbo", PlanFormatVersion = 1, DatabaseName = "TestDb" },
+            Array.Empty<SqlOperation>(),
+            new[]
+            {
+                new SkippedItem
+                {
+                    Reason = SkippedReason.AlterNotSupported,
+                    Target = new SqlObjectRef { Type = SqlObjectType.Column, Schema = "dbo", ParentName = "Users", Name = "Age" },
+                    Message = "alter is not supported in v1",
+                },
+            },
+            new[]
+            {
+                new RebuildProposal
+                {
+                    Target = new SqlObjectRef { Type = SqlObjectType.Table, Schema = "dbo", Name = "Users" },
+                    Description = "Rebuild dbo.Users",
+                    Warning = "FK from dbo.Orders references this table",
+                    Steps = new[]
+                    {
+                        new RebuildStep { Kind = RebuildStepKind.CreateShadowTable, Description = "Create shadow table", Sql = "CREATE TABLE dbo.__Users_rebuild (Id INT NOT NULL, Age BIGINT NULL)" },
+                        new RebuildStep { Kind = RebuildStepKind.CopyData, Description = "Copy data", Sql = "INSERT INTO dbo.__Users_rebuild (Id, Age) SELECT Id, Age FROM dbo.Users" },
+                    },
+                    Script = "CREATE TABLE dbo.__Users_rebuild (Id INT NOT NULL, Age BIGINT NULL)\nGO\nINSERT INTO dbo.__Users_rebuild (Id, Age) SELECT Id, Age FROM dbo.Users",
+                },
+            });
+    }
+
     private static MigrationPlan CreateSamplePlan()
     {
         return new MigrationPlan(

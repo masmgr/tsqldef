@@ -712,4 +712,58 @@ public sealed class SchemaDifferTests
             "dbo.Beta.FK_Beta_Alpha",
         }, targets);
     }
+
+    [Fact]
+    public void Diff_WithEmitProposalsFalse_ProposalsIsEmpty()
+    {
+        var desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL, Age bigint NULL)";
+        var desired = DesiredSchemaLoader.Load(desiredSql);
+        var current = new DatabaseModel();
+        var table = current.GetOrAddTable("dbo", "Users");
+        table.Columns[IdentifierHelper.NormalizeNameKey("Id")] = new ColumnModel { Name = "Id", SqlType = "INT", IsNullable = false };
+        table.Columns[IdentifierHelper.NormalizeNameKey("Age")] = new ColumnModel { Name = "Age", SqlType = "INT", IsNullable = true };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        Assert.Empty(plan.Proposals);
+        Assert.NotEmpty(plan.Skipped);
+    }
+
+    [Fact]
+    public void Diff_WithEmitProposalsTrue_ColumnTypeDiff_ProducesProposal()
+    {
+        var desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL, Age bigint NULL)";
+        var desired = DesiredSchemaLoader.Load(desiredSql);
+        var current = new DatabaseModel();
+        var table = current.GetOrAddTable("dbo", "Users");
+        table.Columns[IdentifierHelper.NormalizeNameKey("Id")] = new ColumnModel { Name = "Id", SqlType = "INT", IsNullable = false };
+        table.Columns[IdentifierHelper.NormalizeNameKey("Age")] = new ColumnModel { Name = "Age", SqlType = "INT", IsNullable = true };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var options = new PlannerOptions { EmitProposals = true };
+        var plan = SchemaDiffer.Diff(current, desired, metadata, options);
+
+        Assert.Single(plan.Proposals);
+        Assert.Equal("Users", plan.Proposals[0].Target.Name);
+        Assert.Contains("Age", plan.Proposals[0].Description);
+    }
+
+    [Fact]
+    public void Diff_WithEmitProposalsTrue_SkippedItemsStillPresent()
+    {
+        var desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL, Age bigint NULL)";
+        var desired = DesiredSchemaLoader.Load(desiredSql);
+        var current = new DatabaseModel();
+        var table = current.GetOrAddTable("dbo", "Users");
+        table.Columns[IdentifierHelper.NormalizeNameKey("Id")] = new ColumnModel { Name = "Id", SqlType = "INT", IsNullable = false };
+        table.Columns[IdentifierHelper.NormalizeNameKey("Age")] = new ColumnModel { Name = "Age", SqlType = "INT", IsNullable = true };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var options = new PlannerOptions { EmitProposals = true };
+        var plan = SchemaDiffer.Diff(current, desired, metadata, options);
+
+        Assert.NotEmpty(plan.Skipped);
+        Assert.NotEmpty(plan.Proposals);
+    }
 }

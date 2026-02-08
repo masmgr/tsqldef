@@ -225,6 +225,51 @@ public sealed class CliArgumentParsingTests
     }
 
     [Fact]
+    public async Task Plan_EmitSwapSqlFlag_IsRecognized()
+    {
+        var originalError = Console.Error;
+        try
+        {
+            using var stderr = new StringWriter();
+            Console.SetError(stderr);
+
+            var exitCode = await SqlSchemaDef.Cli.Program.Main(new[]
+            {
+                "plan",
+                "--emit-swap-sql",
+                "--connection", "Server=(local);Database=master;Trusted_Connection=True;",
+            });
+
+            var output = stderr.ToString();
+            Assert.DoesNotContain("Unknown arg: --emit-swap-sql", output);
+        }
+        finally
+        {
+            Console.SetError(originalError);
+        }
+    }
+
+    [Fact]
+    public async Task Help_MentionsEmitSwapSql()
+    {
+        var originalError = Console.Error;
+        try
+        {
+            using var stderr = new StringWriter();
+            Console.SetError(stderr);
+
+            await SqlSchemaDef.Cli.Program.Main(new[] { "--help" });
+
+            var output = stderr.ToString();
+            Assert.Contains("--emit-swap-sql", output);
+        }
+        finally
+        {
+            Console.SetError(originalError);
+        }
+    }
+
+    [Fact]
     public void UnsupportedBatchSeparator_IsMappedToUnsupportedExitCode()
     {
         var originalError = Console.Error;

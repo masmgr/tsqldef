@@ -118,10 +118,40 @@ public static class DomainArbitraries
         from ops in Gen.ArrayOf(opCount, GenSqlOperation())
         from skipCount in Gen.Choose(0, 3)
         from skips in Gen.ArrayOf(skipCount, GenSkippedItem())
+        from proposalCount in Gen.Choose(0, 2)
+        from proposals in Gen.ArrayOf(proposalCount, GenRebuildProposal())
         select new MigrationPlan(
             new PlanMetadata { Schema = "dbo", PlanFormatVersion = 1 },
             ops,
-            skips);
+            skips,
+            proposals);
+
+    public static Gen<RebuildProposal> GenRebuildProposal() =>
+        from tableName in GenSqlIdentifier()
+        from stepCount in Gen.Choose(1, 4)
+        from steps in Gen.ArrayOf(stepCount, GenRebuildStep())
+        select new RebuildProposal
+        {
+            Target = new SqlObjectRef { Type = SqlObjectType.Table, Schema = "dbo", Name = tableName },
+            Description = "Rebuild dbo." + tableName,
+            Steps = steps,
+            Script = string.Join("\nGO\n", steps.Select(s => s.Sql)),
+        };
+
+    private static Gen<RebuildStep> GenRebuildStep() =>
+        from kind in Gen.Elements(
+            RebuildStepKind.CreateShadowTable,
+            RebuildStepKind.CopyData,
+            RebuildStepKind.RenameOriginalToOld,
+            RebuildStepKind.RenameShadowToOriginal,
+            RebuildStepKind.DropOldTable)
+        from name in GenSqlIdentifier()
+        select new RebuildStep
+        {
+            Kind = kind,
+            Description = kind + " for " + name,
+            Sql = "-- " + kind + " " + name,
+        };
 
     private static Gen<SqlOperation> GenSqlOperation() =>
         from kind in Gen.Elements(

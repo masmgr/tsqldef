@@ -9,16 +9,19 @@ namespace SqlSchemaDef.Core.Planning
         public MigrationPlan(
             PlanMetadata metadata,
             IReadOnlyList<SqlOperation> operations,
-            IReadOnlyList<SkippedItem> skipped)
+            IReadOnlyList<SkippedItem> skipped,
+            IReadOnlyList<RebuildProposal> proposals = null)
         {
             Metadata = metadata;
             Operations = operations ?? throw new ArgumentNullException(nameof(operations));
             Skipped = skipped ?? throw new ArgumentNullException(nameof(skipped));
+            Proposals = proposals ?? Array.Empty<RebuildProposal>();
         }
 
         public PlanMetadata Metadata { get; }
         public IReadOnlyList<SqlOperation> Operations { get; }
         public IReadOnlyList<SkippedItem> Skipped { get; }
+        public IReadOnlyList<RebuildProposal> Proposals { get; }
 
         public bool IsEmpty => Operations.Count == 0;
 
@@ -79,6 +82,55 @@ namespace SqlSchemaDef.Core.Planning
                     }
 
                     sb.Append(newLine);
+                }
+            }
+
+            if (options.IncludeProposals && Proposals.Count > 0)
+            {
+                sb.Append(newLine);
+                sb.Append("-- ============================================================").Append(newLine);
+                sb.Append("-- PROPOSALS (review only - NOT applied automatically)").Append(newLine);
+                sb.Append("-- ============================================================").Append(newLine);
+
+                for (int p = 0; p < Proposals.Count; p++)
+                {
+                    var proposal = Proposals[p];
+                    sb.Append("--").Append(newLine);
+                    sb.Append("-- Proposal: ").Append(proposal.Description ?? string.Empty).Append(newLine);
+
+                    if (!string.IsNullOrEmpty(proposal.Warning))
+                    {
+                        sb.Append("--").Append(newLine);
+                        var warningLines = proposal.Warning.Split('\n');
+                        for (int w = 0; w < warningLines.Length; w++)
+                        {
+                            var line = warningLines[w].TrimEnd('\r');
+                            sb.Append("-- ").Append(line).Append(newLine);
+                        }
+                    }
+
+                    sb.Append("--").Append(newLine);
+
+                    if (proposal.Steps != null)
+                    {
+                        for (int s = 0; s < proposal.Steps.Count; s++)
+                        {
+                            var step = proposal.Steps[s];
+                            sb.Append("-- Step ").Append(s + 1).Append(": ").Append(step.Description ?? string.Empty).Append(newLine);
+
+                            if (!string.IsNullOrEmpty(step.Sql))
+                            {
+                                var sqlLines = step.Sql.Split('\n');
+                                for (int l = 0; l < sqlLines.Length; l++)
+                                {
+                                    var sqlLine = sqlLines[l].TrimEnd('\r');
+                                    sb.Append("-- ").Append(sqlLine).Append(newLine);
+                                }
+                            }
+
+                            sb.Append("-- GO").Append(newLine);
+                        }
+                    }
                 }
             }
 

@@ -22,12 +22,13 @@ namespace SqlSchemaDef.Cli
         {
             Console.Error.WriteLine("Usage:");
             Console.Error.WriteLine("  SqlSchemaDef.Cli export --connection <cs> [--out <desired.sql>]");
-            Console.Error.WriteLine("  SqlSchemaDef.Cli plan   --connection <cs> --file <desired.sql> [--format script|json] [--strict] [--include <tables>] [--exclude <tables>]");
+            Console.Error.WriteLine("  SqlSchemaDef.Cli plan   --connection <cs> --file <desired.sql> [--format script|json] [--strict] [--emit-swap-sql] [--include <tables>] [--exclude <tables>]");
             Console.Error.WriteLine("  SqlSchemaDef.Cli apply  --connection <cs> (--file <desired.sql> | --plan <plan.json>) [--include <tables>] [--exclude <tables>]");
             Console.Error.WriteLine();
             Console.Error.WriteLine("Notes:");
             Console.Error.WriteLine("  - plan prints the review script (dry-run) or JSON plan.");
             Console.Error.WriteLine("  - --strict exits non-zero (30) if any skipped items exist.");
+            Console.Error.WriteLine("  - --emit-swap-sql generates rebuild proposals for non-additive diffs.");
             Console.Error.WriteLine("  - v1 is additive-only (dbo fixed by default).");
             return exitCode;
         }
@@ -154,6 +155,7 @@ namespace SqlSchemaDef.Cli
             string? filePath = null;
             var format = "script";
             var strict = false;
+            var emitSwapSql = false;
             string? includeArg = null;
             string? excludeArg = null;
 
@@ -175,6 +177,9 @@ namespace SqlSchemaDef.Cli
                         break;
                     case "--strict":
                         strict = true;
+                        break;
+                    case "--emit-swap-sql":
+                        emitSwapSql = true;
                         break;
                     case "--include":
                         includeArg = GetArg(args, ref i);
@@ -205,7 +210,7 @@ namespace SqlSchemaDef.Cli
 
             var desiredSql = await File.ReadAllTextAsync(filePath).ConfigureAwait(false);
 
-            var plannerOptions = new PlannerOptions();
+            var plannerOptions = new PlannerOptions { EmitProposals = emitSwapSql };
             if (includeArg != null)
             {
                 plannerOptions.IncludeTablePatterns = ParseCsvArg(includeArg);
@@ -227,7 +232,11 @@ namespace SqlSchemaDef.Cli
             }
             else
             {
-                Console.Write(plan.ToScript(new ScriptOptions { HeaderMode = ScriptHeaderMode.DryRunStyle }));
+                Console.Write(plan.ToScript(new ScriptOptions
+                {
+                    HeaderMode = ScriptHeaderMode.DryRunStyle,
+                    IncludeProposals = emitSwapSql,
+                }));
             }
 
             if (strict && plan.Skipped.Count > 0)

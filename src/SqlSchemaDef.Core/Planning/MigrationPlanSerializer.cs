@@ -26,6 +26,7 @@ namespace SqlSchemaDef.Core.Planning
                 Metadata = plan.Metadata,
                 Operations = plan.Operations,
                 Skipped = plan.Skipped,
+                Proposals = plan.Proposals.Count > 0 ? plan.Proposals : null,
             };
 
             return JsonConvert.SerializeObject(dto, Settings);
@@ -61,7 +62,8 @@ namespace SqlSchemaDef.Core.Planning
             return new MigrationPlan(
                 dto.Metadata ?? new PlanMetadata(),
                 dto.Operations ?? (IReadOnlyList<SqlOperation>)Array.Empty<SqlOperation>(),
-                dto.Skipped ?? (IReadOnlyList<SkippedItem>)Array.Empty<SkippedItem>());
+                dto.Skipped ?? (IReadOnlyList<SkippedItem>)Array.Empty<SkippedItem>(),
+                dto.Proposals ?? (IReadOnlyList<RebuildProposal>)Array.Empty<RebuildProposal>());
         }
 
         private sealed class MigrationPlanDto
@@ -69,6 +71,7 @@ namespace SqlSchemaDef.Core.Planning
             public PlanMetadata Metadata { get; set; }
             public IReadOnlyList<SqlOperation> Operations { get; set; }
             public IReadOnlyList<SkippedItem> Skipped { get; set; }
+            public IReadOnlyList<RebuildProposal> Proposals { get; set; }
         }
     }
 }

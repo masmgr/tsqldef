@@ -81,4 +81,49 @@ public sealed class MigrationPlanJsonPropertyTests
                 .Label("JSON output differs across calls");
         });
     }
+
+    [Property(MaxTest = 100)]
+    public Property RoundTrip_ToJson_FromJson_PreservesProposalCount()
+    {
+        return Prop.ForAll(Arb.From(DomainArbitraries.GenMigrationPlan()), plan =>
+        {
+            var json = MigrationPlanSerializer.ToJson(plan);
+            var deserialized = MigrationPlanSerializer.FromJson(json);
+
+            return (deserialized.Proposals.Count == plan.Proposals.Count)
+                .Label($"proposals: expected={plan.Proposals.Count} actual={deserialized.Proposals.Count}");
+        });
+    }
+
+    [Property(MaxTest = 100)]
+    public Property RoundTrip_ToJson_FromJson_PreservesProposalSteps()
+    {
+        return Prop.ForAll(Arb.From(DomainArbitraries.GenMigrationPlan()), plan =>
+        {
+            var json = MigrationPlanSerializer.ToJson(plan);
+            var deserialized = MigrationPlanSerializer.FromJson(json);
+
+            if (plan.Proposals.Count != deserialized.Proposals.Count)
+                return false.Label("Proposal count mismatch");
+
+            for (int p = 0; p < plan.Proposals.Count; p++)
+            {
+                var original = plan.Proposals[p];
+                var roundTripped = deserialized.Proposals[p];
+
+                if (original.Steps.Count != roundTripped.Steps.Count)
+                    return false.Label($"Step count differs at proposal {p}");
+
+                for (int s = 0; s < original.Steps.Count; s++)
+                {
+                    if (original.Steps[s].Kind != roundTripped.Steps[s].Kind)
+                        return false.Label($"Step kind differs at proposal {p} step {s}");
+                    if (original.Steps[s].Sql != roundTripped.Steps[s].Sql)
+                        return false.Label($"Step sql differs at proposal {p} step {s}");
+                }
+            }
+
+            return true.ToProperty();
+        });
+    }
 }

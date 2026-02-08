@@ -17,6 +17,8 @@ namespace SqlSchemaDef.Core.Planning
         public SurplusCurrentObjectBehavior SurplusCurrentObjectBehavior { get; set; }
             = SurplusCurrentObjectBehavior.CollectAsSkipped;
 
+        public bool EmitProposals { get; set; }
+
         public IReadOnlyList<string> IncludeTablePatterns { get; set; }
 
         public IReadOnlyList<string> ExcludeTablePatterns { get; set; }
