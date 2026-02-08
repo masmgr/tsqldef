@@ -69,7 +69,7 @@ namespace SqlSchemaDef.SqlServer.Planning
         }
 
         private static void AddBatchIfNotEmpty(
-            IList<SqlBatch> batches,
+            List<SqlBatch> batches,
             StringBuilder current,
             int startLine)
         {

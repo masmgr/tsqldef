@@ -36,4 +36,3 @@ namespace SqlSchemaDef.Core.Planning
         CollectAsSkipped = 0,
     }
 }
-

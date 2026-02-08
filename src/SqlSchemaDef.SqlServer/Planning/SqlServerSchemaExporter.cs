@@ -31,7 +31,7 @@ namespace SqlSchemaDef.SqlServer.Planning
 
     public sealed class SqlServerSchemaExporter
     {
-        public Task<ExportResult> ExportAsync(
+        public static Task<ExportResult> ExportAsync(
             DbConnection connection,
             ExportOptions options = null,
             CancellationToken cancellationToken = default)
@@ -57,8 +57,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             ExportOptions options,
             CancellationToken cancellationToken)
         {
-            var model = await new CurrentSchemaReader()
-                .ReadAsync(connection, schema, cancellationToken)
+            var model = await CurrentSchemaReader.ReadAsync(connection, schema, cancellationToken)
                 .ConfigureAwait(false);
 
             var skipped = new List<SkippedItem>();
@@ -149,7 +148,7 @@ namespace SqlSchemaDef.SqlServer.Planning
 
                 foreach (var item in skipped)
                 {
-                    sb.Append("-- Skipped: ").Append(item.Reason).Append(" ");
+                    sb.Append("-- Skipped: ").Append(item.Reason).Append(' ');
                     sb.Append(item.Target != null ? item.Target.ToDisplayName() : "(unknown)");
                     if (!string.IsNullOrEmpty(item.Message))
                     {
@@ -197,7 +196,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             }
 
             var sb = new StringBuilder();
-            sb.Append("CREATE TABLE ").Append(table.Schema).Append(".").Append(IdentifierHelper.EscapeIfKeyword(table.Name)).Append(" (");
+            sb.Append("CREATE TABLE ").Append(table.Schema).Append('.').Append(IdentifierHelper.EscapeIfKeyword(table.Name)).Append(" (");
 
             for (var i = 0; i < exportable.Count; i++)
             {
@@ -208,7 +207,7 @@ namespace SqlSchemaDef.SqlServer.Planning
                 }
 
                 sb.Append(IdentifierHelper.EscapeIfKeyword(column.Name))
-                    .Append(" ")
+                    .Append(' ')
                     .Append(column.SqlType);
 
                 if (column.IsIdentity)
@@ -221,10 +220,10 @@ namespace SqlSchemaDef.SqlServer.Planning
                     sb.Append(" DEFAULT ").Append(column.DefaultExpression);
                 }
 
-                sb.Append(" ").Append(column.IsNullable ? "NULL" : "NOT NULL");
+                sb.Append(' ').Append(column.IsNullable ? "NULL" : "NOT NULL");
             }
 
-            sb.Append(")");
+            sb.Append(')');
             return sb.ToString();
         }
 

@@ -13,4 +13,3 @@ namespace SqlSchemaDef.Core.Planning
             CancellationToken cancellationToken = default);
     }
 }
-

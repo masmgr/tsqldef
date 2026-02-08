@@ -38,4 +38,3 @@ namespace SqlSchemaDef.Core.Planning
         ForeignKey = 5,
     }
 }
-

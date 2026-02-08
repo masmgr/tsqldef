@@ -20,4 +20,3 @@ namespace SqlSchemaDef.Core.Planning
         public string Fragment { get; set; }
     }
 }
-

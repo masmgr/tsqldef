@@ -9,7 +9,7 @@ namespace SqlSchemaDef.SqlServer.Planning
 {
     public sealed class DesiredSchemaLoader
     {
-        public DatabaseModel Load(string desiredSql)
+        public static DatabaseModel Load(string desiredSql)
         {
             if (desiredSql == null)
                 throw new ArgumentNullException(nameof(desiredSql));
@@ -17,7 +17,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             return Load(desiredSql, new PlannerOptions(), out _);
         }
 
-        public DatabaseModel Load(string desiredSql, PlannerOptions options, out IReadOnlyList<SkippedItem> skipped)
+        public static DatabaseModel Load(string desiredSql, PlannerOptions options, out IReadOnlyList<SkippedItem> skipped)
         {
             if (desiredSql == null)
                 throw new ArgumentNullException(nameof(desiredSql));
@@ -27,8 +27,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             var visitor = new DesiredModelBuilderVisitor(model, options);
 
             var batches = BatchSplitter.Split(desiredSql);
-            var parser = new DesiredSqlParser();
-            var fragments = parser.ParseBatches(batches);
+            var fragments = DesiredSqlParser.ParseBatches(batches);
 
             for (var i = 0; i < fragments.Count; i++)
             {
@@ -240,7 +239,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             table.Columns[IdentifierHelper.NormalizeNameKey(columnModel.Name)] = columnModel;
         }
 
-        private bool ResolveNullability(ColumnDefinition column)
+        private static bool ResolveNullability(ColumnDefinition column)
         {
             var nullableConstraint = column.Constraints
                 .OfType<NullableConstraintDefinition>()
@@ -333,7 +332,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             return ("dbo", name.BaseIdentifier.Value);
         }
 
-        private string GenerateScript(TSqlFragment fragment)
+        private static string GenerateScript(TSqlFragment fragment)
         {
             ScriptGenerator.GenerateScript(fragment, out var text);
             return text.Trim();

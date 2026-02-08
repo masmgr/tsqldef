@@ -17,4 +17,3 @@ namespace SqlSchemaDef.Core.Planning
         AddForeignKey = 50,
     }
 }
-

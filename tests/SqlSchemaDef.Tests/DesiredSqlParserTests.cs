@@ -18,9 +18,7 @@ public sealed class DesiredSqlParserTests
         });
 
         var batches = BatchSplitter.Split(sql);
-        var parser = new DesiredSqlParser();
-
-        var ex = Assert.Throws<DesiredSqlParseException>(() => parser.ParseBatches(batches));
+        var ex = Assert.Throws<DesiredSqlParseException>(() => DesiredSqlParser.ParseBatches(batches));
 
         Assert.NotEmpty(ex.Diagnostics);
         var diagnostic = ex.Diagnostics[0];
@@ -42,9 +40,7 @@ public sealed class DesiredSqlParserTests
         });
 
         var batches = BatchSplitter.Split(sql);
-        var parser = new DesiredSqlParser();
-
-        var ex = Assert.Throws<DesiredSqlParseException>(() => parser.ParseBatches(batches));
+        var ex = Assert.Throws<DesiredSqlParseException>(() => DesiredSqlParser.ParseBatches(batches));
 
         Assert.True(ex.Diagnostics.Count >= 2);
         Assert.Contains(ex.Diagnostics, diag => diag.BatchIndex == 0);

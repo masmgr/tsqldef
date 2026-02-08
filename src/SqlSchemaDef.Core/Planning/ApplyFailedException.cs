@@ -10,4 +10,3 @@ namespace SqlSchemaDef.Core.Planning
         public SqlOperation Operation { get; }
     }
 }
-

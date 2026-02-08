@@ -48,14 +48,11 @@ namespace SqlSchemaDef.SqlServer.Planning
             PlannerOptions options,
             CancellationToken cancellationToken)
         {
-            var desiredLoader = new DesiredSchemaLoader();
-            var desired = desiredLoader.Load(desiredSql, options, out var desiredSkipped);
-            var current = await new CurrentSchemaReader()
-                .ReadAsync(connection, metadata.Schema, cancellationToken)
+            var desired = DesiredSchemaLoader.Load(desiredSql, options, out var desiredSkipped);
+            var current = await CurrentSchemaReader.ReadAsync(connection, metadata.Schema, cancellationToken)
                 .ConfigureAwait(false);
 
-            var differ = new SchemaDiffer();
-            var plan = differ.Diff(current, desired, metadata, options);
+            var plan = SchemaDiffer.Diff(current, desired, metadata, options);
 
             if (desiredSkipped.Count == 0)
             {

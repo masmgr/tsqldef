@@ -71,4 +71,3 @@ internal sealed class SqlServerTestDatabase : IAsyncDisposable
         }
     }
 }
-

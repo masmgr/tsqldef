@@ -10,10 +10,8 @@ public sealed class DesiredModelBuilderVisitorTests
     [Fact]
     public void Load_UnsupportedStatement_Throws()
     {
-        var loader = new DesiredSchemaLoader();
-
         var ex = Assert.Throws<UnsupportedDesiredStatementException>(() =>
-            loader.Load("CREATE VIEW dbo.V AS SELECT 1"));
+            DesiredSchemaLoader.Load("CREATE VIEW dbo.V AS SELECT 1"));
 
         Assert.Equal(0, ex.BatchIndex);
         Assert.Equal(1, ex.Line);
@@ -25,10 +23,8 @@ public sealed class DesiredModelBuilderVisitorTests
     [Fact]
     public void Load_UnsupportedAlterColumn_Throws()
     {
-        var loader = new DesiredSchemaLoader();
-
         var ex = Assert.Throws<UnsupportedDesiredStatementException>(() =>
-            loader.Load("ALTER TABLE dbo.Users ALTER COLUMN Name int"));
+            DesiredSchemaLoader.Load("ALTER TABLE dbo.Users ALTER COLUMN Name int"));
 
         Assert.Equal("AlterTableAlterColumnStatement", ex.StatementType);
         Assert.Contains("Unsupported desired statement in v1", ex.Message);
@@ -37,10 +33,8 @@ public sealed class DesiredModelBuilderVisitorTests
     [Fact]
     public void Load_UnsupportedSchema_Throws()
     {
-        var loader = new DesiredSchemaLoader();
-
         var ex = Assert.Throws<UnsupportedSchemaException>(() =>
-            loader.Load("CREATE TABLE foo.Bar (Id int)"));
+            DesiredSchemaLoader.Load("CREATE TABLE foo.Bar (Id int)"));
 
         Assert.Equal(0, ex.BatchIndex);
         Assert.Equal(1, ex.Line);
@@ -51,10 +45,8 @@ public sealed class DesiredModelBuilderVisitorTests
     [Fact]
     public void Load_UnsupportedForeignKeySchema_Throws()
     {
-        var loader = new DesiredSchemaLoader();
-
         var ex = Assert.Throws<UnsupportedSchemaException>(() =>
-            loader.Load("CREATE TABLE dbo.T (Id int, CONSTRAINT FK_T FOREIGN KEY (Id) REFERENCES foo.Ref(Id))"));
+            DesiredSchemaLoader.Load("CREATE TABLE dbo.T (Id int, CONSTRAINT FK_T FOREIGN KEY (Id) REFERENCES foo.Ref(Id))"));
 
         Assert.Equal("foo", ex.SchemaName);
         Assert.Contains("Only schema 'dbo' is supported", ex.Message);
@@ -63,9 +55,7 @@ public sealed class DesiredModelBuilderVisitorTests
     [Fact]
     public void Load_IndexIncludeAndSortOrder_AreMapped()
     {
-        var loader = new DesiredSchemaLoader();
-
-        var model = loader.Load("CREATE INDEX IX_T ON dbo.T (Id DESC, Name) INCLUDE (OtherId)");
+        var model = DesiredSchemaLoader.Load("CREATE INDEX IX_T ON dbo.T (Id DESC, Name) INCLUDE (OtherId)");
 
         var table = model.Tables.Values.Single();
         var index = table.Indexes.Values.Single();
@@ -82,10 +72,8 @@ public sealed class DesiredModelBuilderVisitorTests
     [Fact]
     public void Load_FilteredIndex_Throws()
     {
-        var loader = new DesiredSchemaLoader();
-
         var ex = Assert.Throws<UnsupportedDesiredFeatureException>(() =>
-            loader.Load("CREATE INDEX IX_T ON dbo.T (Id) WHERE Id > 0"));
+            DesiredSchemaLoader.Load("CREATE INDEX IX_T ON dbo.T (Id) WHERE Id > 0"));
 
         Assert.Equal("IndexFilter", ex.FeatureName);
         Assert.Contains("Unsupported desired feature in v1", ex.Message);
@@ -94,10 +82,8 @@ public sealed class DesiredModelBuilderVisitorTests
     [Fact]
     public void Load_IndexOptions_Throws()
     {
-        var loader = new DesiredSchemaLoader();
-
         var ex = Assert.Throws<UnsupportedDesiredFeatureException>(() =>
-            loader.Load("CREATE INDEX IX_T ON dbo.T (Id) WITH (ONLINE = ON)"));
+            DesiredSchemaLoader.Load("CREATE INDEX IX_T ON dbo.T (Id) WITH (ONLINE = ON)"));
 
         Assert.Equal("IndexOptions", ex.FeatureName);
         Assert.Contains("Unsupported desired feature in v1", ex.Message);
@@ -106,10 +92,8 @@ public sealed class DesiredModelBuilderVisitorTests
     [Fact]
     public void Load_ComputedColumn_Throws()
     {
-        var loader = new DesiredSchemaLoader();
-
         var ex = Assert.Throws<UnsupportedDesiredFeatureException>(() =>
-            loader.Load("CREATE TABLE dbo.T (Computed AS (1))"));
+            DesiredSchemaLoader.Load("CREATE TABLE dbo.T (Computed AS (1))"));
 
         Assert.Equal("ComputedColumn", ex.FeatureName);
         Assert.Contains("Unsupported desired feature in v1", ex.Message);
@@ -118,7 +102,6 @@ public sealed class DesiredModelBuilderVisitorTests
     [Fact]
     public void Load_CreateTableAndAlter_AddsToModel()
     {
-        var loader = new DesiredSchemaLoader();
         var sql = string.Join("\n", new[]
         {
             "CREATE TABLE dbo.Users (Id int NOT NULL)",
@@ -127,7 +110,7 @@ public sealed class DesiredModelBuilderVisitorTests
             "CREATE UNIQUE INDEX IX_Users_Name ON dbo.Users (Name)",
         });
 
-        var model = loader.Load(sql);
+        var model = DesiredSchemaLoader.Load(sql);
         var table = model.Tables.Values.Single();
 
         Assert.Equal("dbo", table.Schema);
@@ -141,9 +124,7 @@ public sealed class DesiredModelBuilderVisitorTests
     [Fact]
     public void Load_AlterTableAddNotNullColumn_IsSkipped()
     {
-        var loader = new DesiredSchemaLoader();
-
-        var model = loader.Load(
+        var model = DesiredSchemaLoader.Load(
             "ALTER TABLE dbo.Users ADD Age int NOT NULL",
             new PlannerOptions(),
             out var skipped);

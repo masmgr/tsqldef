@@ -8,7 +8,7 @@ namespace SqlSchemaDef.SqlServer.Planning
 {
     internal sealed class SchemaDiffer
     {
-        public MigrationPlan Diff(
+        public static MigrationPlan Diff(
             DatabaseModel current,
             DatabaseModel desired,
             PlanMetadata metadata,
@@ -608,7 +608,7 @@ namespace SqlSchemaDef.SqlServer.Planning
         private static string BuildCreateTableSql(TableModel table)
         {
             var sb = new StringBuilder();
-            sb.Append("CREATE TABLE ").Append(table.Schema).Append(".").Append(IdentifierHelper.EscapeIfKeyword(table.Name)).Append(" (");
+            sb.Append("CREATE TABLE ").Append(table.Schema).Append('.').Append(IdentifierHelper.EscapeIfKeyword(table.Name)).Append(" (");
 
             var columns = table.Columns.Values
                 .OrderBy(column => IdentifierHelper.NormalizeNameKey(column.Name), StringComparer.OrdinalIgnoreCase)
@@ -623,13 +623,13 @@ namespace SqlSchemaDef.SqlServer.Planning
                 }
 
                 sb.Append(IdentifierHelper.EscapeIfKeyword(column.Name))
-                    .Append(" ")
+                    .Append(' ')
                     .Append(column.SqlType)
-                    .Append(" ")
+                    .Append(' ')
                     .Append(column.IsNullable ? "NULL" : "NOT NULL");
             }
 
-            sb.Append(")");
+            sb.Append(')');
             return sb.ToString();
         }
     }

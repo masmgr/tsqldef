@@ -15,4 +15,3 @@ namespace SqlSchemaDef.Core.Planning
         DryRunStyle = 1,
     }
 }
-

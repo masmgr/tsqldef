@@ -49,7 +49,7 @@ namespace SqlSchemaDef.Core.Planning
 
                 if (options.TerminateWithSemicolon && !EndsWithSemicolon(sql))
                 {
-                    sb.Append(";");
+                    sb.Append(';');
                 }
 
                 sb.Append(newLine);
@@ -70,7 +70,7 @@ namespace SqlSchemaDef.Core.Planning
                 for (int i = 0; i < Skipped.Count; i++)
                 {
                     var item = Skipped[i];
-                    sb.Append("-- Skipped: ").Append(item.Reason).Append(" ");
+                    sb.Append("-- Skipped: ").Append(item.Reason).Append(' ');
                     sb.Append(item.Target != null ? item.Target.ToDisplayName() : "(unknown)");
 
                     if (!string.IsNullOrEmpty(item.Message))
@@ -106,4 +106,3 @@ namespace SqlSchemaDef.Core.Planning
         }
     }
 }
-

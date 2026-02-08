@@ -115,4 +115,3 @@ public sealed class CliArgumentParsingTests
         }
     }
 }
-

@@ -65,4 +65,3 @@ public sealed class CoreOptionsAndExceptionsTests
         Assert.Equal("dbo", metadata.Schema);
     }
 }
-

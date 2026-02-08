@@ -11,11 +11,11 @@ public sealed class SchemaDifferTests
     public void Diff_WhenTableMissing_EmitsCreateTable()
     {
         var desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL)";
-        var desired = new DesiredSchemaLoader().Load(desiredSql);
+        var desired = DesiredSchemaLoader.Load(desiredSql);
         var current = new DatabaseModel();
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var plan = new SchemaDiffer().Diff(current, desired, metadata);
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
 
         var op = Assert.Single(plan.Operations);
         Assert.Equal(OperationKind.CreateTable, op.Kind);
@@ -27,11 +27,11 @@ public sealed class SchemaDifferTests
     public void Diff_WhenIdentifiersAreKeywords_EscapesInSql()
     {
         var desiredSql = "CREATE TABLE dbo.[User] ([Select] int NOT NULL)";
-        var desired = new DesiredSchemaLoader().Load(desiredSql);
+        var desired = DesiredSchemaLoader.Load(desiredSql);
         var current = new DatabaseModel();
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var plan = new SchemaDiffer().Diff(current, desired, metadata);
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
 
         var op = Assert.Single(plan.Operations);
         Assert.Equal("CREATE TABLE dbo.[User] ([Select] INT NOT NULL)", op.Sql);
@@ -41,7 +41,7 @@ public sealed class SchemaDifferTests
     public void Diff_WhenColumnMissing_EmitsAddColumn()
     {
         var desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL, Name nvarchar(100) NULL)";
-        var desired = new DesiredSchemaLoader().Load(desiredSql);
+        var desired = DesiredSchemaLoader.Load(desiredSql);
 
         var current = new DatabaseModel();
         var currentTable = current.GetOrAddTable("dbo", "Users");
@@ -54,7 +54,7 @@ public sealed class SchemaDifferTests
         };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var plan = new SchemaDiffer().Diff(current, desired, metadata);
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
 
         var op = Assert.Single(plan.Operations);
         Assert.Equal(OperationKind.AddColumn, op.Kind);
@@ -66,7 +66,7 @@ public sealed class SchemaDifferTests
     public void Diff_WhenNotNullColumnMissing_IsSkipped()
     {
         var desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL, Age int NOT NULL)";
-        var desired = new DesiredSchemaLoader().Load(desiredSql);
+        var desired = DesiredSchemaLoader.Load(desiredSql);
 
         var current = new DatabaseModel();
         var currentTable = current.GetOrAddTable("dbo", "Users");
@@ -79,7 +79,7 @@ public sealed class SchemaDifferTests
         };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var plan = new SchemaDiffer().Diff(current, desired, metadata);
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
 
         Assert.Empty(plan.Operations);
 
@@ -106,7 +106,7 @@ public sealed class SchemaDifferTests
             "ALTER TABLE dbo.Users ADD CONSTRAINT FK_Users_Teams FOREIGN KEY (TeamId) REFERENCES dbo.Teams (Id)",
         });
 
-        var desired = new DesiredSchemaLoader().Load(desiredSql);
+        var desired = DesiredSchemaLoader.Load(desiredSql);
 
         var current = new DatabaseModel();
         var currentTable = current.GetOrAddTable("dbo", "Users");
@@ -116,7 +116,7 @@ public sealed class SchemaDifferTests
         currentTable.Columns["AGE"] = new ColumnModel { Name = "Age", SqlType = "int", IsNullable = true };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var plan = new SchemaDiffer().Diff(current, desired, metadata);
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
 
         var kinds = plan.Operations.Select(op => op.Kind).ToArray();
         Assert.Equal(new[]
@@ -149,7 +149,7 @@ public sealed class SchemaDifferTests
             "CREATE INDEX IX_Users_Name ON dbo.Users (Name DESC) INCLUDE (Age)",
         });
 
-        var desired = new DesiredSchemaLoader().Load(desiredSql);
+        var desired = DesiredSchemaLoader.Load(desiredSql);
 
         var current = new DatabaseModel();
         var currentTable = current.GetOrAddTable("dbo", "Users");
@@ -158,7 +158,7 @@ public sealed class SchemaDifferTests
         currentTable.Columns["AGE"] = new ColumnModel { Name = "Age", SqlType = "int", IsNullable = true };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var plan = new SchemaDiffer().Diff(current, desired, metadata);
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
 
         var op = Assert.Single(plan.Operations);
         Assert.Equal(OperationKind.CreateIndex, op.Kind);
@@ -185,7 +185,7 @@ public sealed class SchemaDifferTests
         currentUsers.Columns["AGE"] = new ColumnModel { Name = "Age", SqlType = "int", IsNullable = true };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var plan = new SchemaDiffer().Diff(current, desired, metadata);
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
 
         var operation = Assert.Single(plan.Operations);
         Assert.Contains("CONSTRAINT CK_Users_Age CHECK (Age > 0)", operation.Sql);
@@ -199,7 +199,7 @@ public sealed class SchemaDifferTests
         current.GetOrAddTable("dbo", "OldTable");
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var plan = new SchemaDiffer().Diff(current, desired, metadata);
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
 
         var skipped = Assert.Single(plan.Skipped);
         Assert.Equal(SkippedReason.DropNotSupported, skipped.Reason);
@@ -230,7 +230,7 @@ public sealed class SchemaDifferTests
         };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var plan = new SchemaDiffer().Diff(current, desired, metadata);
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
 
         Assert.Empty(plan.Operations);
 
@@ -255,8 +255,8 @@ public sealed class SchemaDifferTests
         secondAlpha.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var firstPlan = new SchemaDiffer().Diff(new DatabaseModel(), firstDesired, metadata);
-        var secondPlan = new SchemaDiffer().Diff(new DatabaseModel(), secondDesired, metadata);
+        var firstPlan = SchemaDiffer.Diff(new DatabaseModel(), firstDesired, metadata);
+        var secondPlan = SchemaDiffer.Diff(new DatabaseModel(), secondDesired, metadata);
 
         var firstTargets = firstPlan.Operations.Select(op => op.Target.ToDisplayName()).ToArray();
         var secondTargets = secondPlan.Operations.Select(op => op.Target.ToDisplayName()).ToArray();
@@ -290,14 +290,12 @@ public sealed class SchemaDifferTests
             "ALTER TABLE dbo.Beta ADD CONSTRAINT PK_Beta PRIMARY KEY (Id)",
         });
 
-        var loader = new DesiredSchemaLoader();
-        var firstDesired = loader.Load(firstSql);
-        var secondDesired = loader.Load(secondSql);
+        var firstDesired = DesiredSchemaLoader.Load(firstSql);
+        var secondDesired = DesiredSchemaLoader.Load(secondSql);
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var differ = new SchemaDiffer();
-        var firstPlan = differ.Diff(new DatabaseModel(), firstDesired, metadata);
-        var secondPlan = differ.Diff(new DatabaseModel(), secondDesired, metadata);
+        var firstPlan = SchemaDiffer.Diff(new DatabaseModel(), firstDesired, metadata);
+        var secondPlan = SchemaDiffer.Diff(new DatabaseModel(), secondDesired, metadata);
 
         var firstTargets = firstPlan.Operations.Select(op => op.Target.ToDisplayName()).ToArray();
         var secondTargets = secondPlan.Operations.Select(op => op.Target.ToDisplayName()).ToArray();
@@ -320,7 +318,7 @@ public sealed class SchemaDifferTests
         current.GetOrAddTable("dbo", "Alpha");
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var plan = new SchemaDiffer().Diff(current, new DatabaseModel(), metadata);
+        var plan = SchemaDiffer.Diff(current, new DatabaseModel(), metadata);
 
         var targets = plan.Skipped.Select(item => item.Target.ToDisplayName()).ToArray();
         Assert.Equal(new[] { "dbo.Alpha", "dbo.Beta" }, targets);
@@ -348,7 +346,7 @@ public sealed class SchemaDifferTests
         };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var plan = new SchemaDiffer().Diff(current, desired, metadata);
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
 
         Assert.Empty(plan.Operations);
 
@@ -379,7 +377,7 @@ public sealed class SchemaDifferTests
         };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var plan = new SchemaDiffer().Diff(current, desired, metadata);
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
 
         Assert.Empty(plan.Operations);
 
@@ -411,7 +409,7 @@ public sealed class SchemaDifferTests
         };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var plan = new SchemaDiffer().Diff(current, desired, metadata);
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
 
         Assert.Empty(plan.Operations);
 
@@ -448,7 +446,7 @@ public sealed class SchemaDifferTests
         };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var plan = new SchemaDiffer().Diff(current, desired, metadata);
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
 
         var targets = plan.Skipped.Select(item => item.Target.ToDisplayName()).ToArray();
         Assert.Equal(new[]
@@ -472,11 +470,11 @@ public sealed class SchemaDifferTests
             ")",
         });
 
-        var desired = new DesiredSchemaLoader().Load(desiredSql);
+        var desired = DesiredSchemaLoader.Load(desiredSql);
         var current = new DatabaseModel();
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var plan = new SchemaDiffer().Diff(current, desired, metadata);
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
 
         Assert.Equal(3, plan.Operations.Count);
         Assert.Equal(OperationKind.CreateTable, plan.Operations[0].Kind);
@@ -521,7 +519,7 @@ public sealed class SchemaDifferTests
         };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var plan = new SchemaDiffer().Diff(current, desired, metadata);
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
 
         var targets = plan.Skipped.Select(item => item.Target.ToDisplayName()).ToArray();
         Assert.Equal(new[]
@@ -570,7 +568,7 @@ public sealed class SchemaDifferTests
         };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var plan = new SchemaDiffer().Diff(current, desired, metadata);
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
 
         var targets = plan.Skipped.Select(item => item.Target.ToDisplayName()).ToArray();
         Assert.Equal(new[]
@@ -613,7 +611,7 @@ public sealed class SchemaDifferTests
         };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var plan = new SchemaDiffer().Diff(current, desired, metadata);
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
 
         var targets = plan.Skipped.Select(item => item.Target.ToDisplayName()).ToArray();
         Assert.Equal(new[]

@@ -36,4 +36,3 @@ namespace SqlSchemaDef.Core.Planning
         public string SeparatorText { get; set; }
     }
 }
-

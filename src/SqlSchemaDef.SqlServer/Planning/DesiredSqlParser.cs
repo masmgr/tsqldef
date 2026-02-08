@@ -9,7 +9,7 @@ namespace SqlSchemaDef.SqlServer.Planning
 {
     public sealed class DesiredSqlParser
     {
-        public IReadOnlyList<TSqlFragment> ParseBatches(IEnumerable<SqlBatch> batches)
+        public static IReadOnlyList<TSqlFragment> ParseBatches(IEnumerable<SqlBatch> batches)
         {
             if (batches == null)
                 throw new ArgumentNullException(nameof(batches));

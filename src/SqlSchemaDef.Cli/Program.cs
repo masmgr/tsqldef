@@ -30,7 +30,7 @@ namespace SqlSchemaDef.Cli
             return exitCode;
         }
 
-        private static string GetArg(IReadOnlyList<string> args, ref int i)
+        private static string GetArg(List<string> args, ref int i)
         {
             if (i + 1 >= args.Count)
             {
@@ -85,7 +85,7 @@ namespace SqlSchemaDef.Cli
             }
         }
 
-        private static async Task<int> RunExportAsync(IReadOnlyList<string> args)
+        private static async Task<int> RunExportAsync(List<string> args)
         {
             string? connectionString = null;
             string? outPath = null;
@@ -120,8 +120,7 @@ namespace SqlSchemaDef.Cli
             await using var conn = new SqlConnection(connectionString);
             await conn.OpenAsync().ConfigureAwait(false);
 
-            var exporter = new SqlServerSchemaExporter();
-            var result = await exporter.ExportAsync(conn, new ExportOptions()).ConfigureAwait(false);
+            var result = await SqlServerSchemaExporter.ExportAsync(conn, new ExportOptions()).ConfigureAwait(false);
 
             if (string.IsNullOrWhiteSpace(outPath))
             {
@@ -135,7 +134,7 @@ namespace SqlSchemaDef.Cli
             return ExitOk;
         }
 
-        private static async Task<int> RunPlanAsync(IReadOnlyList<string> args)
+        private static async Task<int> RunPlanAsync(List<string> args)
         {
             string? connectionString = null;
             string? filePath = null;
@@ -189,7 +188,7 @@ namespace SqlSchemaDef.Cli
             return ExitOk;
         }
 
-        private static async Task<int> RunApplyAsync(IReadOnlyList<string> args)
+        private static async Task<int> RunApplyAsync(List<string> args)
         {
             string? connectionString = null;
             string? filePath = null;

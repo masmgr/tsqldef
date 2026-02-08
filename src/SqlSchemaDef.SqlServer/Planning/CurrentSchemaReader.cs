@@ -217,7 +217,7 @@ WHERE ps.name = @schema
   AND pt.is_ms_shipped = 0
 ORDER BY pt.name, fk.name, fkc.constraint_column_id;";
 
-        public async Task<DatabaseModel> ReadAsync(
+        public static async Task<DatabaseModel> ReadAsync(
             SqlConnection connection,
             string schema,
             CancellationToken cancellationToken = default)

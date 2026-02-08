@@ -11,4 +11,3 @@ namespace SqlSchemaDef.Core.Planning
         public string ServerVersion { get; set; }
     }
 }
-

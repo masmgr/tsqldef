@@ -7,7 +7,7 @@ using Xunit;
 
 namespace SqlSchemaDef.Tests;
 
-[Collection(SqlServerIntegrationCollection.Name)]
+[Collection(SqlServerIntegrationGroup.Name)]
 public sealed class SqlServerPlannerApplierIntegrationTests
 {
     private static string? GetMasterConnectionStringOrNull()
@@ -393,7 +393,7 @@ ALTER TABLE dbo.Users ADD CONSTRAINT FK_Users_Teams FOREIGN KEY (TeamId) REFEREN
         await using var check = conn.CreateCommand();
         check.CommandText = "SELECT COUNT(1) FROM sys.tables WHERE name = N'Users'";
         var scalar = await check.ExecuteScalarAsync();
-        var count = Convert.ToInt32(scalar);
+        var count = Convert.ToInt32(scalar, System.Globalization.CultureInfo.InvariantCulture);
         Assert.Equal(0, count);
     }
 
@@ -422,8 +422,7 @@ CREATE INDEX IX_Users_Name ON dbo.Users (Name);
         await using var conn2 = new SqlConnection(db.ConnectionString);
         await conn2.OpenAsync();
 
-        var exporter = new SqlServerSchemaExporter();
-        var export = await exporter.ExportAsync(conn2, new ExportOptions());
+        var export = await SqlServerSchemaExporter.ExportAsync(conn2, new ExportOptions());
 
         var planner = new SqlServerSchemaPlanner();
         var plan = await planner.PlanAsync(conn2, export.Script, new PlannerOptions());
