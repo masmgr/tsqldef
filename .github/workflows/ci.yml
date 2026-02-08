@@ -61,10 +61,32 @@ jobs:
           SQLSCHEMADEF_TEST_CONNECTION_STRING: "Server=localhost,1433;User Id=sa;Password=Your_password123;Encrypt=False;TrustServerCertificate=True;Initial Catalog=master"
         run: dotnet test ${{ env.SOLUTION }} -c ${{ env.CONFIGURATION }} --no-build --collect "XPlat Code Coverage" --settings coverlet.runsettings --results-directory TestResults
 
-      - name: Upload coverage
+      - name: Install ReportGenerator
+        if: always()
+        run: dotnet tool install --global dotnet-reportgenerator-globaltool
+
+      - name: Generate coverage report
+        if: always()
+        run: |
+          reportgenerator \
+            "-reports:TestResults/**/coverage.cobertura.xml" \
+            "-targetdir:TestResults/CoverageReport" \
+            "-reporttypes:Html;MarkdownSummaryGithub;TextSummary"
+
+      - name: Write coverage summary to job summary
+        if: always()
+        run: |
+          if [ -f TestResults/CoverageReport/SummaryGithub.md ]; then
+            echo "## Code Coverage" >> $GITHUB_STEP_SUMMARY
+            cat TestResults/CoverageReport/SummaryGithub.md >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload coverage report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: coverage
-          path: TestResults/**/coverage.cobertura.xml
+          name: coverage-report
+          path: |
+            TestResults/**/coverage.cobertura.xml
+            TestResults/CoverageReport/
           if-no-files-found: warn
