@@ -1,0 +1,187 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using FsCheck;
+using SqlSchemaDef.Core.Planning;
+using SqlSchemaDef.SqlServer.Planning;
+
+namespace SqlSchemaDef.Tests.Properties.Generators;
+
+public static class DomainArbitraries
+{
+    private static readonly char[] AlphaChars =
+        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ".ToCharArray();
+
+    public static readonly string[] SqlKeywords =
+    {
+        "SELECT", "FROM", "WHERE", "TABLE", "INDEX", "CREATE", "ALTER", "DROP",
+        "INSERT", "UPDATE", "DELETE", "INTO", "VALUES", "SET", "ORDER", "BY",
+        "GROUP", "HAVING", "JOIN", "LEFT", "RIGHT", "INNER", "OUTER", "ON",
+        "AND", "OR", "NOT", "NULL", "PRIMARY", "KEY", "FOREIGN", "REFERENCES",
+        "CONSTRAINT", "UNIQUE", "CHECK", "DEFAULT", "IDENTITY", "GO",
+        "BEGIN", "END", "IF", "ELSE", "WHILE", "RETURN", "EXEC", "EXECUTE",
+        "GRANT", "REVOKE", "DENY", "USER", "VIEW", "PROCEDURE", "FUNCTION",
+    };
+
+    public static readonly string[] SimpleTypes =
+    {
+        "int", "bigint", "bit", "date", "datetime", "float", "real",
+        "smallint", "tinyint", "uniqueidentifier", "money", "smallmoney",
+    };
+
+    private static readonly string[] LengthTypes = { "varchar", "char", "varbinary", "binary" };
+    private static readonly string[] NLengthTypes = { "nvarchar", "nchar" };
+    private static readonly string[] PrecisionTypes = { "decimal", "numeric" };
+    private static readonly string[] ScaleTypes = { "datetime2", "datetimeoffset", "time" };
+
+    public static Gen<string> GenSqlIdentifier() =>
+        from len in Gen.Choose(1, 20)
+        from chars in Gen.ArrayOf(len, Gen.Elements(AlphaChars))
+        select new string(chars);
+
+    public static Gen<string> GenSqlKeyword() =>
+        Gen.Elements(SqlKeywords);
+
+    public static Gen<(string TypeName, int MaxLength, byte Precision, byte Scale)> GenSqlTypeFormatterInput()
+    {
+        var simpleGen =
+            from t in Gen.Elements(SimpleTypes)
+            select (t, 0, (byte)0, (byte)0);
+
+        var lengthGen =
+            from t in Gen.Elements(LengthTypes)
+            from len in Gen.OneOf(Gen.Constant(-1), Gen.Choose(1, 8000))
+            select (t, len, (byte)0, (byte)0);
+
+        var nLengthGen =
+            from t in Gen.Elements(NLengthTypes)
+            from len in Gen.OneOf(Gen.Constant(-1), Gen.Choose(1, 4000).Select(i => i * 2))
+            select (t, len, (byte)0, (byte)0);
+
+        var precisionGen =
+            from t in Gen.Elements(PrecisionTypes)
+            from p in Gen.Choose(1, 38).Select(i => (byte)i)
+            from s in Gen.Choose(0, (int)p).Select(i => (byte)i)
+            select (t, 0, p, s);
+
+        var scaleGen =
+            from t in Gen.Elements(ScaleTypes)
+            from s in Gen.Choose(0, 7).Select(i => (byte)i)
+            select (t, 0, (byte)0, s);
+
+        return Gen.OneOf(simpleGen, lengthGen, nLengthGen, precisionGen, scaleGen);
+    }
+
+    public static Arbitrary<(string TypeName, int MaxLength, byte Precision, byte Scale)> SqlTypeFormatterInputArb() =>
+        Arb.From(GenSqlTypeFormatterInput());
+
+    public static Gen<ColumnModel> GenColumnModel() =>
+        from name in GenSqlIdentifier()
+        from sqlType in Gen.Elements(SimpleTypes)
+        from isNullable in Arb.Generate<bool>()
+        from isIdentity in Arb.Generate<bool>()
+        select new ColumnModel
+        {
+            Name = name,
+            SqlType = sqlType,
+            IsNullable = isNullable,
+            IsIdentity = isIdentity,
+        };
+
+    public static Gen<TableModel> GenTableModel() =>
+        from tableName in GenSqlIdentifier()
+        from columnCount in Gen.Choose(1, 5)
+        from columnNames in Gen.ArrayOf(columnCount, GenSqlIdentifier())
+            .Select(names => names.Distinct(StringComparer.OrdinalIgnoreCase).ToArray())
+        from columns in Gen.Sequence(columnNames.Select(n =>
+            from col in GenColumnModel()
+            select new ColumnModel
+            {
+                Name = n,
+                SqlType = col.SqlType,
+                IsNullable = col.IsNullable,
+                IsIdentity = col.IsIdentity,
+            }))
+        select BuildTable("dbo", tableName, columns.ToList());
+
+    public static Gen<DatabaseModel> GenDatabaseModel() =>
+        from tableCount in Gen.Choose(0, 4)
+        from tables in Gen.ArrayOf(tableCount, GenTableModel())
+            .Select(ts => ts
+                .GroupBy(t => t.Name, StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.First())
+                .ToArray())
+        select BuildDatabaseModel(tables);
+
+    public static Gen<MigrationPlan> GenMigrationPlan() =>
+        from opCount in Gen.Choose(0, 5)
+        from ops in Gen.ArrayOf(opCount, GenSqlOperation())
+        from skipCount in Gen.Choose(0, 3)
+        from skips in Gen.ArrayOf(skipCount, GenSkippedItem())
+        select new MigrationPlan(
+            new PlanMetadata { Schema = "dbo" },
+            ops,
+            skips);
+
+    private static Gen<SqlOperation> GenSqlOperation() =>
+        from kind in Gen.Elements(
+            OperationKind.CreateTable,
+            OperationKind.AddColumn,
+            OperationKind.AddConstraint,
+            OperationKind.CreateIndex,
+            OperationKind.AddForeignKey)
+        from name in GenSqlIdentifier()
+        select new SqlOperation
+        {
+            Kind = kind,
+            Description = kind + " " + name,
+            Sql = "-- " + kind + " " + name,
+            Target = new SqlObjectRef
+            {
+                Type = SqlObjectType.Table,
+                Schema = "dbo",
+                Name = name,
+            },
+        };
+
+    private static Gen<SkippedItem> GenSkippedItem() =>
+        from reason in Gen.Elements(
+            SkippedReason.DropNotSupported,
+            SkippedReason.AlterNotSupported,
+            SkippedReason.NotNullAddNotSupported)
+        from name in GenSqlIdentifier()
+        select new SkippedItem
+        {
+            Reason = reason,
+            Message = reason + " for " + name,
+            Target = new SqlObjectRef
+            {
+                Type = SqlObjectType.Table,
+                Schema = "dbo",
+                Name = name,
+            },
+        };
+
+    private static TableModel BuildTable(string schema, string tableName, List<ColumnModel> columns)
+    {
+        var table = new TableModel(schema, tableName);
+        foreach (var col in columns)
+        {
+            table.Columns[IdentifierHelper.NormalizeNameKey(col.Name)] = col;
+        }
+
+        return table;
+    }
+
+    private static DatabaseModel BuildDatabaseModel(TableModel[] tables)
+    {
+        var model = new DatabaseModel();
+        foreach (var table in tables)
+        {
+            var key = IdentifierHelper.BuildTableKey(table.Schema, table.Name);
+            model.Tables[key] = table;
+        }
+
+        return model;
+    }
+}
