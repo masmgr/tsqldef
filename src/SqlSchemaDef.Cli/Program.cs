@@ -16,16 +16,18 @@ namespace SqlSchemaDef.Cli
         private const int ExitDesiredParseError = 10;
         private const int ExitDesiredUnsupported = 11;
         private const int ExitApplyFailed = 20;
+        private const int ExitStrictViolation = 30;
 
         private static int PrintUsage(int exitCode)
         {
             Console.Error.WriteLine("Usage:");
-            Console.Error.WriteLine("  SqlSchemaDef.Cli export --connection <connectionString> [--out <desired.sql>]");
-            Console.Error.WriteLine("  SqlSchemaDef.Cli plan --connection <connectionString> --file <desired.sql> [--format script]");
-            Console.Error.WriteLine("  SqlSchemaDef.Cli apply --connection <connectionString> --file <desired.sql>");
+            Console.Error.WriteLine("  SqlSchemaDef.Cli export --connection <cs> [--out <desired.sql>]");
+            Console.Error.WriteLine("  SqlSchemaDef.Cli plan   --connection <cs> --file <desired.sql> [--format script|json] [--strict] [--include <tables>] [--exclude <tables>]");
+            Console.Error.WriteLine("  SqlSchemaDef.Cli apply  --connection <cs> (--file <desired.sql> | --plan <plan.json>) [--include <tables>] [--exclude <tables>]");
             Console.Error.WriteLine();
             Console.Error.WriteLine("Notes:");
-            Console.Error.WriteLine("  - plan prints the review script (dry-run).");
+            Console.Error.WriteLine("  - plan prints the review script (dry-run) or JSON plan.");
+            Console.Error.WriteLine("  - --strict exits non-zero (30) if any skipped items exist.");
             Console.Error.WriteLine("  - v1 is additive-only (dbo fixed by default).");
             return exitCode;
         }
@@ -134,11 +136,26 @@ namespace SqlSchemaDef.Cli
             return ExitOk;
         }
 
+        private static readonly char[] CsvSeparator = { ',' };
+
+        private static string[] ParseCsvArg(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return Array.Empty<string>();
+            }
+
+            return value.Split(CsvSeparator, StringSplitOptions.RemoveEmptyEntries);
+        }
+
         private static async Task<int> RunPlanAsync(List<string> args)
         {
             string? connectionString = null;
             string? filePath = null;
             var format = "script";
+            var strict = false;
+            string? includeArg = null;
+            string? excludeArg = null;
 
             for (int i = 0; i < args.Count; i++)
             {
@@ -156,6 +173,15 @@ namespace SqlSchemaDef.Cli
                     case "--format":
                         format = GetArg(args, ref i);
                         break;
+                    case "--strict":
+                        strict = true;
+                        break;
+                    case "--include":
+                        includeArg = GetArg(args, ref i);
+                        break;
+                    case "--exclude":
+                        excludeArg = GetArg(args, ref i);
+                        break;
                     case "--help":
                     case "-h":
                         return PrintUsage(ExitOk);
@@ -170,21 +196,46 @@ namespace SqlSchemaDef.Cli
                 return PrintUsage(ExitUsage);
             }
 
-            if (!string.Equals(format, "script", StringComparison.OrdinalIgnoreCase))
+            var normalizedFormat = (format ?? "script").Trim().ToLowerInvariant();
+            if (normalizedFormat != "script" && normalizedFormat != "json")
             {
-                Console.Error.WriteLine("Unsupported format in v0.1: " + format);
+                Console.Error.WriteLine("Unsupported format: " + format);
                 return PrintUsage(ExitUsage);
             }
 
             var desiredSql = await File.ReadAllTextAsync(filePath).ConfigureAwait(false);
 
+            var plannerOptions = new PlannerOptions();
+            if (includeArg != null)
+            {
+                plannerOptions.IncludeTablePatterns = ParseCsvArg(includeArg);
+            }
+            if (excludeArg != null)
+            {
+                plannerOptions.ExcludeTablePatterns = ParseCsvArg(excludeArg);
+            }
+
             await using var conn = new SqlConnection(connectionString);
             await conn.OpenAsync().ConfigureAwait(false);
 
             var planner = new SqlServerSchemaPlanner();
-            var plan = await planner.PlanAsync(conn, desiredSql, new PlannerOptions()).ConfigureAwait(false);
+            var plan = await planner.PlanAsync(conn, desiredSql, plannerOptions).ConfigureAwait(false);
 
-            Console.Write(plan.ToScript(new ScriptOptions { HeaderMode = ScriptHeaderMode.DryRunStyle }));
+            if (normalizedFormat == "json")
+            {
+                Console.Write(MigrationPlanSerializer.ToJson(plan));
+            }
+            else
+            {
+                Console.Write(plan.ToScript(new ScriptOptions { HeaderMode = ScriptHeaderMode.DryRunStyle }));
+            }
+
+            if (strict && plan.Skipped.Count > 0)
+            {
+                Console.Error.WriteLine("Strict mode: " + plan.Skipped.Count + " skipped item(s) detected.");
+                return ExitStrictViolation;
+            }
+
             return ExitOk;
         }
 
@@ -192,6 +243,9 @@ namespace SqlSchemaDef.Cli
         {
             string? connectionString = null;
             string? filePath = null;
+            string? planJsonPath = null;
+            string? includeArg = null;
+            string? excludeArg = null;
 
             for (int i = 0; i < args.Count; i++)
             {
@@ -207,8 +261,14 @@ namespace SqlSchemaDef.Cli
                         filePath = GetArg(args, ref i);
                         break;
                     case "--plan":
-                        Console.Error.WriteLine("plan.json is not supported in v0.1.");
-                        return PrintUsage(ExitUsage);
+                        planJsonPath = GetArg(args, ref i);
+                        break;
+                    case "--include":
+                        includeArg = GetArg(args, ref i);
+                        break;
+                    case "--exclude":
+                        excludeArg = GetArg(args, ref i);
+                        break;
                     case "--help":
                     case "-h":
                         return PrintUsage(ExitOk);
@@ -218,25 +278,61 @@ namespace SqlSchemaDef.Cli
                 }
             }
 
-            if (string.IsNullOrWhiteSpace(connectionString) || string.IsNullOrWhiteSpace(filePath))
+            if (string.IsNullOrWhiteSpace(connectionString))
             {
                 return PrintUsage(ExitUsage);
             }
 
-            var desiredSql = await File.ReadAllTextAsync(filePath).ConfigureAwait(false);
+            if (!string.IsNullOrWhiteSpace(filePath) && !string.IsNullOrWhiteSpace(planJsonPath))
+            {
+                Console.Error.WriteLine("--file and --plan are mutually exclusive.");
+                return PrintUsage(ExitUsage);
+            }
 
-            await using var conn = new SqlConnection(connectionString);
-            await conn.OpenAsync().ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(filePath) && string.IsNullOrWhiteSpace(planJsonPath))
+            {
+                return PrintUsage(ExitUsage);
+            }
 
-            var planner = new SqlServerSchemaPlanner();
-            var plan = await planner.PlanAsync(conn, desiredSql, new PlannerOptions()).ConfigureAwait(false);
+            MigrationPlan plan;
+
+            if (!string.IsNullOrWhiteSpace(planJsonPath))
+            {
+                var json = await File.ReadAllTextAsync(planJsonPath).ConfigureAwait(false);
+                plan = MigrationPlanSerializer.FromJson(json);
+            }
+            else
+            {
+                var desiredSql = await File.ReadAllTextAsync(filePath!).ConfigureAwait(false);
+
+                var plannerOptions = new PlannerOptions();
+                if (includeArg != null)
+                {
+                    plannerOptions.IncludeTablePatterns = ParseCsvArg(includeArg);
+                }
+                if (excludeArg != null)
+                {
+                    plannerOptions.ExcludeTablePatterns = ParseCsvArg(excludeArg);
+                }
+
+                await using var planConn = new SqlConnection(connectionString);
+                await planConn.OpenAsync().ConfigureAwait(false);
+
+                var planner = new SqlServerSchemaPlanner();
+                plan = await planner.PlanAsync(planConn, desiredSql, plannerOptions).ConfigureAwait(false);
+            }
+
+            PlanValidator.ValidateForApply(plan);
 
             Console.Write(plan.ToScript(new ScriptOptions { HeaderMode = ScriptHeaderMode.DryRunStyle }));
 
             if (!plan.IsEmpty)
             {
+                await using var applyConn = new SqlConnection(connectionString);
+                await applyConn.OpenAsync().ConfigureAwait(false);
+
                 var applier = new SqlServerSchemaApplier();
-                await applier.ApplyAsync(conn, plan, new ApplyOptions()).ConfigureAwait(false);
+                await applier.ApplyAsync(applyConn, plan, new ApplyOptions()).ConfigureAwait(false);
             }
 
             return ExitOk;

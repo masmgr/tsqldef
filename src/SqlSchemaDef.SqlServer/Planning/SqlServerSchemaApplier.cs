@@ -33,6 +33,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             }
 
             options = options ?? new ApplyOptions();
+            PlanValidator.ValidateForApply(plan);
 
             if (plan.Operations.Count == 0)
             {

@@ -30,9 +30,18 @@ namespace SqlSchemaDef.SqlServer.Planning
             var addForeignKeyOps = new List<SqlOperation>();
             var skipped = new List<SkippedItem>();
 
+            var includePatterns = options.IncludeTablePatterns;
+            var excludePatterns = options.ExcludeTablePatterns;
+
             foreach (var desiredEntry in desired.Tables.OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase))
             {
                 var desiredTable = desiredEntry.Value;
+
+                if (!TableNameMatcher.ShouldInclude(desiredTable.Name, includePatterns, excludePatterns))
+                {
+                    continue;
+                }
+
                 var tableKey = IdentifierHelper.BuildTableKey(desiredTable.Schema, desiredTable.Name);
 
                 var hasCurrentTable = current.Tables.TryGetValue(tableKey, out var currentTable);
@@ -272,6 +281,11 @@ namespace SqlSchemaDef.SqlServer.Planning
 
             foreach (var currentEntry in current.Tables.OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase))
             {
+                if (!TableNameMatcher.ShouldInclude(currentEntry.Value.Name, includePatterns, excludePatterns))
+                {
+                    continue;
+                }
+
                 if (desired.Tables.ContainsKey(currentEntry.Key))
                 {
                     continue;

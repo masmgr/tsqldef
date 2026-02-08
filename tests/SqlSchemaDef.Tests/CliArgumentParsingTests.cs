@@ -61,7 +61,7 @@ public sealed class CliArgumentParsingTests
                 "plan",
                 "--connection", "Server=(local);Database=master;Trusted_Connection=True;",
                 "--file", "desired.sql",
-                "--format", "json",
+                "--format", "xml",
             });
 
             Assert.Equal(2, exitCode);
@@ -74,7 +74,36 @@ public sealed class CliArgumentParsingTests
     }
 
     [Fact]
-    public async Task Apply_PlanJsonNotSupported_ReturnsUsageExitCode()
+    public async Task Apply_PlanFlag_IsRecognized()
+    {
+        var originalError = Console.Error;
+        try
+        {
+            using var stderr = new StringWriter();
+            Console.SetError(stderr);
+
+            // --plan is now recognized (not "Unknown arg" or "not supported").
+            // Will fail because file doesn't exist, but that's a runtime error, not a usage error.
+            var exitCode = await SqlSchemaDef.Cli.Program.Main(new[]
+            {
+                "apply",
+                "--connection", "Server=(local);Database=master;Trusted_Connection=True;",
+                "--plan", "nonexistent_plan.json",
+            });
+
+            var output = stderr.ToString();
+            Assert.DoesNotContain("Unknown arg: --plan", output);
+            Assert.DoesNotContain("not supported", output);
+            Assert.NotEqual(2, exitCode);
+        }
+        finally
+        {
+            Console.SetError(originalError);
+        }
+    }
+
+    [Fact]
+    public async Task Apply_FileAndPlanAreMutuallyExclusive()
     {
         var originalError = Console.Error;
         try
@@ -86,11 +115,12 @@ public sealed class CliArgumentParsingTests
             {
                 "apply",
                 "--connection", "Server=(local);Database=master;Trusted_Connection=True;",
+                "--file", "desired.sql",
                 "--plan", "plan.json",
             });
 
             Assert.Equal(2, exitCode);
-            Assert.Contains("not supported", stderr.ToString());
+            Assert.Contains("mutually exclusive", stderr.ToString());
         }
         finally
         {
@@ -110,6 +140,83 @@ public sealed class CliArgumentParsingTests
             var exitCode = await SqlSchemaDef.Cli.Program.Main(new[] { "plan", "--file" });
             Assert.Equal(1, exitCode);
             Assert.Contains("Missing value", stderr.ToString());
+        }
+        finally
+        {
+            Console.SetError(originalError);
+        }
+    }
+
+    [Fact]
+    public async Task Plan_StrictFlag_IsRecognized()
+    {
+        var originalError = Console.Error;
+        try
+        {
+            using var stderr = new StringWriter();
+            Console.SetError(stderr);
+
+            // --strict should be recognized (not "Unknown arg").
+            // It will fail later because --file is missing, but that's expected.
+            var exitCode = await SqlSchemaDef.Cli.Program.Main(new[]
+            {
+                "plan",
+                "--strict",
+                "--connection", "Server=(local);Database=master;Trusted_Connection=True;",
+            });
+
+            var output = stderr.ToString();
+            Assert.DoesNotContain("Unknown arg: --strict", output);
+        }
+        finally
+        {
+            Console.SetError(originalError);
+        }
+    }
+
+    [Fact]
+    public async Task Plan_IncludeFlag_IsRecognized()
+    {
+        var originalError = Console.Error;
+        try
+        {
+            using var stderr = new StringWriter();
+            Console.SetError(stderr);
+
+            var exitCode = await SqlSchemaDef.Cli.Program.Main(new[]
+            {
+                "plan",
+                "--include", "Users,Teams",
+                "--connection", "Server=(local);Database=master;Trusted_Connection=True;",
+            });
+
+            var output = stderr.ToString();
+            Assert.DoesNotContain("Unknown arg: --include", output);
+        }
+        finally
+        {
+            Console.SetError(originalError);
+        }
+    }
+
+    [Fact]
+    public async Task Plan_ExcludeFlag_IsRecognized()
+    {
+        var originalError = Console.Error;
+        try
+        {
+            using var stderr = new StringWriter();
+            Console.SetError(stderr);
+
+            var exitCode = await SqlSchemaDef.Cli.Program.Main(new[]
+            {
+                "plan",
+                "--exclude", "Logs",
+                "--connection", "Server=(local);Database=master;Trusted_Connection=True;",
+            });
+
+            var output = stderr.ToString();
+            Assert.DoesNotContain("Unknown arg: --exclude", output);
         }
         finally
         {

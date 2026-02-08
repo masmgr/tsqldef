@@ -119,7 +119,7 @@ public static class DomainArbitraries
         from skipCount in Gen.Choose(0, 3)
         from skips in Gen.ArrayOf(skipCount, GenSkippedItem())
         select new MigrationPlan(
-            new PlanMetadata { Schema = "dbo" },
+            new PlanMetadata { Schema = "dbo", PlanFormatVersion = 1 },
             ops,
             skips);
 

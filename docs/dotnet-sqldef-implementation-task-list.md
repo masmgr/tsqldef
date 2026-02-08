@@ -222,19 +222,19 @@ Status note:
 Goal: harden safety and enable machine-readable plans for CI/CD workflows.
 
 ### 13.1 Safety rail: strict mode / exit codes
-- [ ] Test: `plan --strict` exits non-zero if any `Skipped` items exist
-- [ ] Implement: CLI `--strict` option and exit code convention
-- [ ] Test: `apply` refuses to run if the plan contains any non-additive operations (should be impossible, but validate defensively)
+- [x] Test: `plan --strict` exits non-zero if any `Skipped` items exist
+- [x] Implement: CLI `--strict` option and exit code convention (exit code 30)
+- [x] Test: `apply` refuses to run if the plan contains any non-additive operations (PlanValidator)
 
 ### 13.2 JSON plan format
-- [ ] Decide: JSON schema versioning policy (e.g. `PlanFormatVersion = 1` in `PlanMetadata`)
-- [ ] Test: `plan --format json` produces deterministic JSON (stable ordering)
-- [ ] Test: `apply --plan plan.json` applies the same operations as script mode
-- [ ] Implement: JSON serialization/deserialization of `MigrationPlan` (Core types) with a stable contract
+- [x] Decide: JSON schema versioning policy (`PlanFormatVersion = 1` in `PlanMetadata`)
+- [x] Test: `plan --format json` produces deterministic JSON (stable ordering)
+- [x] Test: `apply --plan plan.json` applies the same operations as script mode
+- [x] Implement: JSON serialization/deserialization of `MigrationPlan` (Core types) with a stable contract (Newtonsoft.Json)
 
 ### 13.3 Scope filters
-- [ ] Test: `--include/--exclude` filters tables for plan generation (does not change parsing rules)
-- [ ] Implement: `PlannerOptions` extensions + CLI wiring (v1 is fixed `dbo`, but table filtering is still useful)
+- [x] Test: `--include/--exclude` filters tables for plan generation (does not change parsing rules)
+- [x] Implement: `PlannerOptions` extensions + CLI wiring (v1 is fixed `dbo`, but table filtering is still useful)
 
 ---
 

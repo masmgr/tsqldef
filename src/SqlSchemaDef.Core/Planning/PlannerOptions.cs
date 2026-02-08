@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace SqlSchemaDef.Core.Planning
 {
     public sealed class PlannerOptions
@@ -14,6 +16,10 @@ namespace SqlSchemaDef.Core.Planning
 
         public SurplusCurrentObjectBehavior SurplusCurrentObjectBehavior { get; set; }
             = SurplusCurrentObjectBehavior.CollectAsSkipped;
+
+        public IReadOnlyList<string> IncludeTablePatterns { get; set; }
+
+        public IReadOnlyList<string> ExcludeTablePatterns { get; set; }
     }
 
     public enum PlanMode
