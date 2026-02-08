@@ -138,3 +138,71 @@ dotnet_style_prefer_simplified_interpolation = true:suggestion
 dotnet_style_prefer_simplified_boolean_expressions = true:suggestion
 dotnet_style_allow_multiple_blank_lines_experimental = false:silent
 dotnet_style_allow_statement_immediately_after_block_experimental = false:silent
+
+# ============================================================
+# Roslyn Analyzer / StyleCop rule overrides
+# ============================================================
+
+# --- StyleCop: Documentation rules (段階的に追加するため無効化) ---
+dotnet_diagnostic.SA1600.severity = none   # Elements should be documented
+dotnet_diagnostic.SA1601.severity = none   # Partial elements should be documented
+dotnet_diagnostic.SA1602.severity = none   # Enumeration items should be documented
+dotnet_diagnostic.SA1611.severity = none   # Element parameters should be documented
+dotnet_diagnostic.SA1615.severity = none   # Element return value should be documented
+dotnet_diagnostic.SA1618.severity = none   # Generic type parameters should be documented
+dotnet_diagnostic.SA1629.severity = none   # Documentation text should end with a period
+
+# --- StyleCop: File header (ファイルヘッダー不要) ---
+dotnet_diagnostic.SA1633.severity = none   # File should have header
+dotnet_diagnostic.SA1634.severity = none   # File header should show copyright
+dotnet_diagnostic.SA1635.severity = none   # File header should have copyright text
+dotnet_diagnostic.SA1636.severity = none   # File header copyright text should match
+dotnet_diagnostic.SA1637.severity = none   # File header should contain file name
+dotnet_diagnostic.SA1638.severity = none   # File header file name should match
+dotnet_diagnostic.SA1640.severity = none   # File header should have valid company text
+dotnet_diagnostic.SA1641.severity = none   # File header company name should match
+
+# --- StyleCop: Ordering (既存コードとの互換性) ---
+dotnet_diagnostic.SA1200.severity = none   # Using directives should be placed correctly
+dotnet_diagnostic.SA1208.severity = none   # System using directives should be placed before other using directives
+
+# --- StyleCop: this. prefix (editorconfig で false に設定済み) ---
+dotnet_diagnostic.SA1101.severity = none   # Prefix local calls with this
+dotnet_diagnostic.SX1101.severity = none   # Do not prefix local calls with this
+
+# --- StyleCop: XML comment analysis (ドキュメントコメント生成未設定) ---
+dotnet_diagnostic.SA0001.severity = none   # XML comment analysis is disabled due to project configuration
+
+# --- StyleCop: Layout rules (既存コードスタイルとの互換性) ---
+dotnet_diagnostic.SA1502.severity = none   # Element should not be on a single line
+dotnet_diagnostic.SA1128.severity = none   # Put constructor initializers on their own line
+
+# --- StyleCop: Ordering rules (既存コード構成との互換性) ---
+dotnet_diagnostic.SA1201.severity = none   # Elements should appear in the correct order
+dotnet_diagnostic.SA1202.severity = none   # Elements should be ordered by access
+dotnet_diagnostic.SA1204.severity = none   # Static members should appear before non-static members
+
+# --- StyleCop: Maintainability (既存コード設計との互換性) ---
+dotnet_diagnostic.SA1402.severity = none   # File may only contain a single type
+dotnet_diagnostic.SA1649.severity = none   # File name should match first type name
+
+# --- StyleCop: Naming (C# 慣例 _field を許容) ---
+dotnet_diagnostic.SA1309.severity = none   # Field should not begin with an underscore
+
+# --- StyleCop: Spacing / Layout (既存コードスタイルとの互換性) ---
+dotnet_diagnostic.SA1516.severity = none   # Elements should be separated by blank line
+dotnet_diagnostic.SA1503.severity = none   # Braces should not be omitted
+dotnet_diagnostic.SA1513.severity = none   # Closing brace should be followed by blank line
+dotnet_diagnostic.SA1501.severity = none   # Statement should not be on a single line
+dotnet_diagnostic.SA1116.severity = none   # The parameters should begin on the line after the declaration
+dotnet_diagnostic.SA1117.severity = none   # The parameters should all be placed on the same line or each on its own line
+
+# --- Microsoft CodeAnalysis: パフォーマンス (段階的に対応) ---
+dotnet_diagnostic.CA1848.severity = suggestion   # Use LoggerMessage delegates for performance
+
+# --- テストプロジェクト向け設定 ---
+[tests/**.cs]
+# テストメソッドの命名規則 (Method_Scenario_Expected) を許容
+dotnet_diagnostic.CA1707.severity = none   # Identifiers should not contain underscores
+# テストコードでは static readonly 配列の強制は不要
+dotnet_diagnostic.CA1861.severity = suggestion   # Prefer static readonly over constant array arguments
