@@ -166,6 +166,98 @@ public sealed class SchemaDifferTests
     }
 
     [Fact]
+    public void Diff_WhenCreatingTableWithIdentityAndDefault_EmitsDefinition()
+    {
+        var desiredSql = "CREATE TABLE dbo.Users (Id int IDENTITY(1,1) NOT NULL, Score int DEFAULT (0) NULL)";
+        var desired = DesiredSchemaLoader.Load(desiredSql);
+        var current = new DatabaseModel();
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal(OperationKind.CreateTable, op.Kind);
+        Assert.Contains("IDENTITY", op.Sql);
+        Assert.Contains("DEFAULT (0)", op.Sql);
+    }
+
+    [Fact]
+    public void Diff_WhenAddingColumnWithDefault_EmitsDefaultExpression()
+    {
+        var desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL, Score int DEFAULT (1) NULL)";
+        var desired = DesiredSchemaLoader.Load(desiredSql);
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Columns["ID"] = new ColumnModel
+        {
+            Name = "Id",
+            SqlType = "int",
+            IsNullable = false,
+            IsIdentity = false,
+        };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal(OperationKind.AddColumn, op.Kind);
+        Assert.Contains("DEFAULT (1)", op.Sql);
+    }
+
+    [Fact]
+    public void Diff_WhenConstraintNameNeedsEscaping_EscapesConstraintName()
+    {
+        var desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL, CONSTRAINT [Order] PRIMARY KEY (Id))";
+        var desired = DesiredSchemaLoader.Load(desiredSql);
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Columns["ID"] = new ColumnModel
+        {
+            Name = "Id",
+            SqlType = "int",
+            IsNullable = false,
+            IsIdentity = false,
+        };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal(OperationKind.AddConstraint, op.Kind);
+        Assert.Contains("ADD CONSTRAINT [Order] PRIMARY KEY", op.Sql);
+    }
+
+    [Fact]
+    public void Diff_WhenIndexNameNeedsEscaping_EscapesIndexName()
+    {
+        var desiredSql = string.Join("\n", new[]
+        {
+            "CREATE TABLE dbo.Users (Id int NOT NULL)",
+            "CREATE INDEX [Order] ON dbo.Users (Id)",
+        });
+        var desired = DesiredSchemaLoader.Load(desiredSql);
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Columns["ID"] = new ColumnModel
+        {
+            Name = "Id",
+            SqlType = "int",
+            IsNullable = false,
+            IsIdentity = false,
+        };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal(OperationKind.CreateIndex, op.Kind);
+        Assert.Contains("CREATE INDEX [Order] ON dbo.Users (Id)", op.Sql);
+    }
+
+    [Fact]
     public void Diff_WhenCheckConstraintDefinitionHasNoParentheses_WrapsIt()
     {
         var desired = new DatabaseModel();

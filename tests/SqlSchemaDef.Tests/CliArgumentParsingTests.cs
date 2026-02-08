@@ -1,6 +1,8 @@
 using System;
 using System.IO;
+using System.Reflection;
 using System.Threading.Tasks;
+using SqlSchemaDef.Core.Planning;
 using Xunit;
 
 namespace SqlSchemaDef.Tests;
@@ -108,6 +110,32 @@ public sealed class CliArgumentParsingTests
             var exitCode = await SqlSchemaDef.Cli.Program.Main(new[] { "plan", "--file" });
             Assert.Equal(1, exitCode);
             Assert.Contains("Missing value", stderr.ToString());
+        }
+        finally
+        {
+            Console.SetError(originalError);
+        }
+    }
+
+    [Fact]
+    public void UnsupportedBatchSeparator_IsMappedToUnsupportedExitCode()
+    {
+        var originalError = Console.Error;
+        try
+        {
+            using var stderr = new StringWriter();
+            Console.SetError(stderr);
+
+            var handle = typeof(SqlSchemaDef.Cli.Program).GetMethod(
+                "HandleException",
+                BindingFlags.NonPublic | BindingFlags.Static);
+
+            Assert.NotNull(handle);
+            var result = handle!.Invoke(null, new object[] { new UnsupportedBatchSeparatorException("bad separator") });
+
+            var exitCode = Assert.IsType<int>(result);
+            Assert.Equal(11, exitCode);
+            Assert.Contains("bad separator", stderr.ToString());
         }
         finally
         {

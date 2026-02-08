@@ -258,6 +258,9 @@ namespace SqlSchemaDef.Cli
                 case UnsupportedSchemaException schema:
                     Console.Error.WriteLine(schema.Message);
                     return ExitDesiredUnsupported;
+                case UnsupportedBatchSeparatorException separator:
+                    Console.Error.WriteLine(separator.Message);
+                    return ExitDesiredUnsupported;
                 case ApplyFailedException applyFailed:
                     Console.Error.WriteLine(applyFailed.Message);
                     return ExitApplyFailed;

@@ -343,7 +343,7 @@ namespace SqlSchemaDef.SqlServer.Planning
         private static string BuildAddConstraintSql(TableModel table, ConstraintModel constraint)
         {
             var prefix = "ALTER TABLE " + table.Schema + "." + IdentifierHelper.EscapeIfKeyword(table.Name) +
-                         " ADD CONSTRAINT " + constraint.Name + " ";
+                         " ADD CONSTRAINT " + IdentifierHelper.EscapeIfKeyword(constraint.Name) + " ";
 
             switch (constraint.Kind)
             {
@@ -379,7 +379,7 @@ namespace SqlSchemaDef.SqlServer.Planning
         private static string BuildCreateIndexSql(TableModel table, IndexModel index)
         {
             var unique = index.IsUnique ? "UNIQUE " : string.Empty;
-            var sql = "CREATE " + unique + "INDEX " + index.Name + " ON " +
+            var sql = "CREATE " + unique + "INDEX " + IdentifierHelper.EscapeIfKeyword(index.Name) + " ON " +
                       table.Schema + "." + IdentifierHelper.EscapeIfKeyword(table.Name) +
                       " (" + JoinIndexColumns(index.KeyColumns) + ")";
 
@@ -587,8 +587,7 @@ namespace SqlSchemaDef.SqlServer.Planning
         private static SqlOperation AddColumnOperation(TableModel table, ColumnModel column)
         {
             var sql = "ALTER TABLE " + table.Schema + "." + IdentifierHelper.EscapeIfKeyword(table.Name) +
-                      " ADD " + IdentifierHelper.EscapeIfKeyword(column.Name) + " " + column.SqlType + " " +
-                      (column.IsNullable ? "NULL" : "NOT NULL");
+                      " ADD " + BuildColumnDefinitionSql(column);
 
             return new SqlOperation
             {
@@ -622,14 +621,38 @@ namespace SqlSchemaDef.SqlServer.Planning
                     sb.Append(", ");
                 }
 
-                sb.Append(IdentifierHelper.EscapeIfKeyword(column.Name))
-                    .Append(' ')
-                    .Append(column.SqlType)
-                    .Append(' ')
-                    .Append(column.IsNullable ? "NULL" : "NOT NULL");
+                sb.Append(BuildColumnDefinitionSql(column));
             }
 
             sb.Append(')');
+            return sb.ToString();
+        }
+
+        private static string BuildColumnDefinitionSql(ColumnModel column)
+        {
+            if (column == null)
+            {
+                throw new ArgumentNullException(nameof(column));
+            }
+
+            var sb = new StringBuilder();
+            sb.Append(IdentifierHelper.EscapeIfKeyword(column.Name))
+                .Append(' ')
+                .Append(column.SqlType);
+
+            if (column.IsIdentity)
+            {
+                sb.Append(" IDENTITY");
+            }
+
+            if (!string.IsNullOrWhiteSpace(column.DefaultExpression))
+            {
+                sb.Append(" DEFAULT ").Append(column.DefaultExpression.Trim());
+            }
+
+            sb.Append(' ')
+                .Append(column.IsNullable ? "NULL" : "NOT NULL");
+
             return sb.ToString();
         }
     }

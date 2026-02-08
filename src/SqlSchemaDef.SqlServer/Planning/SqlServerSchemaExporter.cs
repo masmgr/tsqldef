@@ -46,7 +46,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             }
 
             options = options ?? new ExportOptions();
-            var schema = string.IsNullOrWhiteSpace(options.Schema) ? "dbo" : options.Schema;
+            var schema = NormalizeAndValidateSchema(options.Schema);
 
             return ExportInternalAsync(sqlConnection, schema, options, cancellationToken);
         }
@@ -264,7 +264,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             }
 
             var unique = index.IsUnique ? "UNIQUE " : string.Empty;
-            var sql = "CREATE " + unique + "INDEX " + index.Name + " ON " +
+            var sql = "CREATE " + unique + "INDEX " + IdentifierHelper.EscapeIfKeyword(index.Name) + " ON " +
                       table.Schema + "." + IdentifierHelper.EscapeIfKeyword(table.Name) + " (" + JoinIndexColumns(index.KeyColumns) + ")";
 
             if (index.IncludeColumns != null && index.IncludeColumns.Count > 0)
@@ -298,6 +298,22 @@ namespace SqlSchemaDef.SqlServer.Planning
             }
 
             return string.Join(", ", parts);
+        }
+
+        private static string NormalizeAndValidateSchema(string schema)
+        {
+            var normalized = string.IsNullOrWhiteSpace(schema) ? "dbo" : schema.Trim();
+            if (string.Equals(normalized, "dbo", StringComparison.OrdinalIgnoreCase))
+            {
+                return "dbo";
+            }
+
+            throw new UnsupportedSchemaException(
+                "Unsupported schema in v1." + Environment.NewLine +
+                "Only schema 'dbo' is supported. Found: '" + normalized + "'.")
+            {
+                SchemaName = normalized,
+            };
         }
     }
 }

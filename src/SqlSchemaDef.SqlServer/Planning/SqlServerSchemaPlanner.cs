@@ -28,10 +28,11 @@ namespace SqlSchemaDef.SqlServer.Planning
             }
 
             options = options ?? new PlannerOptions();
+            var schema = NormalizeAndValidateSchema(options.Schema);
 
             var metadata = new PlanMetadata
             {
-                Schema = options.Schema ?? "dbo",
+                Schema = schema,
                 PlannedAt = DateTimeOffset.UtcNow,
                 PlannerVersion = typeof(SqlServerSchemaPlanner).Assembly.GetName().Version?.ToString(),
                 DatabaseName = sqlConnection.Database,
@@ -61,6 +62,22 @@ namespace SqlSchemaDef.SqlServer.Planning
 
             var mergedSkipped = plan.Skipped.Concat(desiredSkipped).ToArray();
             return new MigrationPlan(plan.Metadata, plan.Operations, mergedSkipped);
+        }
+
+        private static string NormalizeAndValidateSchema(string schema)
+        {
+            var normalized = string.IsNullOrWhiteSpace(schema) ? "dbo" : schema.Trim();
+            if (string.Equals(normalized, "dbo", StringComparison.OrdinalIgnoreCase))
+            {
+                return "dbo";
+            }
+
+            throw new UnsupportedSchemaException(
+                "Unsupported schema in v1." + Environment.NewLine +
+                "Only schema 'dbo' is supported. Found: '" + normalized + "'.")
+            {
+                SchemaName = normalized,
+            };
         }
     }
 }
