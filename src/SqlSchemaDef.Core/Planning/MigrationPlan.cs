@@ -87,54 +87,59 @@ namespace SqlSchemaDef.Core.Planning
 
             if (options.IncludeProposals && Proposals.Count > 0)
             {
-                sb.Append(newLine);
-                sb.Append("-- ============================================================").Append(newLine);
-                sb.Append("-- PROPOSALS (review only - NOT applied automatically)").Append(newLine);
-                sb.Append("-- ============================================================").Append(newLine);
-
-                for (int p = 0; p < Proposals.Count; p++)
-                {
-                    var proposal = Proposals[p];
-                    sb.Append("--").Append(newLine);
-                    sb.Append("-- Proposal: ").Append(proposal.Description ?? string.Empty).Append(newLine);
-
-                    if (!string.IsNullOrEmpty(proposal.Warning))
-                    {
-                        sb.Append("--").Append(newLine);
-                        var warningLines = proposal.Warning.Split('\n');
-                        for (int w = 0; w < warningLines.Length; w++)
-                        {
-                            var line = warningLines[w].TrimEnd('\r');
-                            sb.Append("-- ").Append(line).Append(newLine);
-                        }
-                    }
-
-                    sb.Append("--").Append(newLine);
-
-                    if (proposal.Steps != null)
-                    {
-                        for (int s = 0; s < proposal.Steps.Count; s++)
-                        {
-                            var step = proposal.Steps[s];
-                            sb.Append("-- Step ").Append(s + 1).Append(": ").Append(step.Description ?? string.Empty).Append(newLine);
-
-                            if (!string.IsNullOrEmpty(step.Sql))
-                            {
-                                var sqlLines = step.Sql.Split('\n');
-                                for (int l = 0; l < sqlLines.Length; l++)
-                                {
-                                    var sqlLine = sqlLines[l].TrimEnd('\r');
-                                    sb.Append("-- ").Append(sqlLine).Append(newLine);
-                                }
-                            }
-
-                            sb.Append("-- GO").Append(newLine);
-                        }
-                    }
-                }
+                AppendProposals(sb, Proposals, newLine);
             }
 
             return sb.ToString();
+        }
+
+        private static void AppendProposals(StringBuilder sb, IReadOnlyList<RebuildProposal> proposals, string newLine)
+        {
+            sb.Append(newLine);
+            sb.Append("-- ============================================================").Append(newLine);
+            sb.Append("-- PROPOSALS (review only - NOT applied automatically)").Append(newLine);
+            sb.Append("-- ============================================================").Append(newLine);
+
+            for (int p = 0; p < proposals.Count; p++)
+            {
+                var proposal = proposals[p];
+                sb.Append("--").Append(newLine);
+                sb.Append("-- Proposal: ").Append(proposal.Description ?? string.Empty).Append(newLine);
+
+                if (!string.IsNullOrEmpty(proposal.Warning))
+                {
+                    sb.Append("--").Append(newLine);
+                    var warningLines = proposal.Warning.Split('\n');
+                    for (int w = 0; w < warningLines.Length; w++)
+                    {
+                        var line = warningLines[w].TrimEnd('\r');
+                        sb.Append("-- ").Append(line).Append(newLine);
+                    }
+                }
+
+                sb.Append("--").Append(newLine);
+
+                if (proposal.Steps != null)
+                {
+                    for (int s = 0; s < proposal.Steps.Count; s++)
+                    {
+                        var step = proposal.Steps[s];
+                        sb.Append("-- Step ").Append(s + 1).Append(": ").Append(step.Description ?? string.Empty).Append(newLine);
+
+                        if (!string.IsNullOrEmpty(step.Sql))
+                        {
+                            var sqlLines = step.Sql.Split('\n');
+                            for (int l = 0; l < sqlLines.Length; l++)
+                            {
+                                var sqlLine = sqlLines[l].TrimEnd('\r');
+                                sb.Append("-- ").Append(sqlLine).Append(newLine);
+                            }
+                        }
+
+                        sb.Append("-- GO").Append(newLine);
+                    }
+                }
+            }
         }
 
         private static bool EndsWithSemicolon(string sql)
