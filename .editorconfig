@@ -197,6 +197,11 @@ dotnet_diagnostic.SA1501.severity = none   # Statement should not be on a single
 dotnet_diagnostic.SA1116.severity = none   # The parameters should begin on the line after the declaration
 dotnet_diagnostic.SA1117.severity = none   # The parameters should all be placed on the same line or each on its own line
 
+# --- Microsoft CodeAnalysis: 保守性 / 複雑度 ---
+dotnet_diagnostic.CA1502.severity = warning      # Avoid excessive complexity (cyclomatic complexity > 25)
+dotnet_diagnostic.CA1505.severity = warning      # Avoid unmaintainable code (maintainability index < 10)
+dotnet_diagnostic.CA1506.severity = warning      # Avoid excessive class coupling (method > 40, type > 95)
+
 # --- Microsoft CodeAnalysis: パフォーマンス (段階的に対応) ---
 dotnet_diagnostic.CA1848.severity = suggestion   # Use LoggerMessage delegates for performance
 dotnet_diagnostic.CA1873.severity = suggestion   # Avoid expensive evaluation when logging is disabled
