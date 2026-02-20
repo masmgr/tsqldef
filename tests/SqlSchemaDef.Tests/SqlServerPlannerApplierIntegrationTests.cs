@@ -10,26 +10,10 @@ namespace SqlSchemaDef.Tests;
 [Collection(SqlServerIntegrationGroup.Name)]
 public sealed class SqlServerPlannerApplierIntegrationTests
 {
-    private static string? GetMasterConnectionStringOrNull()
-    {
-        var cs = Environment.GetEnvironmentVariable("SQLSCHEMADEF_TEST_CONNECTION_STRING");
-        if (string.IsNullOrWhiteSpace(cs))
-        {
-            return null;
-        }
-
-        var builder = new SqlConnectionStringBuilder(cs);
-        if (string.IsNullOrWhiteSpace(builder.InitialCatalog))
-        {
-            builder.InitialCatalog = "master";
-        }
-        return builder.ConnectionString;
-    }
-
     [Fact]
     public async Task PlanApplyPlan_IsIdempotent()
     {
-        var master = GetMasterConnectionStringOrNull();
+        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
         if (string.IsNullOrWhiteSpace(master))
         {
             return;
@@ -63,7 +47,7 @@ CREATE INDEX IX_Users_Name ON dbo.Users (Name)
     [Fact]
     public async Task ExistingRows_AddNotNullColumn_IsSkipped()
     {
-        var master = GetMasterConnectionStringOrNull();
+        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
         if (string.IsNullOrWhiteSpace(master))
         {
             return;
@@ -99,7 +83,7 @@ ALTER TABLE dbo.Users ADD Age int NOT NULL
     [Fact]
     public async Task CurrentHasExtraObjects_NoDropOperations()
     {
-        var master = GetMasterConnectionStringOrNull();
+        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
         if (string.IsNullOrWhiteSpace(master))
         {
             return;
@@ -133,7 +117,7 @@ CREATE TABLE dbo.Users (Id int NOT NULL);
     [Fact]
     public async Task PlanApplyPlan_WithForeignKey_IsIdempotent()
     {
-        var master = GetMasterConnectionStringOrNull();
+        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
         if (string.IsNullOrWhiteSpace(master))
         {
             return;
@@ -165,7 +149,7 @@ ALTER TABLE dbo.Users ADD CONSTRAINT FK_Users_Teams FOREIGN KEY (TeamId) REFEREN
     [Fact]
     public async Task PlanApplyPlan_WithAlterAddNullableColumn_IsIdempotent()
     {
-        var master = GetMasterConnectionStringOrNull();
+        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
         if (string.IsNullOrWhiteSpace(master))
         {
             return;
@@ -196,7 +180,7 @@ ALTER TABLE dbo.Users ADD Nickname nvarchar(50) NULL
     [Fact]
     public async Task PlanApplyPlan_WithCheckConstraint_IsIdempotent()
     {
-        var master = GetMasterConnectionStringOrNull();
+        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
         if (string.IsNullOrWhiteSpace(master))
         {
             return;
@@ -230,7 +214,7 @@ CREATE TABLE dbo.Users (
     [Fact]
     public async Task PlanApplyPlan_WithUniqueIndex_IsIdempotent()
     {
-        var master = GetMasterConnectionStringOrNull();
+        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
         if (string.IsNullOrWhiteSpace(master))
         {
             return;
@@ -261,7 +245,7 @@ CREATE UNIQUE INDEX IX_Users_Email ON dbo.Users (Email)
     [Fact]
     public async Task MissingConstraintsAndForeignKeys_ConvergeAfterApply()
     {
-        var master = GetMasterConnectionStringOrNull();
+        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
         if (string.IsNullOrWhiteSpace(master))
         {
             return;
@@ -321,7 +305,7 @@ ALTER TABLE dbo.Users ADD CONSTRAINT FK_Users_Teams FOREIGN KEY (TeamId) REFEREN
     [Fact]
     public async Task Apply_OnFailure_ThrowsApplyFailedExceptionWithOperation()
     {
-        var master = GetMasterConnectionStringOrNull();
+        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
         if (string.IsNullOrWhiteSpace(master))
         {
             return;
@@ -356,7 +340,7 @@ ALTER TABLE dbo.Users ADD CONSTRAINT FK_Users_Teams FOREIGN KEY (TeamId) REFEREN
     [Fact]
     public async Task Apply_SingleTransaction_RollsBackOnFailure()
     {
-        var master = GetMasterConnectionStringOrNull();
+        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
         if (string.IsNullOrWhiteSpace(master))
         {
             return;
@@ -400,7 +384,7 @@ ALTER TABLE dbo.Users ADD CONSTRAINT FK_Users_Teams FOREIGN KEY (TeamId) REFEREN
     [Fact]
     public async Task ExportThenPlan_IsEmpty()
     {
-        var master = GetMasterConnectionStringOrNull();
+        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
         if (string.IsNullOrWhiteSpace(master))
         {
             return;

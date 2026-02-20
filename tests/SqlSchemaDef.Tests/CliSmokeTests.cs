@@ -38,7 +38,7 @@ public sealed class CliSmokeTests
     [Fact]
     public async Task DryRun_PrintsPlanAndReturnsZero()
     {
-        var master = Environment.GetEnvironmentVariable("SQLSCHEMADEF_TEST_CONNECTION_STRING");
+        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
         if (string.IsNullOrWhiteSpace(master))
         {
             return;
@@ -83,7 +83,7 @@ public sealed class CliSmokeTests
     [Fact]
     public async Task Apply_CreatesObjectsAndReturnsZero()
     {
-        var master = Environment.GetEnvironmentVariable("SQLSCHEMADEF_TEST_CONNECTION_STRING");
+        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
         if (string.IsNullOrWhiteSpace(master))
         {
             return;

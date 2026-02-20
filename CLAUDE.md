@@ -11,7 +11,7 @@ dotnet build SqlSchemaDef.sln
 # Run all non-integration tests
 dotnet test SqlSchemaDef.sln --filter "Category!=Integration"
 
-# Run all tests (requires SQL Server; set SQLSCHEMADEF_TEST_CONNECTION_STRING)
+# Run all tests (requires SQL Server; auto-detects LocalDB on Windows, or set SQLSCHEMADEF_TEST_CONNECTION_STRING)
 dotnet test SqlSchemaDef.sln
 
 # Run a single test class

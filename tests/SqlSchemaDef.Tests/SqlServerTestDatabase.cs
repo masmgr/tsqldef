@@ -6,6 +6,9 @@ namespace SqlSchemaDef.Tests;
 
 internal sealed class SqlServerTestDatabase : IAsyncDisposable
 {
+    private static readonly Lazy<string?> CachedMasterConnectionString =
+        new Lazy<string?>(ResolveMasterConnectionString);
+
     private readonly string _databaseName;
     private readonly string _masterConnectionString;
 
@@ -28,6 +31,8 @@ internal sealed class SqlServerTestDatabase : IAsyncDisposable
             return builder.ConnectionString;
         }
     }
+
+    internal static string? GetMasterConnectionStringOrNull() => CachedMasterConnectionString.Value;
 
     public static async Task<SqlServerTestDatabase> CreateAsync(string masterConnectionString)
     {
@@ -69,5 +74,47 @@ internal sealed class SqlServerTestDatabase : IAsyncDisposable
                 $"END";
             await cmd.ExecuteNonQueryAsync().ConfigureAwait(false);
         }
+    }
+
+    private static string? ResolveMasterConnectionString()
+    {
+        var cs = Environment.GetEnvironmentVariable("SQLSCHEMADEF_TEST_CONNECTION_STRING");
+        if (!string.IsNullOrWhiteSpace(cs))
+        {
+            var builder = new SqlConnectionStringBuilder(cs);
+            if (string.IsNullOrWhiteSpace(builder.InitialCatalog))
+            {
+                builder.InitialCatalog = "master";
+            }
+
+            return builder.ConnectionString;
+        }
+
+        return TryLocalConnection();
+    }
+
+    private static string? TryLocalConnection()
+    {
+        string[] candidates =
+        {
+            @"Server=(localdb)\MSSQLLocalDB;Initial Catalog=master;Integrated Security=true;TrustServerCertificate=true;Connect Timeout=5",
+            @"Server=.\SQLEXPRESS;Initial Catalog=master;Integrated Security=true;TrustServerCertificate=true;Connect Timeout=5",
+        };
+
+        foreach (var cs in candidates)
+        {
+            try
+            {
+                using var conn = new SqlConnection(cs);
+                conn.Open();
+                return cs;
+            }
+            catch
+            {
+                // try next candidate
+            }
+        }
+
+        return null;
     }
 }
