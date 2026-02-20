@@ -1015,4 +1015,179 @@ public sealed class SchemaDifferTests
         Assert.NotEmpty(plan.Skipped);
         Assert.NotEmpty(plan.Proposals);
     }
+
+    [Fact]
+    public void Diff_WhenTableDescriptionMissing_EmitsAddDescription()
+    {
+        var desired = new DatabaseModel();
+        var desiredTable = desired.GetOrAddTable("dbo", "Users");
+        desiredTable.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+        desiredTable.Description = "User accounts";
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal(OperationKind.AddDescription, op.Kind);
+        Assert.Contains("sp_addextendedproperty", op.Sql);
+        Assert.Contains("User accounts", op.Sql);
+    }
+
+    [Fact]
+    public void Diff_WhenColumnDescriptionMissing_EmitsAddDescription()
+    {
+        var desired = new DatabaseModel();
+        var desiredTable = desired.GetOrAddTable("dbo", "Users");
+        desiredTable.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false, Description = "Primary key" };
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal(OperationKind.AddDescription, op.Kind);
+        Assert.Contains("sp_addextendedproperty", op.Sql);
+        Assert.Contains("Primary key", op.Sql);
+        Assert.Contains("COLUMN", op.Sql);
+    }
+
+    [Fact]
+    public void Diff_WhenTableDescriptionDiffers_EmitsUpdateDescription()
+    {
+        var desired = new DatabaseModel();
+        var desiredTable = desired.GetOrAddTable("dbo", "Users");
+        desiredTable.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+        desiredTable.Description = "Updated description";
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+        currentTable.Description = "Old description";
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal(OperationKind.UpdateDescription, op.Kind);
+        Assert.Contains("sp_updateextendedproperty", op.Sql);
+        Assert.Contains("Updated description", op.Sql);
+    }
+
+    [Fact]
+    public void Diff_WhenColumnDescriptionDiffers_EmitsUpdateDescription()
+    {
+        var desired = new DatabaseModel();
+        var desiredTable = desired.GetOrAddTable("dbo", "Users");
+        desiredTable.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false, Description = "New desc" };
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false, Description = "Old desc" };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal(OperationKind.UpdateDescription, op.Kind);
+        Assert.Contains("sp_updateextendedproperty", op.Sql);
+    }
+
+    [Fact]
+    public void Diff_WhenDescriptionsSame_NoOperation()
+    {
+        var desired = new DatabaseModel();
+        var desiredTable = desired.GetOrAddTable("dbo", "Users");
+        desiredTable.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false, Description = "Same desc" };
+        desiredTable.Description = "Table desc";
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false, Description = "Same desc" };
+        currentTable.Description = "Table desc";
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        Assert.Empty(plan.Operations);
+        Assert.Empty(plan.Skipped);
+    }
+
+    [Fact]
+    public void Diff_WhenCurrentOnlyDescription_IsSkipped()
+    {
+        var desired = new DatabaseModel();
+        var desiredTable = desired.GetOrAddTable("dbo", "Users");
+        desiredTable.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false, Description = "Old desc" };
+        currentTable.Description = "Old table desc";
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        Assert.Empty(plan.Operations);
+        Assert.Equal(2, plan.Skipped.Count);
+        Assert.All(plan.Skipped, item => Assert.Equal(SkippedReason.DropNotSupported, item.Reason));
+    }
+
+    [Fact]
+    public void Diff_WhenNewTableHasDescription_EmitsCreateTableAndAddDescription()
+    {
+        var desired = new DatabaseModel();
+        var desiredTable = desired.GetOrAddTable("dbo", "Users");
+        desiredTable.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+        desiredTable.Description = "User accounts";
+
+        var current = new DatabaseModel();
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        Assert.Equal(2, plan.Operations.Count);
+        Assert.Equal(OperationKind.CreateTable, plan.Operations[0].Kind);
+        Assert.Equal(OperationKind.AddDescription, plan.Operations[1].Kind);
+    }
+
+    [Fact]
+    public void Diff_DescriptionsOrderedAfterForeignKeys()
+    {
+        var desired = new DatabaseModel();
+        var desiredTeams = desired.GetOrAddTable("dbo", "Teams");
+        desiredTeams.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+
+        var desiredUsers = desired.GetOrAddTable("dbo", "Users");
+        desiredUsers.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+        desiredUsers.Columns["TEAMID"] = new ColumnModel { Name = "TeamId", SqlType = "int", IsNullable = false };
+        desiredUsers.Constraints["FK_USERS_TEAMS"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.ForeignKey,
+            Name = "FK_Users_Teams",
+            Columns = new[] { "TeamId" },
+            ReferenceSchema = "dbo",
+            ReferenceTable = "Teams",
+            ReferenceColumns = new[] { "Id" },
+        };
+        desiredUsers.Description = "User accounts";
+
+        var current = new DatabaseModel();
+        current.GetOrAddTable("dbo", "Teams").Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+        var currentUsers = current.GetOrAddTable("dbo", "Users");
+        currentUsers.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+        currentUsers.Columns["TEAMID"] = new ColumnModel { Name = "TeamId", SqlType = "int", IsNullable = false };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        var kinds = plan.Operations.Select(op => op.Kind).ToArray();
+        Assert.Equal(new[] { OperationKind.AddForeignKey, OperationKind.AddDescription }, kinds);
+    }
 }

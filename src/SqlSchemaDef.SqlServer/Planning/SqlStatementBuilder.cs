@@ -128,6 +128,48 @@ namespace SqlSchemaDef.SqlServer.Planning
             return sql;
         }
 
+        internal static string BuildAddDescriptionSql(
+            string schema, string tableName, string columnName, string description)
+        {
+            var sql = "EXEC sp_addextendedproperty @name = N'MS_Description', @value = N'" +
+                      EscapeSqlString(description) + "', @level0type = N'SCHEMA', @level0name = N'" +
+                      schema + "', @level1type = N'TABLE', @level1name = N'" +
+                      EscapeSqlString(tableName) + "'";
+
+            if (columnName != null)
+            {
+                sql += ", @level2type = N'COLUMN', @level2name = N'" + EscapeSqlString(columnName) + "'";
+            }
+
+            return sql;
+        }
+
+        internal static string BuildUpdateDescriptionSql(
+            string schema, string tableName, string columnName, string description)
+        {
+            var sql = "EXEC sp_updateextendedproperty @name = N'MS_Description', @value = N'" +
+                      EscapeSqlString(description) + "', @level0type = N'SCHEMA', @level0name = N'" +
+                      schema + "', @level1type = N'TABLE', @level1name = N'" +
+                      EscapeSqlString(tableName) + "'";
+
+            if (columnName != null)
+            {
+                sql += ", @level2type = N'COLUMN', @level2name = N'" + EscapeSqlString(columnName) + "'";
+            }
+
+            return sql;
+        }
+
+        private static string EscapeSqlString(string value)
+        {
+            if (string.IsNullOrEmpty(value))
+            {
+                return value ?? string.Empty;
+            }
+
+            return value.Replace("'", "''");
+        }
+
         internal static string JoinColumns(IReadOnlyList<string> columns)
         {
             if (columns == null || columns.Count == 0)

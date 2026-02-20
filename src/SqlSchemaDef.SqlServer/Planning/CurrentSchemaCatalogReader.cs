@@ -202,13 +202,30 @@ WHERE ps.name = @schema
   AND pt.is_ms_shipped = 0
 ORDER BY pt.name, fk.name, fkc.constraint_column_id;";
 
+        private const string ExtendedPropertiesSql = @"
+SELECT
+  ep.major_id,
+  ep.minor_id,
+  CAST(ep.value AS nvarchar(4000)) AS property_value
+FROM sys.extended_properties AS ep
+JOIN sys.tables AS t
+  ON t.object_id = ep.major_id
+JOIN sys.schemas AS s
+  ON s.schema_id = t.schema_id
+WHERE s.name = @schema
+  AND t.is_ms_shipped = 0
+  AND ep.name = 'MS_Description'
+  AND ep.class = 1
+ORDER BY ep.major_id, ep.minor_id;";
+
         private const string ReadAllSql = TablesSql + "\n" +
                                           ColumnsSql + "\n" +
                                           DefaultsSql + "\n" +
                                           KeyConstraintsSql + "\n" +
                                           CheckConstraintsSql + "\n" +
                                           IndexesSql + "\n" +
-                                          ForeignKeysSql;
+                                          ForeignKeysSql + "\n" +
+                                          ExtendedPropertiesSql;
 
         internal static async Task<Result> ReadAsync(
             SqlConnection connection,
@@ -222,6 +239,7 @@ ORDER BY pt.name, fk.name, fkc.constraint_column_id;";
             List<CurrentSchemaReader.CheckConstraintRow> checkConstraints;
             List<CurrentSchemaReader.IndexRow> indexes;
             List<CurrentSchemaReader.ForeignKeyRow> foreignKeys;
+            List<CurrentSchemaReader.ExtendedPropertyRow> extendedProperties;
 
             using (var command = CreateCommand(connection, ReadAllSql, schema))
             using (var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
@@ -245,6 +263,9 @@ ORDER BY pt.name, fk.name, fkc.constraint_column_id;";
 
                 await MoveToNextResultSetAsync(reader, "foreign keys", cancellationToken).ConfigureAwait(false);
                 foreignKeys = await ReadForeignKeysResultSetAsync(reader, cancellationToken).ConfigureAwait(false);
+
+                await MoveToNextResultSetAsync(reader, "extended properties", cancellationToken).ConfigureAwait(false);
+                extendedProperties = await ReadExtendedPropertiesResultSetAsync(reader, cancellationToken).ConfigureAwait(false);
             }
 
             return new Result(
@@ -254,7 +275,8 @@ ORDER BY pt.name, fk.name, fkc.constraint_column_id;";
                 keyConstraints,
                 checkConstraints,
                 foreignKeys,
-                indexes);
+                indexes,
+                extendedProperties);
         }
 
         private static int GetInt32(SqlDataReader reader, int ordinal)
@@ -419,6 +441,24 @@ ORDER BY pt.name, fk.name, fkc.constraint_column_id;";
             return results;
         }
 
+        private static async Task<List<CurrentSchemaReader.ExtendedPropertyRow>> ReadExtendedPropertiesResultSetAsync(
+            SqlDataReader reader,
+            CancellationToken cancellationToken)
+        {
+            var results = new List<CurrentSchemaReader.ExtendedPropertyRow>();
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                results.Add(new CurrentSchemaReader.ExtendedPropertyRow
+                {
+                    MajorId = reader.GetInt32(0),
+                    MinorId = reader.GetInt32(1),
+                    PropertyValue = reader.GetString(2),
+                });
+            }
+
+            return results;
+        }
+
         private static async Task MoveToNextResultSetAsync(
             SqlDataReader reader,
             string resultSetName,
@@ -474,7 +514,8 @@ ORDER BY pt.name, fk.name, fkc.constraint_column_id;";
                 List<CurrentSchemaReader.KeyConstraintRow> keyConstraints,
                 List<CurrentSchemaReader.CheckConstraintRow> checkConstraints,
                 List<CurrentSchemaReader.ForeignKeyRow> foreignKeys,
-                List<CurrentSchemaReader.IndexRow> indexes)
+                List<CurrentSchemaReader.IndexRow> indexes,
+                List<CurrentSchemaReader.ExtendedPropertyRow> extendedProperties)
             {
                 Tables = tables;
                 Columns = columns;
@@ -483,6 +524,7 @@ ORDER BY pt.name, fk.name, fkc.constraint_column_id;";
                 CheckConstraints = checkConstraints;
                 ForeignKeys = foreignKeys;
                 Indexes = indexes;
+                ExtendedProperties = extendedProperties;
             }
 
             public List<CurrentSchemaReader.TableRow> Tables { get; }
@@ -492,6 +534,7 @@ ORDER BY pt.name, fk.name, fkc.constraint_column_id;";
             public List<CurrentSchemaReader.CheckConstraintRow> CheckConstraints { get; }
             public List<CurrentSchemaReader.ForeignKeyRow> ForeignKeys { get; }
             public List<CurrentSchemaReader.IndexRow> Indexes { get; }
+            public List<CurrentSchemaReader.ExtendedPropertyRow> ExtendedProperties { get; }
         }
     }
 }

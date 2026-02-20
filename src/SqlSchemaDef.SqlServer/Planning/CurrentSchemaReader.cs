@@ -29,7 +29,8 @@ namespace SqlSchemaDef.SqlServer.Planning
                 readResult.KeyConstraints,
                 readResult.CheckConstraints,
                 readResult.ForeignKeys,
-                readResult.Indexes);
+                readResult.Indexes,
+                readResult.ExtendedProperties);
         }
 
         internal sealed class TableRow
@@ -102,6 +103,13 @@ namespace SqlSchemaDef.SqlServer.Planning
             public string ColumnName { get; set; }
         }
 
+        internal sealed class ExtendedPropertyRow
+        {
+            public int MajorId { get; set; }
+            public int MinorId { get; set; }
+            public string PropertyValue { get; set; }
+        }
+
         internal static DatabaseModel BuildModel(
             IEnumerable<TableRow> tables,
             IEnumerable<ColumnRow> columns,
@@ -109,7 +117,8 @@ namespace SqlSchemaDef.SqlServer.Planning
             IEnumerable<KeyConstraintRow> keyConstraints = null,
             IEnumerable<CheckConstraintRow> checkConstraints = null,
             IEnumerable<ForeignKeyRow> foreignKeys = null,
-            IEnumerable<IndexRow> indexes = null)
+            IEnumerable<IndexRow> indexes = null,
+            IEnumerable<ExtendedPropertyRow> extendedProperties = null)
         {
             return CurrentSchemaModelBuilder.Build(
                 tables,
@@ -118,7 +127,8 @@ namespace SqlSchemaDef.SqlServer.Planning
                 keyConstraints,
                 checkConstraints,
                 foreignKeys,
-                indexes);
+                indexes,
+                extendedProperties);
         }
     }
 }

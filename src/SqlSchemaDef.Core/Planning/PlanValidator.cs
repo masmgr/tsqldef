@@ -12,6 +12,8 @@ namespace SqlSchemaDef.Core.Planning
             OperationKind.AddConstraint,
             OperationKind.CreateIndex,
             OperationKind.AddForeignKey,
+            OperationKind.AddDescription,
+            OperationKind.UpdateDescription,
         };
 
         public static void ValidateForApply(MigrationPlan plan)

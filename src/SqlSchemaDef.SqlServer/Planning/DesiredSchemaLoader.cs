@@ -112,6 +112,9 @@ namespace SqlSchemaDef.SqlServer.Planning
                 case CreateIndexStatement createIndex:
                     Visit(createIndex);
                     return;
+                case ExecuteStatement exec:
+                    ProcessExecuteStatement(exec);
+                    return;
                 default:
                     throw CreateUnsupportedStatementException(statement);
             }
@@ -328,6 +331,124 @@ namespace SqlSchemaDef.SqlServer.Planning
             table.Constraints[IdentifierHelper.NormalizeNameKey(constraint.Name)] = constraint;
         }
 
+        private void ProcessExecuteStatement(ExecuteStatement exec)
+        {
+            var procRef = exec.ExecuteSpecification?.ExecutableEntity as ExecutableProcedureReference;
+            if (procRef == null)
+            {
+                throw CreateUnsupportedStatementException(exec);
+            }
+
+            var procName = procRef.ProcedureReference?.ProcedureReference?.Name;
+            if (procName == null)
+            {
+                throw CreateUnsupportedStatementException(exec);
+            }
+
+            var fullName = procName.BaseIdentifier?.Value;
+            if (!string.Equals(fullName, "sp_addextendedproperty", StringComparison.OrdinalIgnoreCase))
+            {
+                throw CreateUnsupportedStatementException(exec);
+            }
+
+            ProcessSpAddExtendedProperty(exec, procRef);
+        }
+
+        private void ProcessSpAddExtendedProperty(ExecuteStatement exec, ExecutableProcedureReference procRef)
+        {
+            var parameters = procRef.Parameters;
+            var paramName = GetNamedParameterStringValue(parameters, "@name");
+            var paramValue = GetNamedParameterStringValue(parameters, "@value");
+            var level0Type = GetNamedParameterStringValue(parameters, "@level0type");
+            var level0Name = GetNamedParameterStringValue(parameters, "@level0name");
+            var level1Type = GetNamedParameterStringValue(parameters, "@level1type");
+            var level1Name = GetNamedParameterStringValue(parameters, "@level1name");
+            var level2Type = GetNamedParameterStringValue(parameters, "@level2type");
+            var level2Name = GetNamedParameterStringValue(parameters, "@level2name");
+
+            if (!string.Equals(paramName, "MS_Description", StringComparison.OrdinalIgnoreCase))
+            {
+                throw CreateUnsupportedFeatureException(exec, "ExecuteStatement", "ExtendedPropertyName");
+            }
+
+            if (!string.Equals(level0Type, "SCHEMA", StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(level1Type, "TABLE", StringComparison.OrdinalIgnoreCase))
+            {
+                throw CreateUnsupportedFeatureException(exec, "ExecuteStatement", "ExtendedPropertyLevel");
+            }
+
+            var schema = string.IsNullOrWhiteSpace(level0Name) ? "dbo" : level0Name;
+            if (!string.Equals(schema, "dbo", StringComparison.OrdinalIgnoreCase))
+            {
+                throw CreateUnsupportedSchemaException(exec, schema);
+            }
+
+            if (string.IsNullOrWhiteSpace(level1Name))
+            {
+                throw CreateUnsupportedFeatureException(exec, "ExecuteStatement", "MissingTableName");
+            }
+
+            var tableKey = IdentifierHelper.BuildTableKey("dbo", level1Name);
+            if (!_model.Tables.TryGetValue(tableKey, out var table))
+            {
+                throw CreateUnsupportedFeatureException(exec, "ExecuteStatement", "TableNotFound");
+            }
+
+            if (string.IsNullOrWhiteSpace(level2Type))
+            {
+                table.Description = paramValue;
+                return;
+            }
+
+            if (!string.Equals(level2Type, "COLUMN", StringComparison.OrdinalIgnoreCase))
+            {
+                throw CreateUnsupportedFeatureException(exec, "ExecuteStatement", "ExtendedPropertyLevel2Type");
+            }
+
+            if (string.IsNullOrWhiteSpace(level2Name))
+            {
+                throw CreateUnsupportedFeatureException(exec, "ExecuteStatement", "MissingColumnName");
+            }
+
+            var columnKey = IdentifierHelper.NormalizeNameKey(level2Name);
+            if (!table.Columns.TryGetValue(columnKey, out var column))
+            {
+                throw CreateUnsupportedFeatureException(exec, "ExecuteStatement", "ColumnNotFound");
+            }
+
+            column.Description = paramValue;
+        }
+
+        private static string GetNamedParameterStringValue(IList<ExecuteParameter> parameters, string variableName)
+        {
+            if (parameters == null)
+            {
+                return null;
+            }
+
+            for (var i = 0; i < parameters.Count; i++)
+            {
+                var param = parameters[i];
+                if (param.Variable != null &&
+                    string.Equals(param.Variable.Name, variableName, StringComparison.OrdinalIgnoreCase))
+                {
+                    return ExtractStringLiteralValue(param.ParameterValue);
+                }
+            }
+
+            return null;
+        }
+
+        private static string ExtractStringLiteralValue(ScalarExpression expression)
+        {
+            if (expression is StringLiteral stringLiteral)
+            {
+                return stringLiteral.Value;
+            }
+
+            return null;
+        }
+
         private static string MapDeleteUpdateAction(DeleteUpdateAction action)
         {
             switch (action)
@@ -383,7 +504,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             var statementType = node.GetType().Name;
             var message =
                 "Unsupported desired statement in v1 (additive-only)." + Environment.NewLine +
-                "Only CREATE TABLE / ALTER TABLE ... ADD ... / CREATE INDEX are supported." + Environment.NewLine +
+                "Only CREATE TABLE / ALTER TABLE ... ADD ... / CREATE INDEX / EXEC sp_addextendedproperty are supported." + Environment.NewLine +
                 $"Found: {statementType} at batch {_batchIndex}, line {line}, column {column}.";
 
             return new UnsupportedDesiredStatementException(message)

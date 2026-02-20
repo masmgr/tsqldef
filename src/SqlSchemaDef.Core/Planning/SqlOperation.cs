@@ -15,5 +15,7 @@ namespace SqlSchemaDef.Core.Planning
         AddConstraint = 30,
         CreateIndex = 40,
         AddForeignKey = 50,
+        AddDescription = 60,
+        UpdateDescription = 61,
     }
 }

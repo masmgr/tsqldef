@@ -255,4 +255,79 @@ public sealed class DesiredModelBuilderVisitorTests
         Assert.Equal(SkippedReason.NotNullAddNotSupported, item.Reason);
         Assert.Equal("dbo.Users.Age", item.Target.ToDisplayName());
     }
+
+    [Fact]
+    public void Load_SpAddExtendedPropertyTableDescription_SetsDescription()
+    {
+        var sql = string.Join("\n", new[]
+        {
+            "CREATE TABLE dbo.Users (Id int NOT NULL)",
+            "GO",
+            "EXEC sp_addextendedproperty @name = N'MS_Description', @value = N'User accounts', @level0type = N'SCHEMA', @level0name = N'dbo', @level1type = N'TABLE', @level1name = N'Users'",
+        });
+
+        var model = DesiredSchemaLoader.Load(sql);
+        var table = model.Tables.Values.Single();
+
+        Assert.Equal("User accounts", table.Description);
+    }
+
+    [Fact]
+    public void Load_SpAddExtendedPropertyColumnDescription_SetsDescription()
+    {
+        var sql = string.Join("\n", new[]
+        {
+            "CREATE TABLE dbo.Users (Id int NOT NULL, Name nvarchar(100) NULL)",
+            "GO",
+            "EXEC sp_addextendedproperty @name = N'MS_Description', @value = N'Primary key', @level0type = N'SCHEMA', @level0name = N'dbo', @level1type = N'TABLE', @level1name = N'Users', @level2type = N'COLUMN', @level2name = N'Id'",
+        });
+
+        var model = DesiredSchemaLoader.Load(sql);
+        var column = model.Tables.Values.Single().Columns["ID"];
+
+        Assert.Equal("Primary key", column.Description);
+    }
+
+    [Fact]
+    public void Load_SpAddExtendedPropertyUnsupportedName_Throws()
+    {
+        var sql = string.Join("\n", new[]
+        {
+            "CREATE TABLE dbo.Users (Id int NOT NULL)",
+            "GO",
+            "EXEC sp_addextendedproperty @name = N'SomethingElse', @value = N'test', @level0type = N'SCHEMA', @level0name = N'dbo', @level1type = N'TABLE', @level1name = N'Users'",
+        });
+
+        var ex = Assert.Throws<UnsupportedDesiredFeatureException>(() =>
+            DesiredSchemaLoader.Load(sql));
+
+        Assert.Equal("ExtendedPropertyName", ex.FeatureName);
+    }
+
+    [Fact]
+    public void Load_SpAddExtendedPropertyBeforeCreateTable_Throws()
+    {
+        var sql = "EXEC sp_addextendedproperty @name = N'MS_Description', @value = N'test', @level0type = N'SCHEMA', @level0name = N'dbo', @level1type = N'TABLE', @level1name = N'Users'";
+
+        var ex = Assert.Throws<UnsupportedDesiredFeatureException>(() =>
+            DesiredSchemaLoader.Load(sql));
+
+        Assert.Equal("TableNotFound", ex.FeatureName);
+    }
+
+    [Fact]
+    public void Load_SpAddExtendedPropertyWithEscapedQuote_ParsesCorrectly()
+    {
+        var sql = string.Join("\n", new[]
+        {
+            "CREATE TABLE dbo.Users (Id int NOT NULL)",
+            "GO",
+            "EXEC sp_addextendedproperty @name = N'MS_Description', @value = N'User''s table', @level0type = N'SCHEMA', @level0name = N'dbo', @level1type = N'TABLE', @level1name = N'Users'",
+        });
+
+        var model = DesiredSchemaLoader.Load(sql);
+        var table = model.Tables.Values.Single();
+
+        Assert.Equal("User's table", table.Description);
+    }
 }

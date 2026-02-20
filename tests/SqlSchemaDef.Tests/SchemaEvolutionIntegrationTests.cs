@@ -365,6 +365,120 @@ CREATE INDEX IX_Products_Name ON dbo.Products (Name);
             && s.Target.Name == "CK_Products_Price");
     }
 
+    [Fact]
+    public async Task PlanApply_TableAndColumnDescriptions_VerifyDbState()
+    {
+        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
+        if (string.IsNullOrWhiteSpace(master))
+        {
+            return;
+        }
+
+        await using var db = await SqlServerTestDatabase.CreateAsync(master);
+
+        var desiredSql = string.Join("\n", new[]
+        {
+            "CREATE TABLE dbo.Users (Id int NOT NULL, Name nvarchar(100) NULL)",
+            "GO",
+            "EXEC sp_addextendedproperty @name = N'MS_Description', @value = N'User accounts', @level0type = N'SCHEMA', @level0name = N'dbo', @level1type = N'TABLE', @level1name = N'Users'",
+            "GO",
+            "EXEC sp_addextendedproperty @name = N'MS_Description', @value = N'Primary key', @level0type = N'SCHEMA', @level0name = N'dbo', @level1type = N'TABLE', @level1name = N'Users', @level2type = N'COLUMN', @level2name = N'Id'",
+        });
+
+        await using var conn = new SqlConnection(db.ConnectionString);
+        await conn.OpenAsync();
+
+        var planner = new SqlServerSchemaPlanner();
+        var applier = new SqlServerSchemaApplier();
+
+        var plan1 = await planner.PlanAsync(conn, desiredSql, new PlannerOptions());
+        Assert.False(plan1.IsEmpty);
+        Assert.Contains(plan1.Operations, op => op.Kind == OperationKind.AddDescription);
+
+        await applier.ApplyAsync(conn, plan1, new ApplyOptions());
+
+        // Verify descriptions exist in DB
+        Assert.Equal(1, await CountExtendedPropertiesAsync(conn, "Users", null!));
+        Assert.Equal(1, await CountExtendedPropertiesAsync(conn, "Users", "Id"));
+
+        // Idempotent
+        var plan2 = await planner.PlanAsync(conn, desiredSql, new PlannerOptions());
+        Assert.True(plan2.IsEmpty);
+    }
+
+    [Fact]
+    public async Task PlanApply_DescriptionUpdate_GeneratesUpdate()
+    {
+        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
+        if (string.IsNullOrWhiteSpace(master))
+        {
+            return;
+        }
+
+        await using var db = await SqlServerTestDatabase.CreateAsync(master);
+
+        // Seed with initial description
+        await using (var conn = new SqlConnection(db.ConnectionString))
+        {
+            await conn.OpenAsync();
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = @"
+CREATE TABLE dbo.Users (Id int NOT NULL);
+EXEC sp_addextendedproperty @name = N'MS_Description', @value = N'Version 1', @level0type = N'SCHEMA', @level0name = N'dbo', @level1type = N'TABLE', @level1name = N'Users';
+";
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        var desiredSql = string.Join("\n", new[]
+        {
+            "CREATE TABLE dbo.Users (Id int NOT NULL)",
+            "GO",
+            "EXEC sp_addextendedproperty @name = N'MS_Description', @value = N'Version 2', @level0type = N'SCHEMA', @level0name = N'dbo', @level1type = N'TABLE', @level1name = N'Users'",
+        });
+
+        await using var conn2 = new SqlConnection(db.ConnectionString);
+        await conn2.OpenAsync();
+
+        var planner = new SqlServerSchemaPlanner();
+        var applier = new SqlServerSchemaApplier();
+
+        var plan = await planner.PlanAsync(conn2, desiredSql, new PlannerOptions());
+        Assert.False(plan.IsEmpty);
+        Assert.Contains(plan.Operations, op => op.Kind == OperationKind.UpdateDescription);
+
+        await applier.ApplyAsync(conn2, plan, new ApplyOptions());
+
+        // Idempotent after update
+        var plan2 = await planner.PlanAsync(conn2, desiredSql, new PlannerOptions());
+        Assert.True(plan2.IsEmpty);
+    }
+
+    private static async Task<int> CountExtendedPropertiesAsync(SqlConnection conn, string tableName, string columnName)
+    {
+        await using var cmd = conn.CreateCommand();
+        if (columnName == null)
+        {
+            cmd.CommandText = @"SELECT COUNT(*) FROM sys.extended_properties ep
+                JOIN sys.tables t ON ep.major_id = t.object_id
+                WHERE t.name = @table AND ep.minor_id = 0 AND ep.name = 'MS_Description'
+                AND t.schema_id = SCHEMA_ID(N'dbo')";
+            cmd.Parameters.AddWithValue("@table", tableName);
+        }
+        else
+        {
+            cmd.CommandText = @"SELECT COUNT(*) FROM sys.extended_properties ep
+                JOIN sys.tables t ON ep.major_id = t.object_id
+                JOIN sys.columns c ON c.object_id = t.object_id AND c.column_id = ep.minor_id
+                WHERE t.name = @table AND c.name = @column AND ep.name = 'MS_Description'
+                AND t.schema_id = SCHEMA_ID(N'dbo')";
+            cmd.Parameters.AddWithValue("@table", tableName);
+            cmd.Parameters.AddWithValue("@column", columnName);
+        }
+
+        var result = await cmd.ExecuteScalarAsync();
+        return Convert.ToInt32(result, CultureInfo.InvariantCulture);
+    }
+
     private static async Task<int> CountTablesAsync(SqlConnection conn, string tableName)
     {
         await using var cmd = conn.CreateCommand();

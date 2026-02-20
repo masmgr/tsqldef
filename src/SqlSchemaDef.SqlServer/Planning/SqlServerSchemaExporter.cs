@@ -139,6 +139,28 @@ namespace SqlSchemaDef.SqlServer.Planning
                 }
             }
 
+            var descriptions = BuildDescriptionStatements(tables);
+            if (descriptions.Count > 0)
+            {
+                if (sb.Length > 0)
+                {
+                    sb.Append(newLine);
+                }
+
+                for (var i = 0; i < descriptions.Count; i++)
+                {
+                    sb.Append(descriptions[i]);
+                    if (i + 1 < descriptions.Count)
+                    {
+                        sb.Append(newLine).Append(newLine);
+                    }
+                    else
+                    {
+                        sb.Append(newLine);
+                    }
+                }
+            }
+
             if (options.IncludeSkipped && skipped.Count > 0)
             {
                 if (sb.Length > 0)
@@ -298,6 +320,33 @@ namespace SqlSchemaDef.SqlServer.Planning
             }
 
             return string.Join(", ", parts);
+        }
+
+        private static List<string> BuildDescriptionStatements(List<TableModel> tables)
+        {
+            var statements = new List<string>();
+
+            foreach (var table in tables)
+            {
+                if (!string.IsNullOrEmpty(table.Description))
+                {
+                    statements.Add(SqlStatementBuilder.BuildAddDescriptionSql(
+                        table.Schema, table.Name, null, table.Description));
+                }
+
+                var columns = table.Columns.Values
+                    .Where(c => !string.IsNullOrEmpty(c.Description))
+                    .OrderBy(c => IdentifierHelper.NormalizeNameKey(c.Name), StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                foreach (var column in columns)
+                {
+                    statements.Add(SqlStatementBuilder.BuildAddDescriptionSql(
+                        table.Schema, table.Name, column.Name, column.Description));
+                }
+            }
+
+            return statements;
         }
 
         private static string NormalizeAndValidateSchema(string schema)

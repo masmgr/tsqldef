@@ -12,7 +12,8 @@ namespace SqlSchemaDef.SqlServer.Planning
             IEnumerable<CurrentSchemaReader.KeyConstraintRow> keyConstraints = null,
             IEnumerable<CurrentSchemaReader.CheckConstraintRow> checkConstraints = null,
             IEnumerable<CurrentSchemaReader.ForeignKeyRow> foreignKeys = null,
-            IEnumerable<CurrentSchemaReader.IndexRow> indexes = null)
+            IEnumerable<CurrentSchemaReader.IndexRow> indexes = null,
+            IEnumerable<CurrentSchemaReader.ExtendedPropertyRow> extendedProperties = null)
         {
             if (tables == null)
                 throw new ArgumentNullException(nameof(tables));
@@ -21,6 +22,7 @@ namespace SqlSchemaDef.SqlServer.Planning
 
             var model = new DatabaseModel();
             var tableMap = new Dictionary<int, TableModel>();
+            var columnIdMap = new Dictionary<(int ObjectId, int ColumnId), ColumnModel>();
             var defaultMap = BuildDefaultMap(defaults);
             var keyConstraintGroups = BuildKeyConstraintGroups(keyConstraints);
             var checkConstraintGroups = BuildCheckConstraintGroups(checkConstraints);
@@ -67,6 +69,7 @@ namespace SqlSchemaDef.SqlServer.Planning
                 };
 
                 table.Columns[IdentifierHelper.NormalizeNameKey(columnModel.Name)] = columnModel;
+                columnIdMap[(column.ObjectId, column.ColumnId)] = columnModel;
             }
 
             ApplyKeyConstraints(tableMap, keyConstraintGroups);
@@ -74,6 +77,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             ApplyForeignKeys(tableMap, foreignKeyGroups);
             ApplyDefaultConstraints(tableMap, defaults);
             ApplyIndexes(tableMap, indexGroups);
+            ApplyExtendedProperties(tableMap, columnIdMap, extendedProperties);
 
             return model;
         }
@@ -384,6 +388,38 @@ namespace SqlSchemaDef.SqlServer.Planning
             }
 
             return groups;
+        }
+
+        private static void ApplyExtendedProperties(
+            Dictionary<int, TableModel> tableMap,
+            Dictionary<(int ObjectId, int ColumnId), ColumnModel> columnIdMap,
+            IEnumerable<CurrentSchemaReader.ExtendedPropertyRow> extendedProperties)
+        {
+            if (extendedProperties == null)
+            {
+                return;
+            }
+
+            foreach (var item in extendedProperties)
+            {
+                if (item == null)
+                    continue;
+
+                if (!tableMap.TryGetValue(item.MajorId, out var table))
+                    continue;
+
+                if (item.MinorId == 0)
+                {
+                    table.Description = item.PropertyValue;
+                }
+                else
+                {
+                    if (columnIdMap.TryGetValue((item.MajorId, item.MinorId), out var column))
+                    {
+                        column.Description = item.PropertyValue;
+                    }
+                }
+            }
         }
 
         private static void ApplyIndexes(

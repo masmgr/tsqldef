@@ -49,6 +49,7 @@ namespace SqlSchemaDef.SqlServer.Planning
         public IDictionary<string, ColumnModel> Columns { get; }
         public IDictionary<string, ConstraintModel> Constraints { get; }
         public IDictionary<string, IndexModel> Indexes { get; }
+        public string Description { get; set; }
     }
 
     public sealed class ColumnModel
@@ -60,6 +61,7 @@ namespace SqlSchemaDef.SqlServer.Planning
         public string DefaultExpression { get; set; }
         public bool IsFromAlterAdd { get; set; }
         public string UnsupportedFeature { get; set; }
+        public string Description { get; set; }
     }
 
     public sealed class ConstraintModel

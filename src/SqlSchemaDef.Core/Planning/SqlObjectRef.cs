@@ -23,6 +23,10 @@ namespace SqlSchemaDef.Core.Planning
                     return schema + "." + (ParentName ?? "(unknown)") + "." + (Name ?? "(unknown)");
                 case SqlObjectType.ForeignKey:
                     return schema + "." + (ParentName ?? "(unknown)") + "." + (Name ?? "(unknown)");
+                case SqlObjectType.Description:
+                    if (!string.IsNullOrEmpty(ParentName))
+                        return schema + "." + ParentName + "." + (Name ?? "(unknown)");
+                    return schema + "." + (Name ?? "(unknown)");
                 default:
                     return schema + "." + (Name ?? "(unknown)");
             }
@@ -36,5 +40,6 @@ namespace SqlSchemaDef.Core.Planning
         Constraint = 3,
         Index = 4,
         ForeignKey = 5,
+        Description = 6,
     }
 }

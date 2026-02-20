@@ -27,6 +27,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             var addConstraintOps = new List<SqlOperation>();
             var createIndexOps = new List<SqlOperation>();
             var addForeignKeyOps = new List<SqlOperation>();
+            var descriptionOps = new List<SqlOperation>();
             var skipped = new List<SkippedItem>();
 
             var includePatterns = options.IncludeTablePatterns;
@@ -56,6 +57,7 @@ namespace SqlSchemaDef.SqlServer.Planning
 
                 DiffConstraints(currentTable, desiredTable, hasCurrentTable, addConstraintOps, addForeignKeyOps, skipped);
                 DiffIndexes(currentTable, desiredTable, hasCurrentTable, createIndexOps, skipped);
+                DiffDescriptions(currentTable, desiredTable, hasCurrentTable, descriptionOps, skipped);
 
                 if (hasCurrentTable)
                 {
@@ -94,6 +96,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             operations.AddRange(addConstraintOps);
             operations.AddRange(createIndexOps);
             operations.AddRange(addForeignKeyOps);
+            operations.AddRange(descriptionOps);
 
             IReadOnlyList<RebuildProposal> proposals = Array.Empty<RebuildProposal>();
             if (options.EmitProposals)
@@ -313,6 +316,136 @@ namespace SqlSchemaDef.SqlServer.Planning
 
                 createIndexOps.Add(CreateIndexOperation(desiredTable, indexEntry.Value));
             }
+        }
+
+        private static void DiffDescriptions(
+            TableModel currentTable,
+            TableModel desiredTable,
+            bool hasCurrentTable,
+            List<SqlOperation> descriptionOps,
+            List<SkippedItem> skipped)
+        {
+            var currentTableDesc = hasCurrentTable ? currentTable.Description : null;
+            var desiredTableDesc = desiredTable.Description;
+
+            if (desiredTableDesc != null)
+            {
+                if (currentTableDesc == null)
+                {
+                    descriptionOps.Add(DescriptionOperation(
+                        desiredTable, null, desiredTableDesc, OperationKind.AddDescription));
+                }
+                else if (!string.Equals(currentTableDesc, desiredTableDesc, StringComparison.Ordinal))
+                {
+                    descriptionOps.Add(DescriptionOperation(
+                        desiredTable, null, desiredTableDesc, OperationKind.UpdateDescription));
+                }
+            }
+            else if (currentTableDesc != null)
+            {
+                skipped.Add(new SkippedItem
+                {
+                    Reason = SkippedReason.DropNotSupported,
+                    Target = new SqlObjectRef
+                    {
+                        Type = SqlObjectType.Description,
+                        Schema = desiredTable.Schema,
+                        Name = desiredTable.Name,
+                    },
+                    Message = "drop is not supported in v1",
+                });
+            }
+
+            foreach (var columnEntry in desiredTable.Columns.OrderBy(e => e.Key, StringComparer.OrdinalIgnoreCase))
+            {
+                var desiredColumn = columnEntry.Value;
+                if (desiredColumn.Description == null)
+                    continue;
+
+                string currentColumnDesc = null;
+                if (hasCurrentTable && currentTable.Columns.TryGetValue(columnEntry.Key, out var currentColumn))
+                {
+                    currentColumnDesc = currentColumn.Description;
+                }
+
+                if (currentColumnDesc == null)
+                {
+                    descriptionOps.Add(DescriptionOperation(
+                        desiredTable, desiredColumn.Name, desiredColumn.Description, OperationKind.AddDescription));
+                }
+                else if (!string.Equals(currentColumnDesc, desiredColumn.Description, StringComparison.Ordinal))
+                {
+                    descriptionOps.Add(DescriptionOperation(
+                        desiredTable, desiredColumn.Name, desiredColumn.Description, OperationKind.UpdateDescription));
+                }
+            }
+
+            if (hasCurrentTable)
+            {
+                foreach (var currentColumnEntry in currentTable.Columns.OrderBy(e => e.Key, StringComparer.OrdinalIgnoreCase))
+                {
+                    var currentColumn = currentColumnEntry.Value;
+                    if (currentColumn.Description == null)
+                        continue;
+
+                    string desiredColumnDesc = null;
+                    if (desiredTable.Columns.TryGetValue(currentColumnEntry.Key, out var desiredColumn))
+                    {
+                        desiredColumnDesc = desiredColumn.Description;
+                    }
+
+                    if (desiredColumnDesc == null)
+                    {
+                        skipped.Add(new SkippedItem
+                        {
+                            Reason = SkippedReason.DropNotSupported,
+                            Target = new SqlObjectRef
+                            {
+                                Type = SqlObjectType.Description,
+                                Schema = desiredTable.Schema,
+                                ParentName = desiredTable.Name,
+                                Name = currentColumn.Name,
+                            },
+                            Message = "drop is not supported in v1",
+                        });
+                    }
+                }
+            }
+        }
+
+        private static SqlOperation DescriptionOperation(
+            TableModel table, string columnName, string description, OperationKind kind)
+        {
+            string sql;
+            string descText;
+            if (kind == OperationKind.AddDescription)
+            {
+                sql = SqlStatementBuilder.BuildAddDescriptionSql(table.Schema, table.Name, columnName, description);
+                descText = columnName != null
+                    ? "Add description " + table.Schema + "." + table.Name + "." + columnName
+                    : "Add description " + table.Schema + "." + table.Name;
+            }
+            else
+            {
+                sql = SqlStatementBuilder.BuildUpdateDescriptionSql(table.Schema, table.Name, columnName, description);
+                descText = columnName != null
+                    ? "Update description " + table.Schema + "." + table.Name + "." + columnName
+                    : "Update description " + table.Schema + "." + table.Name;
+            }
+
+            return new SqlOperation
+            {
+                Kind = kind,
+                Description = descText,
+                Sql = sql,
+                Target = new SqlObjectRef
+                {
+                    Type = SqlObjectType.Description,
+                    Schema = table.Schema,
+                    ParentName = columnName != null ? table.Name : null,
+                    Name = columnName ?? table.Name,
+                },
+            };
         }
 
         private static void CollectDroppedItems(

@@ -407,4 +407,66 @@ public sealed class CurrentSchemaReaderTests
         Assert.True(index.KeyColumns[0].IsDescending);
         Assert.Equal("Age", Assert.Single(index.IncludeColumns));
     }
+
+    [Fact]
+    public void BuildModel_WithExtendedProperties_SetsTableDescription()
+    {
+        var tables = new[]
+        {
+            new CurrentSchemaReader.TableRow { SchemaName = "dbo", TableName = "Users", ObjectId = 1 },
+        };
+
+        var columns = new[]
+        {
+            new CurrentSchemaReader.ColumnRow
+            {
+                ObjectId = 1, ColumnId = 1, ColumnName = "Id",
+                IsNullable = false, TypeName = "int", IsComputed = false, IsIdentity = false,
+            },
+        };
+
+        var extendedProperties = new[]
+        {
+            new CurrentSchemaReader.ExtendedPropertyRow { MajorId = 1, MinorId = 0, PropertyValue = "User accounts" },
+        };
+
+        var model = CurrentSchemaReader.BuildModel(tables, columns, extendedProperties: extendedProperties);
+        var table = model.Tables.Values.Single();
+
+        Assert.Equal("User accounts", table.Description);
+    }
+
+    [Fact]
+    public void BuildModel_WithExtendedProperties_SetsColumnDescription()
+    {
+        var tables = new[]
+        {
+            new CurrentSchemaReader.TableRow { SchemaName = "dbo", TableName = "Users", ObjectId = 1 },
+        };
+
+        var columns = new[]
+        {
+            new CurrentSchemaReader.ColumnRow
+            {
+                ObjectId = 1, ColumnId = 1, ColumnName = "Id",
+                IsNullable = false, TypeName = "int", IsComputed = false, IsIdentity = false,
+            },
+            new CurrentSchemaReader.ColumnRow
+            {
+                ObjectId = 1, ColumnId = 2, ColumnName = "Name",
+                IsNullable = true, TypeName = "nvarchar", MaxLength = 200, IsComputed = false, IsIdentity = false,
+            },
+        };
+
+        var extendedProperties = new[]
+        {
+            new CurrentSchemaReader.ExtendedPropertyRow { MajorId = 1, MinorId = 2, PropertyValue = "User name" },
+        };
+
+        var model = CurrentSchemaReader.BuildModel(tables, columns, extendedProperties: extendedProperties);
+        var table = model.Tables.Values.Single();
+
+        Assert.Null(table.Columns["ID"].Description);
+        Assert.Equal("User name", table.Columns["NAME"].Description);
+    }
 }
