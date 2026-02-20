@@ -132,4 +132,155 @@ public sealed class CliSmokeTests
         var count = Convert.ToInt32(result, CultureInfo.InvariantCulture);
         Assert.Equal(1, count);
     }
+
+    [Fact]
+    public async Task CliExportThenPlan_ProducesEmptyPlan()
+    {
+        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
+        if (string.IsNullOrWhiteSpace(master))
+        {
+            return;
+        }
+
+        await using var db = await SqlServerTestDatabase.CreateAsync(master);
+        var cs = new SqlConnectionStringBuilder(master) { InitialCatalog = db.DatabaseName }.ConnectionString;
+
+        // Seed a table
+        await using (var conn = new SqlConnection(db.ConnectionString))
+        {
+            await conn.OpenAsync();
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = "CREATE TABLE dbo.Users (Id int NOT NULL, Name nvarchar(50) NULL)";
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        var tempFile = Path.Combine(Path.GetTempPath(), "SqlSchemaDef_" + Guid.NewGuid().ToString("N") + ".sql");
+        var originalOut = Console.Out;
+        var originalError = Console.Error;
+
+        try
+        {
+            // Export
+            string exportOutput;
+            using (var stdout = new StringWriter())
+            using (var stderr = new StringWriter())
+            {
+                Console.SetOut(stdout);
+                Console.SetError(stderr);
+
+                var exportExitCode = await SqlSchemaDef.Cli.Program.Main(new[]
+                {
+                    "export", "--connection", cs,
+                });
+
+                Console.SetOut(originalOut);
+                Console.SetError(originalError);
+
+                Assert.Equal(0, exportExitCode);
+                exportOutput = stdout.ToString();
+                Assert.Contains("CREATE TABLE", exportOutput);
+            }
+
+            // Write export output to temp file
+            await File.WriteAllTextAsync(tempFile, exportOutput, Encoding.UTF8);
+
+            // Plan against export = empty
+            using (var stdout = new StringWriter())
+            using (var stderr = new StringWriter())
+            {
+                Console.SetOut(stdout);
+                Console.SetError(stderr);
+
+                var planExitCode = await SqlSchemaDef.Cli.Program.Main(new[]
+                {
+                    "plan", "--connection", cs, "--file", tempFile,
+                });
+
+                Console.SetOut(originalOut);
+                Console.SetError(originalError);
+
+                Assert.Equal(0, planExitCode);
+                Assert.Contains("Operations: 0", stdout.ToString());
+            }
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Console.SetError(originalError);
+            try
+            { File.Delete(tempFile); }
+            catch { }
+        }
+    }
+
+    [Fact]
+    public async Task CliApplyThenExport_SchemaReflected()
+    {
+        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
+        if (string.IsNullOrWhiteSpace(master))
+        {
+            return;
+        }
+
+        await using var db = await SqlServerTestDatabase.CreateAsync(master);
+        var cs = new SqlConnectionStringBuilder(master) { InitialCatalog = db.DatabaseName }.ConnectionString;
+        const string desiredSql = "CREATE TABLE dbo.Items (Id int NOT NULL, Name nvarchar(50) NULL)";
+
+        var tempFile = Path.Combine(Path.GetTempPath(), "SqlSchemaDef_" + Guid.NewGuid().ToString("N") + ".sql");
+        await File.WriteAllTextAsync(tempFile, desiredSql, Encoding.UTF8);
+
+        var originalOut = Console.Out;
+        var originalError = Console.Error;
+
+        try
+        {
+            // Apply
+            using (var stdout = new StringWriter())
+            using (var stderr = new StringWriter())
+            {
+                Console.SetOut(stdout);
+                Console.SetError(stderr);
+
+                var applyExitCode = await SqlSchemaDef.Cli.Program.Main(new[]
+                {
+                    "apply", "--connection", cs, "--file", tempFile,
+                });
+
+                Console.SetOut(originalOut);
+                Console.SetError(originalError);
+
+                Assert.Equal(0, applyExitCode);
+            }
+
+            // Export and verify
+            using (var stdout = new StringWriter())
+            using (var stderr = new StringWriter())
+            {
+                Console.SetOut(stdout);
+                Console.SetError(stderr);
+
+                var exportExitCode = await SqlSchemaDef.Cli.Program.Main(new[]
+                {
+                    "export", "--connection", cs,
+                });
+
+                Console.SetOut(originalOut);
+                Console.SetError(originalError);
+
+                Assert.Equal(0, exportExitCode);
+                var exportOutput = stdout.ToString();
+                Assert.Contains("Items", exportOutput);
+                Assert.Contains("Id", exportOutput);
+                Assert.Contains("Name", exportOutput);
+            }
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Console.SetError(originalError);
+            try
+            { File.Delete(tempFile); }
+            catch { }
+        }
+    }
 }
