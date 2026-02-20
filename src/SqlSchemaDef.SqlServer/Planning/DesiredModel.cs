@@ -71,6 +71,9 @@ namespace SqlSchemaDef.SqlServer.Planning
         public string ReferenceSchema { get; set; }
         public string ReferenceTable { get; set; }
         public IReadOnlyList<string> ReferenceColumns { get; set; }
+        public string DeleteAction { get; set; }
+        public string UpdateAction { get; set; }
+        public string DefaultColumnName { get; set; }
         public string UnsupportedFeature { get; set; }
     }
 
@@ -80,6 +83,7 @@ namespace SqlSchemaDef.SqlServer.Planning
         Unique = 2,
         Check = 3,
         ForeignKey = 4,
+        Default = 5,
     }
 
     public sealed class IndexModel

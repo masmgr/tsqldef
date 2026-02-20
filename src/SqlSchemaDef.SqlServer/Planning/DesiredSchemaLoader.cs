@@ -237,6 +237,24 @@ namespace SqlSchemaDef.SqlServer.Planning
             }
 
             table.Columns[IdentifierHelper.NormalizeNameKey(columnModel.Name)] = columnModel;
+
+            if (column.DefaultConstraint != null)
+            {
+                var defaultName = column.DefaultConstraint.ConstraintIdentifier != null
+                    && !string.IsNullOrWhiteSpace(column.DefaultConstraint.ConstraintIdentifier.Value)
+                    ? column.DefaultConstraint.ConstraintIdentifier.Value
+                    : "DF_" + table.Name + "_" + column.ColumnIdentifier.Value;
+
+                var defaultConstraint = new ConstraintModel
+                {
+                    Kind = ConstraintKind.Default,
+                    Name = defaultName,
+                    Definition = columnModel.DefaultExpression,
+                    DefaultColumnName = column.ColumnIdentifier.Value,
+                };
+
+                table.Constraints[IdentifierHelper.NormalizeNameKey(defaultConstraint.Name)] = defaultConstraint;
+            }
         }
 
         private static bool ResolveNullability(ColumnDefinition column)
@@ -303,15 +321,26 @@ namespace SqlSchemaDef.SqlServer.Planning
                 ReferenceSchema = schema,
                 ReferenceTable = referenceTable,
                 ReferenceColumns = foreignKey.ReferencedTableColumns.Select(column => column.Value).ToList(),
+                DeleteAction = MapDeleteUpdateAction(foreignKey.DeleteAction),
+                UpdateAction = MapDeleteUpdateAction(foreignKey.UpdateAction),
             };
 
-            if (foreignKey.DeleteAction != DeleteUpdateAction.NotSpecified ||
-                foreignKey.UpdateAction != DeleteUpdateAction.NotSpecified)
-            {
-                throw CreateUnsupportedFeatureException(foreignKey, statementType, "ForeignKeyAction");
-            }
-
             table.Constraints[IdentifierHelper.NormalizeNameKey(constraint.Name)] = constraint;
+        }
+
+        private static string MapDeleteUpdateAction(DeleteUpdateAction action)
+        {
+            switch (action)
+            {
+                case DeleteUpdateAction.Cascade:
+                    return "CASCADE";
+                case DeleteUpdateAction.SetNull:
+                    return "SET NULL";
+                case DeleteUpdateAction.SetDefault:
+                    return "SET DEFAULT";
+                default:
+                    return null;
+            }
         }
 
         private (string Schema, string Name) ResolveSchemaAndName(SchemaObjectName name, TSqlFragment node)

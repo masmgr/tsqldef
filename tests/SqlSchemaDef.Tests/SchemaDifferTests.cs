@@ -200,9 +200,11 @@ public sealed class SchemaDifferTests
         var metadata = new PlanMetadata { Schema = "dbo" };
         var plan = SchemaDiffer.Diff(current, desired, metadata);
 
-        var op = Assert.Single(plan.Operations);
-        Assert.Equal(OperationKind.AddColumn, op.Kind);
-        Assert.Contains("DEFAULT (1)", op.Sql);
+        Assert.Equal(2, plan.Operations.Count);
+        Assert.Equal(OperationKind.AddColumn, plan.Operations[0].Kind);
+        Assert.Contains("DEFAULT (1)", plan.Operations[0].Sql);
+        Assert.Equal(OperationKind.AddConstraint, plan.Operations[1].Kind);
+        Assert.Contains("CONSTRAINT DF_Users_Score DEFAULT (1) FOR Score", plan.Operations[1].Sql);
     }
 
     [Fact]
@@ -711,6 +713,253 @@ public sealed class SchemaDifferTests
             "dbo.Alpha.FK_Alpha_Beta",
             "dbo.Beta.FK_Beta_Alpha",
         }, targets);
+    }
+
+    [Fact]
+    public void Diff_ForeignKeyWithDeleteCascade_EmitsOnDeleteClause()
+    {
+        var desired = new DatabaseModel();
+        var desiredTeams = desired.GetOrAddTable("dbo", "Teams");
+        desiredTeams.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+        var desiredUsers = desired.GetOrAddTable("dbo", "Users");
+        desiredUsers.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+        desiredUsers.Columns["TEAMID"] = new ColumnModel { Name = "TeamId", SqlType = "int", IsNullable = false };
+        desiredUsers.Constraints["FK_USERS_TEAMS"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.ForeignKey,
+            Name = "FK_Users_Teams",
+            Columns = new[] { "TeamId" },
+            ReferenceSchema = "dbo",
+            ReferenceTable = "Teams",
+            ReferenceColumns = new[] { "Id" },
+            DeleteAction = "CASCADE",
+        };
+
+        var current = new DatabaseModel();
+        current.GetOrAddTable("dbo", "Teams").Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+        var currentUsers = current.GetOrAddTable("dbo", "Users");
+        currentUsers.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+        currentUsers.Columns["TEAMID"] = new ColumnModel { Name = "TeamId", SqlType = "int", IsNullable = false };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal(OperationKind.AddForeignKey, op.Kind);
+        Assert.Contains("ON DELETE CASCADE", op.Sql);
+    }
+
+    [Fact]
+    public void Diff_ForeignKeyNoAction_OmitsOnClause()
+    {
+        var desired = new DatabaseModel();
+        var desiredTeams = desired.GetOrAddTable("dbo", "Teams");
+        desiredTeams.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+        var desiredUsers = desired.GetOrAddTable("dbo", "Users");
+        desiredUsers.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+        desiredUsers.Columns["TEAMID"] = new ColumnModel { Name = "TeamId", SqlType = "int", IsNullable = false };
+        desiredUsers.Constraints["FK_USERS_TEAMS"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.ForeignKey,
+            Name = "FK_Users_Teams",
+            Columns = new[] { "TeamId" },
+            ReferenceSchema = "dbo",
+            ReferenceTable = "Teams",
+            ReferenceColumns = new[] { "Id" },
+        };
+
+        var current = new DatabaseModel();
+        current.GetOrAddTable("dbo", "Teams").Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+        var currentUsers = current.GetOrAddTable("dbo", "Users");
+        currentUsers.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+        currentUsers.Columns["TEAMID"] = new ColumnModel { Name = "TeamId", SqlType = "int", IsNullable = false };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        var op = Assert.Single(plan.Operations);
+        Assert.DoesNotContain("ON DELETE", op.Sql);
+        Assert.DoesNotContain("ON UPDATE", op.Sql);
+    }
+
+    [Fact]
+    public void Diff_ForeignKeyActionDiffers_IsSkipped()
+    {
+        var desired = new DatabaseModel();
+        var desiredUsers = desired.GetOrAddTable("dbo", "Users");
+        desiredUsers.Constraints["FK_USERS_TEAMS"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.ForeignKey,
+            Name = "FK_Users_Teams",
+            Columns = new[] { "TeamId" },
+            ReferenceSchema = "dbo",
+            ReferenceTable = "Teams",
+            ReferenceColumns = new[] { "Id" },
+            DeleteAction = "CASCADE",
+        };
+
+        var current = new DatabaseModel();
+        var currentUsers = current.GetOrAddTable("dbo", "Users");
+        currentUsers.Constraints["FK_USERS_TEAMS"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.ForeignKey,
+            Name = "FK_Users_Teams",
+            Columns = new[] { "TeamId" },
+            ReferenceSchema = "dbo",
+            ReferenceTable = "Teams",
+            ReferenceColumns = new[] { "Id" },
+        };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        Assert.Empty(plan.Operations);
+        var skipped = Assert.Single(plan.Skipped);
+        Assert.Equal(SkippedReason.AlterNotSupported, skipped.Reason);
+    }
+
+    [Fact]
+    public void Diff_ForeignKeySameAction_NoOperation()
+    {
+        var desired = new DatabaseModel();
+        var desiredUsers = desired.GetOrAddTable("dbo", "Users");
+        desiredUsers.Constraints["FK_USERS_TEAMS"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.ForeignKey,
+            Name = "FK_Users_Teams",
+            Columns = new[] { "TeamId" },
+            ReferenceSchema = "dbo",
+            ReferenceTable = "Teams",
+            ReferenceColumns = new[] { "Id" },
+            DeleteAction = "CASCADE",
+            UpdateAction = "SET NULL",
+        };
+
+        var current = new DatabaseModel();
+        var currentUsers = current.GetOrAddTable("dbo", "Users");
+        currentUsers.Constraints["FK_USERS_TEAMS"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.ForeignKey,
+            Name = "FK_Users_Teams",
+            Columns = new[] { "TeamId" },
+            ReferenceSchema = "dbo",
+            ReferenceTable = "Teams",
+            ReferenceColumns = new[] { "Id" },
+            DeleteAction = "CASCADE",
+            UpdateAction = "SET NULL",
+        };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        Assert.Empty(plan.Operations);
+        Assert.Empty(plan.Skipped);
+    }
+
+    [Fact]
+    public void Diff_DefaultConstraintMissing_EmitsAddConstraint()
+    {
+        var desired = new DatabaseModel();
+        var desiredUsers = desired.GetOrAddTable("dbo", "Users");
+        desiredUsers.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+        desiredUsers.Columns["SCORE"] = new ColumnModel { Name = "Score", SqlType = "int", IsNullable = true, DefaultExpression = "(0)" };
+        desiredUsers.Constraints["DF_USERS_SCORE"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.Default,
+            Name = "DF_Users_Score",
+            Definition = "(0)",
+            DefaultColumnName = "Score",
+        };
+
+        var current = new DatabaseModel();
+        var currentUsers = current.GetOrAddTable("dbo", "Users");
+        currentUsers.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+        currentUsers.Columns["SCORE"] = new ColumnModel { Name = "Score", SqlType = "int", IsNullable = true };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal(OperationKind.AddConstraint, op.Kind);
+        Assert.Contains("CONSTRAINT DF_Users_Score DEFAULT (0) FOR Score", op.Sql);
+    }
+
+    [Fact]
+    public void Diff_NewTableWithDefault_NoSeparateAddConstraint()
+    {
+        const string desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL, Score int DEFAULT (0) NULL)";
+        var desired = DesiredSchemaLoader.Load(desiredSql);
+        var current = new DatabaseModel();
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal(OperationKind.CreateTable, op.Kind);
+        Assert.Contains("DEFAULT (0)", op.Sql);
+    }
+
+    [Fact]
+    public void Diff_DefaultConstraintSame_NoOperation()
+    {
+        var desired = new DatabaseModel();
+        var desiredUsers = desired.GetOrAddTable("dbo", "Users");
+        desiredUsers.Columns["SCORE"] = new ColumnModel { Name = "Score", SqlType = "int", IsNullable = true, DefaultExpression = "(0)" };
+        desiredUsers.Constraints["DF_USERS_SCORE"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.Default,
+            Name = "DF_Users_Score",
+            Definition = "(0)",
+            DefaultColumnName = "Score",
+        };
+
+        var current = new DatabaseModel();
+        var currentUsers = current.GetOrAddTable("dbo", "Users");
+        currentUsers.Columns["SCORE"] = new ColumnModel { Name = "Score", SqlType = "int", IsNullable = true, DefaultExpression = "(0)" };
+        currentUsers.Constraints["DF_USERS_SCORE"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.Default,
+            Name = "DF_Users_Score",
+            Definition = "(0)",
+            DefaultColumnName = "Score",
+        };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        Assert.Empty(plan.Operations);
+        Assert.Empty(plan.Skipped);
+    }
+
+    [Fact]
+    public void Diff_DefaultConstraintDiffers_IsSkipped()
+    {
+        var desired = new DatabaseModel();
+        var desiredUsers = desired.GetOrAddTable("dbo", "Users");
+        desiredUsers.Constraints["DF_USERS_SCORE"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.Default,
+            Name = "DF_Users_Score",
+            Definition = "(1)",
+            DefaultColumnName = "Score",
+        };
+
+        var current = new DatabaseModel();
+        var currentUsers = current.GetOrAddTable("dbo", "Users");
+        currentUsers.Constraints["DF_USERS_SCORE"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.Default,
+            Name = "DF_Users_Score",
+            Definition = "(0)",
+            DefaultColumnName = "Score",
+        };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        Assert.Empty(plan.Operations);
+        var skipped = Assert.Single(plan.Skipped);
+        Assert.Equal(SkippedReason.AlterNotSupported, skipped.Reason);
     }
 
     [Fact]

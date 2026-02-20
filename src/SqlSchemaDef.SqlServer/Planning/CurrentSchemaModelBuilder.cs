@@ -72,6 +72,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             ApplyKeyConstraints(tableMap, keyConstraintGroups);
             ApplyCheckConstraints(tableMap, checkConstraintGroups);
             ApplyForeignKeys(tableMap, foreignKeyGroups);
+            ApplyDefaultConstraints(tableMap, defaults);
             ApplyIndexes(tableMap, indexGroups);
 
             return model;
@@ -313,12 +314,46 @@ namespace SqlSchemaDef.SqlServer.Planning
                     ReferenceSchema = referenceSchema,
                     ReferenceTable = rows[0].ReferencedTableName,
                     ReferenceColumns = referencedColumns,
+                    DeleteAction = rows[0].DeleteAction,
+                    UpdateAction = rows[0].UpdateAction,
                 };
 
                 if (!string.Equals(referenceSchema, "dbo", StringComparison.OrdinalIgnoreCase))
                 {
                     constraint.UnsupportedFeature = "ForeignKeyReferenceSchema";
                 }
+
+                table.Constraints[IdentifierHelper.NormalizeNameKey(constraint.Name)] = constraint;
+            }
+        }
+
+        private static void ApplyDefaultConstraints(
+            Dictionary<int, TableModel> tableMap,
+            IEnumerable<CurrentSchemaReader.DefaultRow> defaults)
+        {
+            if (defaults == null)
+            {
+                return;
+            }
+
+            foreach (var item in defaults)
+            {
+                if (item == null)
+                    continue;
+
+                if (string.IsNullOrWhiteSpace(item.DefaultName))
+                    continue;
+
+                if (!tableMap.TryGetValue(item.ObjectId, out var table))
+                    continue;
+
+                var constraint = new ConstraintModel
+                {
+                    Kind = ConstraintKind.Default,
+                    Name = item.DefaultName,
+                    Definition = item.DefaultDefinition,
+                    DefaultColumnName = item.ColumnName,
+                };
 
                 table.Constraints[IdentifierHelper.NormalizeNameKey(constraint.Name)] = constraint;
             }

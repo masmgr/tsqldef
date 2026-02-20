@@ -245,6 +245,14 @@ namespace SqlSchemaDef.SqlServer.Planning
                 }
 
                 var constraint = constraintEntry.Value;
+
+                // Default constraints are included inline in CREATE TABLE column definitions,
+                // so skip separate AddConstraint for new tables.
+                if (constraint.Kind == ConstraintKind.Default && !hasCurrentTable)
+                {
+                    continue;
+                }
+
                 var operation = AddConstraintOperation(desiredTable, constraint);
                 if (operation.Kind == OperationKind.AddForeignKey)
                 {
@@ -437,26 +445,57 @@ namespace SqlSchemaDef.SqlServer.Planning
                 case ConstraintKind.Check:
                     return !string.Equals(current.Definition ?? string.Empty, desired.Definition ?? string.Empty, StringComparison.OrdinalIgnoreCase);
                 case ConstraintKind.ForeignKey:
-                    if (!string.Equals(current.ReferenceSchema ?? "dbo", desired.ReferenceSchema ?? "dbo", StringComparison.OrdinalIgnoreCase))
-                    {
-                        return true;
-                    }
-                    if (!string.Equals(current.ReferenceTable ?? string.Empty, desired.ReferenceTable ?? string.Empty, StringComparison.OrdinalIgnoreCase))
-                    {
-                        return true;
-                    }
-                    if (!SequenceEqual(current.Columns, desired.Columns))
-                    {
-                        return true;
-                    }
-                    if (!SequenceEqual(current.ReferenceColumns, desired.ReferenceColumns))
-                    {
-                        return true;
-                    }
-                    return false;
+                    return IsForeignKeyDifferent(current, desired);
+                case ConstraintKind.Default:
+                    return IsDefaultConstraintDifferent(current, desired);
                 default:
                     return true;
             }
+        }
+
+        private static bool IsForeignKeyDifferent(ConstraintModel current, ConstraintModel desired)
+        {
+            if (!string.Equals(current.ReferenceSchema ?? "dbo", desired.ReferenceSchema ?? "dbo", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (!string.Equals(current.ReferenceTable ?? string.Empty, desired.ReferenceTable ?? string.Empty, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (!SequenceEqual(current.Columns, desired.Columns))
+            {
+                return true;
+            }
+
+            if (!SequenceEqual(current.ReferenceColumns, desired.ReferenceColumns))
+            {
+                return true;
+            }
+
+            if (!string.Equals(current.DeleteAction ?? string.Empty, desired.DeleteAction ?? string.Empty, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (!string.Equals(current.UpdateAction ?? string.Empty, desired.UpdateAction ?? string.Empty, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool IsDefaultConstraintDifferent(ConstraintModel current, ConstraintModel desired)
+        {
+            if (!string.Equals(current.Definition ?? string.Empty, desired.Definition ?? string.Empty, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            return !string.Equals(current.DefaultColumnName ?? string.Empty, desired.DefaultColumnName ?? string.Empty, StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool IsIndexDifferent(IndexModel current, IndexModel desired)

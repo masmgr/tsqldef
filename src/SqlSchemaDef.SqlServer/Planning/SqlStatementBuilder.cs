@@ -88,9 +88,26 @@ namespace SqlSchemaDef.SqlServer.Planning
                     var referenceSchema = string.IsNullOrWhiteSpace(constraint.ReferenceSchema)
                         ? "dbo"
                         : constraint.ReferenceSchema;
-                    return prefix + "FOREIGN KEY (" + JoinColumns(constraint.Columns) + ") REFERENCES " +
+                    var fkSql = prefix + "FOREIGN KEY (" + JoinColumns(constraint.Columns) + ") REFERENCES " +
                            referenceSchema + "." + IdentifierHelper.EscapeIfKeyword(constraint.ReferenceTable) +
                            " (" + JoinColumns(constraint.ReferenceColumns) + ")";
+                    if (!string.IsNullOrEmpty(constraint.DeleteAction))
+                    {
+                        fkSql += " ON DELETE " + constraint.DeleteAction;
+                    }
+                    if (!string.IsNullOrEmpty(constraint.UpdateAction))
+                    {
+                        fkSql += " ON UPDATE " + constraint.UpdateAction;
+                    }
+                    return fkSql;
+                case ConstraintKind.Default:
+                    var defExpr = (constraint.Definition ?? string.Empty).Trim();
+                    if (defExpr.Length > 0 && !defExpr.StartsWith("(", StringComparison.Ordinal))
+                    {
+                        defExpr = "(" + defExpr + ")";
+                    }
+                    return prefix + "DEFAULT " + defExpr + " FOR " +
+                           IdentifierHelper.EscapeIfKeyword(constraint.DefaultColumnName);
                 default:
                     throw new InvalidOperationException("Unsupported constraint kind.");
             }

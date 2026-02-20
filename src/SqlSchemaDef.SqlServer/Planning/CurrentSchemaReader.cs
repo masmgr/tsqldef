@@ -57,6 +57,8 @@ namespace SqlSchemaDef.SqlServer.Planning
         {
             public int ObjectId { get; set; }
             public int ColumnId { get; set; }
+            public string ColumnName { get; set; }
+            public string DefaultName { get; set; }
             public string DefaultDefinition { get; set; }
         }
 
@@ -85,6 +87,8 @@ namespace SqlSchemaDef.SqlServer.Planning
             public int Ordinal { get; set; }
             public string ParentColumnName { get; set; }
             public string ReferencedColumnName { get; set; }
+            public string DeleteAction { get; set; }
+            public string UpdateAction { get; set; }
         }
 
         internal sealed class IndexRow

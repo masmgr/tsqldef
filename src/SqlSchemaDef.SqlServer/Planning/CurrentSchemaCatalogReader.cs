@@ -326,6 +326,8 @@ ORDER BY pt.name, fk.name, fkc.constraint_column_id;";
                 {
                     ObjectId = reader.GetInt32(2),
                     ColumnId = reader.GetInt32(3),
+                    ColumnName = reader.GetString(4),
+                    DefaultName = reader.GetString(5),
                     DefaultDefinition = reader.GetString(6),
                 });
             }
@@ -409,6 +411,8 @@ ORDER BY pt.name, fk.name, fkc.constraint_column_id;";
                     Ordinal = reader.GetInt32(7),
                     ParentColumnName = reader.GetString(8),
                     ReferencedColumnName = reader.GetString(9),
+                    DeleteAction = NormalizeForeignKeyAction(reader.GetString(10)),
+                    UpdateAction = NormalizeForeignKeyAction(reader.GetString(11)),
                 });
             }
 
@@ -424,6 +428,32 @@ ORDER BY pt.name, fk.name, fkc.constraint_column_id;";
             {
                 throw new InvalidOperationException("Expected schema result set for " + resultSetName + ".");
             }
+        }
+
+        private static string NormalizeForeignKeyAction(string actionDesc)
+        {
+            if (string.IsNullOrWhiteSpace(actionDesc) ||
+                string.Equals(actionDesc, "NO_ACTION", StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            if (string.Equals(actionDesc, "CASCADE", StringComparison.OrdinalIgnoreCase))
+            {
+                return "CASCADE";
+            }
+
+            if (string.Equals(actionDesc, "SET_NULL", StringComparison.OrdinalIgnoreCase))
+            {
+                return "SET NULL";
+            }
+
+            if (string.Equals(actionDesc, "SET_DEFAULT", StringComparison.OrdinalIgnoreCase))
+            {
+                return "SET DEFAULT";
+            }
+
+            return null;
         }
 
         private static SqlCommand CreateCommand(SqlConnection connection, string sql, string schema)

@@ -122,6 +122,125 @@ public sealed class DesiredModelBuilderVisitorTests
     }
 
     [Fact]
+    public void Load_ForeignKeyWithOnDeleteCascade_StoresDeleteAction()
+    {
+        var sql = string.Join("\n", new[]
+        {
+            "CREATE TABLE dbo.Teams (Id int NOT NULL)",
+            "CREATE TABLE dbo.Users (",
+            "  Id int NOT NULL,",
+            "  TeamId int NOT NULL,",
+            "  CONSTRAINT FK_Users_Teams FOREIGN KEY (TeamId) REFERENCES dbo.Teams (Id) ON DELETE CASCADE",
+            ")",
+        });
+
+        var model = DesiredSchemaLoader.Load(sql);
+        var constraint = model.Tables["DBO.USERS"].Constraints["FK_USERS_TEAMS"];
+
+        Assert.Equal(ConstraintKind.ForeignKey, constraint.Kind);
+        Assert.Equal("CASCADE", constraint.DeleteAction);
+        Assert.Null(constraint.UpdateAction);
+    }
+
+    [Fact]
+    public void Load_ForeignKeyWithOnUpdateSetNull_StoresUpdateAction()
+    {
+        var sql = string.Join("\n", new[]
+        {
+            "CREATE TABLE dbo.Teams (Id int NOT NULL)",
+            "CREATE TABLE dbo.Users (",
+            "  Id int NOT NULL,",
+            "  TeamId int NOT NULL,",
+            "  CONSTRAINT FK_Users_Teams FOREIGN KEY (TeamId) REFERENCES dbo.Teams (Id) ON UPDATE SET NULL",
+            ")",
+        });
+
+        var model = DesiredSchemaLoader.Load(sql);
+        var constraint = model.Tables["DBO.USERS"].Constraints["FK_USERS_TEAMS"];
+
+        Assert.Equal("SET NULL", constraint.UpdateAction);
+        Assert.Null(constraint.DeleteAction);
+    }
+
+    [Fact]
+    public void Load_ForeignKeyWithBothActions_StoresBothActions()
+    {
+        var sql = string.Join("\n", new[]
+        {
+            "CREATE TABLE dbo.Teams (Id int NOT NULL)",
+            "CREATE TABLE dbo.Users (",
+            "  Id int NOT NULL,",
+            "  TeamId int NOT NULL,",
+            "  CONSTRAINT FK_Users_Teams FOREIGN KEY (TeamId) REFERENCES dbo.Teams (Id) ON DELETE CASCADE ON UPDATE SET DEFAULT",
+            ")",
+        });
+
+        var model = DesiredSchemaLoader.Load(sql);
+        var constraint = model.Tables["DBO.USERS"].Constraints["FK_USERS_TEAMS"];
+
+        Assert.Equal("CASCADE", constraint.DeleteAction);
+        Assert.Equal("SET DEFAULT", constraint.UpdateAction);
+    }
+
+    [Fact]
+    public void Load_ForeignKeyNoAction_ActionsAreNull()
+    {
+        var sql = string.Join("\n", new[]
+        {
+            "CREATE TABLE dbo.Teams (Id int NOT NULL)",
+            "CREATE TABLE dbo.Users (",
+            "  Id int NOT NULL,",
+            "  TeamId int NOT NULL,",
+            "  CONSTRAINT FK_Users_Teams FOREIGN KEY (TeamId) REFERENCES dbo.Teams (Id)",
+            ")",
+        });
+
+        var model = DesiredSchemaLoader.Load(sql);
+        var constraint = model.Tables["DBO.USERS"].Constraints["FK_USERS_TEAMS"];
+
+        Assert.Null(constraint.DeleteAction);
+        Assert.Null(constraint.UpdateAction);
+    }
+
+    [Fact]
+    public void Load_InlineDefaultNoName_CreatesAutoNamedDefaultConstraint()
+    {
+        var model = DesiredSchemaLoader.Load("CREATE TABLE dbo.Users (Id int NOT NULL, Score int DEFAULT (0) NULL)");
+        var table = model.Tables.Values.Single();
+
+        Assert.True(table.Constraints.ContainsKey("DF_USERS_SCORE"));
+        var constraint = table.Constraints["DF_USERS_SCORE"];
+        Assert.Equal(ConstraintKind.Default, constraint.Kind);
+        Assert.Equal("DF_Users_Score", constraint.Name);
+        Assert.Equal("(0)", constraint.Definition);
+        Assert.Equal("Score", constraint.DefaultColumnName);
+    }
+
+    [Fact]
+    public void Load_InlineDefaultWithName_CreatesNamedDefaultConstraint()
+    {
+        var model = DesiredSchemaLoader.Load("CREATE TABLE dbo.Users (Id int NOT NULL, Score int CONSTRAINT DF_MyDefault DEFAULT (0) NULL)");
+        var table = model.Tables.Values.Single();
+
+        Assert.True(table.Constraints.ContainsKey("DF_MYDEFAULT"));
+        var constraint = table.Constraints["DF_MYDEFAULT"];
+        Assert.Equal(ConstraintKind.Default, constraint.Kind);
+        Assert.Equal("DF_MyDefault", constraint.Name);
+        Assert.Equal("(0)", constraint.Definition);
+        Assert.Equal("Score", constraint.DefaultColumnName);
+    }
+
+    [Fact]
+    public void Load_InlineDefault_ColumnDefaultExpressionStillSet()
+    {
+        var model = DesiredSchemaLoader.Load("CREATE TABLE dbo.Users (Id int NOT NULL, Score int DEFAULT (0) NULL)");
+        var table = model.Tables.Values.Single();
+        var column = table.Columns["SCORE"];
+
+        Assert.Equal("(0)", column.DefaultExpression);
+    }
+
+    [Fact]
     public void Load_AlterTableAddNotNullColumn_IsSkipped()
     {
         var model = DesiredSchemaLoader.Load(
