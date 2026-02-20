@@ -15,8 +15,7 @@ namespace SqlSchemaDef.Core.Planning
             if (pattern.EndsWith("*", StringComparison.Ordinal))
             {
                 var prefix = pattern.Substring(0, pattern.Length - 1);
-                return tableName != null &&
-                       tableName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
+                return tableName?.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) == true;
             }
 
             return string.Equals(tableName, pattern, StringComparison.OrdinalIgnoreCase);
@@ -27,7 +26,7 @@ namespace SqlSchemaDef.Core.Planning
             IReadOnlyList<string> includePatterns,
             IReadOnlyList<string> excludePatterns)
         {
-            if (includePatterns != null && includePatterns.Count > 0)
+            if (includePatterns?.Count > 0)
             {
                 var matched = false;
                 for (int i = 0; i < includePatterns.Count; i++)
@@ -45,7 +44,7 @@ namespace SqlSchemaDef.Core.Planning
                 }
             }
 
-            if (excludePatterns != null && excludePatterns.Count > 0)
+            if (excludePatterns?.Count > 0)
             {
                 for (int i = 0; i < excludePatterns.Count; i++)
                 {

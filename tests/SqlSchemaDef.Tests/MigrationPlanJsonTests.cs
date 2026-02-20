@@ -82,7 +82,7 @@ public sealed class MigrationPlanJsonTests
     [Fact]
     public void FromJson_UnknownFormatVersion_ThrowsInformativeException()
     {
-        var json = @"{""metadata"":{""planFormatVersion"":99},""operations"":[],""skipped"":[]}";
+        const string json = @"{""metadata"":{""planFormatVersion"":99},""operations"":[],""skipped"":[]}";
         var ex = Assert.Throws<InvalidOperationException>(() => MigrationPlanSerializer.FromJson(json));
         Assert.Contains("99", ex.Message);
         Assert.Contains("version", ex.Message, StringComparison.OrdinalIgnoreCase);
@@ -198,7 +198,7 @@ public sealed class MigrationPlanJsonTests
     [Fact]
     public void FromJson_WithoutProposalsKey_DefaultsToEmpty()
     {
-        var json = @"{""metadata"":{""planFormatVersion"":1},""operations"":[],""skipped"":[]}";
+        const string json = @"{""metadata"":{""planFormatVersion"":1},""operations"":[],""skipped"":[]}";
         var deserialized = MigrationPlanSerializer.FromJson(json);
 
         Assert.NotNull(deserialized.Proposals);

@@ -30,7 +30,7 @@ namespace SqlSchemaDef.SqlServer.Planning
                     fragment = parser.Parse(reader, out errors);
                 }
 
-                if (errors != null && errors.Count > 0)
+                if (errors?.Count > 0)
                 {
                     foreach (var error in errors)
                     {

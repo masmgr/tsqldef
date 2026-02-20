@@ -131,7 +131,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             IList<ParseError> errors;
             var parser = new TSql160Parser(true);
             var tokens = parser.GetTokenStream(new StringReader(name), out errors);
-            if (errors != null && errors.Count > 0)
+            if (errors?.Count > 0)
             {
                 return true;
             }

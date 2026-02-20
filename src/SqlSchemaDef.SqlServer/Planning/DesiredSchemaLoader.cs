@@ -159,7 +159,7 @@ namespace SqlSchemaDef.SqlServer.Planning
                 throw CreateUnsupportedFeatureException(node, "CreateIndexStatement", "IndexFilter");
             }
 
-            if (node.IndexOptions != null && node.IndexOptions.Count > 0)
+            if (node.IndexOptions?.Count > 0)
             {
                 throw CreateUnsupportedFeatureException(node, "CreateIndexStatement", "IndexOptions");
             }
@@ -176,7 +176,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             }
 
             var includeColumns = new List<string>();
-            if (node.IncludeColumns != null && node.IncludeColumns.Count > 0)
+            if (node.IncludeColumns?.Count > 0)
             {
                 foreach (var include in node.IncludeColumns)
                 {
@@ -245,7 +245,7 @@ namespace SqlSchemaDef.SqlServer.Planning
                 .OfType<NullableConstraintDefinition>()
                 .LastOrDefault();
 
-            return nullableConstraint == null || nullableConstraint.Nullable;
+            return nullableConstraint?.Nullable != false;
         }
 
         private void AddConstraint(TableModel table, ConstraintDefinition constraint, string statementType)

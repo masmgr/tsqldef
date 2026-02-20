@@ -45,7 +45,7 @@ public sealed class CliSmokeTests
         }
 
         await using var db = await SqlServerTestDatabase.CreateAsync(master);
-        var desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL)";
+        const string desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL)";
 
         var tempFile = Path.Combine(Path.GetTempPath(), "SqlSchemaDef_" + Guid.NewGuid().ToString("N") + ".sql");
         await File.WriteAllTextAsync(tempFile, desiredSql, Encoding.UTF8);
@@ -90,7 +90,7 @@ public sealed class CliSmokeTests
         }
 
         await using var db = await SqlServerTestDatabase.CreateAsync(master);
-        var desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL)";
+        const string desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL)";
 
         var tempFile = Path.Combine(Path.GetTempPath(), "SqlSchemaDef_" + Guid.NewGuid().ToString("N") + ".sql");
         await File.WriteAllTextAsync(tempFile, desiredSql, Encoding.UTF8);

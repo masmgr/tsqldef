@@ -36,7 +36,7 @@ public sealed class SqlServerPlannerApplierIntegrationTests
         }
         await using var db = await SqlServerTestDatabase.CreateAsync(master);
 
-        var desiredSql = @"
+        const string desiredSql = @"
 CREATE TABLE dbo.Users (
   Id int NOT NULL,
   Name nvarchar(100) NULL,
@@ -81,7 +81,7 @@ INSERT INTO dbo.Users (Id) VALUES (1);
             await cmd.ExecuteNonQueryAsync();
         }
 
-        var desiredSql = @"
+        const string desiredSql = @"
 CREATE TABLE dbo.Users (Id int NOT NULL)
 ALTER TABLE dbo.Users ADD Age int NOT NULL
 ";
@@ -118,7 +118,7 @@ CREATE TABLE dbo.Users (Id int NOT NULL);
             await cmd.ExecuteNonQueryAsync();
         }
 
-        var desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL)";
+        const string desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL)";
 
         await using var conn2 = new SqlConnection(db.ConnectionString);
         await conn2.OpenAsync();
@@ -141,7 +141,7 @@ CREATE TABLE dbo.Users (Id int NOT NULL);
 
         await using var db = await SqlServerTestDatabase.CreateAsync(master);
 
-        var desiredSql = @"
+        const string desiredSql = @"
 CREATE TABLE dbo.Teams (Id int NOT NULL, CONSTRAINT PK_Teams PRIMARY KEY (Id))
 CREATE TABLE dbo.Users (Id int NOT NULL, TeamId int NOT NULL, CONSTRAINT PK_Users PRIMARY KEY (Id))
 ALTER TABLE dbo.Users ADD CONSTRAINT FK_Users_Teams FOREIGN KEY (TeamId) REFERENCES dbo.Teams (Id)
@@ -173,7 +173,7 @@ ALTER TABLE dbo.Users ADD CONSTRAINT FK_Users_Teams FOREIGN KEY (TeamId) REFEREN
 
         await using var db = await SqlServerTestDatabase.CreateAsync(master);
 
-        var desiredSql = @"
+        const string desiredSql = @"
 CREATE TABLE dbo.Users (Id int NOT NULL)
 ALTER TABLE dbo.Users ADD Nickname nvarchar(50) NULL
 ";
@@ -204,7 +204,7 @@ ALTER TABLE dbo.Users ADD Nickname nvarchar(50) NULL
 
         await using var db = await SqlServerTestDatabase.CreateAsync(master);
 
-        var desiredSql = @"
+        const string desiredSql = @"
 CREATE TABLE dbo.Users (
   Id int NOT NULL,
   Age int NULL,
@@ -238,7 +238,7 @@ CREATE TABLE dbo.Users (
 
         await using var db = await SqlServerTestDatabase.CreateAsync(master);
 
-        var desiredSql = @"
+        const string desiredSql = @"
 CREATE TABLE dbo.Users (Id int NOT NULL, Email nvarchar(255) NOT NULL)
 CREATE UNIQUE INDEX IX_Users_Email ON dbo.Users (Email)
 ";
@@ -284,7 +284,7 @@ CREATE TABLE dbo.Users (
             await cmd.ExecuteNonQueryAsync();
         }
 
-        var desiredSql = @"
+        const string desiredSql = @"
 CREATE TABLE dbo.Teams (
   Id int NOT NULL,
   Name nvarchar(100) NOT NULL,

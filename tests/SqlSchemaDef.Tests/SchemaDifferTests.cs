@@ -10,7 +10,7 @@ public sealed class SchemaDifferTests
     [Fact]
     public void Diff_WhenTableMissing_EmitsCreateTable()
     {
-        var desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL)";
+        const string desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL)";
         var desired = DesiredSchemaLoader.Load(desiredSql);
         var current = new DatabaseModel();
 
@@ -26,7 +26,7 @@ public sealed class SchemaDifferTests
     [Fact]
     public void Diff_WhenIdentifiersAreKeywords_EscapesInSql()
     {
-        var desiredSql = "CREATE TABLE dbo.[User] ([Select] int NOT NULL)";
+        const string desiredSql = "CREATE TABLE dbo.[User] ([Select] int NOT NULL)";
         var desired = DesiredSchemaLoader.Load(desiredSql);
         var current = new DatabaseModel();
 
@@ -40,7 +40,7 @@ public sealed class SchemaDifferTests
     [Fact]
     public void Diff_WhenColumnMissing_EmitsAddColumn()
     {
-        var desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL, Name nvarchar(100) NULL)";
+        const string desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL, Name nvarchar(100) NULL)";
         var desired = DesiredSchemaLoader.Load(desiredSql);
 
         var current = new DatabaseModel();
@@ -65,7 +65,7 @@ public sealed class SchemaDifferTests
     [Fact]
     public void Diff_WhenNotNullColumnMissing_IsSkipped()
     {
-        var desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL, Age int NOT NULL)";
+        const string desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL, Age int NOT NULL)";
         var desired = DesiredSchemaLoader.Load(desiredSql);
 
         var current = new DatabaseModel();
@@ -168,7 +168,7 @@ public sealed class SchemaDifferTests
     [Fact]
     public void Diff_WhenCreatingTableWithIdentityAndDefault_EmitsDefinition()
     {
-        var desiredSql = "CREATE TABLE dbo.Users (Id int IDENTITY(1,1) NOT NULL, Score int DEFAULT (0) NULL)";
+        const string desiredSql = "CREATE TABLE dbo.Users (Id int IDENTITY(1,1) NOT NULL, Score int DEFAULT (0) NULL)";
         var desired = DesiredSchemaLoader.Load(desiredSql);
         var current = new DatabaseModel();
 
@@ -184,7 +184,7 @@ public sealed class SchemaDifferTests
     [Fact]
     public void Diff_WhenAddingColumnWithDefault_EmitsDefaultExpression()
     {
-        var desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL, Score int DEFAULT (1) NULL)";
+        const string desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL, Score int DEFAULT (1) NULL)";
         var desired = DesiredSchemaLoader.Load(desiredSql);
 
         var current = new DatabaseModel();
@@ -208,7 +208,7 @@ public sealed class SchemaDifferTests
     [Fact]
     public void Diff_WhenConstraintNameNeedsEscaping_EscapesConstraintName()
     {
-        var desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL, CONSTRAINT [Order] PRIMARY KEY (Id))";
+        const string desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL, CONSTRAINT [Order] PRIMARY KEY (Id))";
         var desired = DesiredSchemaLoader.Load(desiredSql);
 
         var current = new DatabaseModel();
@@ -716,7 +716,7 @@ public sealed class SchemaDifferTests
     [Fact]
     public void Diff_WithEmitProposalsFalse_ProposalsIsEmpty()
     {
-        var desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL, Age bigint NULL)";
+        const string desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL, Age bigint NULL)";
         var desired = DesiredSchemaLoader.Load(desiredSql);
         var current = new DatabaseModel();
         var table = current.GetOrAddTable("dbo", "Users");
@@ -733,7 +733,7 @@ public sealed class SchemaDifferTests
     [Fact]
     public void Diff_WithEmitProposalsTrue_ColumnTypeDiff_ProducesProposal()
     {
-        var desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL, Age bigint NULL)";
+        const string desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL, Age bigint NULL)";
         var desired = DesiredSchemaLoader.Load(desiredSql);
         var current = new DatabaseModel();
         var table = current.GetOrAddTable("dbo", "Users");
@@ -752,7 +752,7 @@ public sealed class SchemaDifferTests
     [Fact]
     public void Diff_WithEmitProposalsTrue_SkippedItemsStillPresent()
     {
-        var desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL, Age bigint NULL)";
+        const string desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL, Age bigint NULL)";
         var desired = DesiredSchemaLoader.Load(desiredSql);
         var current = new DatabaseModel();
         var table = current.GetOrAddTable("dbo", "Users");

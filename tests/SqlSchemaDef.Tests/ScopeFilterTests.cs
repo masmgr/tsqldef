@@ -176,7 +176,7 @@ public sealed class ScopeFilterTests
         var plan = SchemaDiffer.Diff(current, desired, metadata, options);
 
         Assert.Equal(2, plan.Operations.Count);
-        var tableNames = plan.Operations.Select(op => op.Target.Name).OrderBy(n => n).ToArray();
+        var tableNames = plan.Operations.Select(op => op.Target.Name).Order().ToArray();
         Assert.Equal("UserProfiles", tableNames[0]);
         Assert.Equal("Users", tableNames[1]);
     }

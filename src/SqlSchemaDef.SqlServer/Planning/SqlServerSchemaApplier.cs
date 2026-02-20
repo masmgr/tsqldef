@@ -87,10 +87,7 @@ namespace SqlSchemaDef.SqlServer.Planning
                     }
                 }
 
-                if (tx != null)
-                {
-                    tx.Commit();
-                }
+                tx?.Commit();
             }
             catch
             {
@@ -110,10 +107,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             }
             finally
             {
-                if (tx != null)
-                {
-                    tx.Dispose();
-                }
+                tx?.Dispose();
             }
         }
     }

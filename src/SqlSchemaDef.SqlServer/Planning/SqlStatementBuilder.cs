@@ -103,7 +103,7 @@ namespace SqlSchemaDef.SqlServer.Planning
                       table.Schema + "." + IdentifierHelper.EscapeIfKeyword(table.Name) +
                       " (" + JoinIndexColumns(index.KeyColumns) + ")";
 
-            if (index.IncludeColumns != null && index.IncludeColumns.Count > 0)
+            if (index.IncludeColumns?.Count > 0)
             {
                 sql += " INCLUDE (" + JoinColumns(index.IncludeColumns) + ")";
             }
