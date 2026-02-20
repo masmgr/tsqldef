@@ -8,7 +8,7 @@ using Xunit;
 
 namespace SqlSchemaDef.Tests;
 
-[Collection(SqlServerIntegrationGroup.Name)]
+[Collection(CliSerialGroup.Name)]
 public sealed class CliSmokeTests
 {
     [Fact]

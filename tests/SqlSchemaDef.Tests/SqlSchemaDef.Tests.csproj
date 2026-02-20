@@ -32,4 +32,11 @@
     <ProjectReference Include="..\..\src\SqlSchemaDef.Cli\SqlSchemaDef.Cli.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Fallback: set maxParallelThreads to 1 in xunit.runner.json if integration tests become unstable. -->
+    <None Update="xunit.runner.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>
