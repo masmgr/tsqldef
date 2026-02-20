@@ -199,6 +199,30 @@ dotnet_diagnostic.SA1117.severity = none   # The parameters should all be placed
 
 # --- Microsoft CodeAnalysis: パフォーマンス (段階的に対応) ---
 dotnet_diagnostic.CA1848.severity = suggestion   # Use LoggerMessage delegates for performance
+dotnet_diagnostic.CA1873.severity = suggestion   # Avoid expensive evaluation when logging is disabled
+
+# ============================================================
+# Roslynator Analyzer (RCS1xxx) rule overrides
+# ============================================================
+
+# --- Roslynator: 無効化 (既存ルールと重複・不適切) ---
+dotnet_diagnostic.RCS1018.severity = none       # Add/remove accessibility modifiers (SA1400 / dotnet_style_require_accessibility_modifiers と重複)
+dotnet_diagnostic.RCS1021.severity = none       # Convert lambda expression body to expression body (IDE0022/IDE0025/IDE0027 と重複)
+dotnet_diagnostic.RCS1037.severity = none       # Remove trailing white-space (trim_trailing_whitespace でカバー)
+dotnet_diagnostic.RCS1090.severity = none       # Add/remove ConfigureAwait (既存コードで対応済み)
+dotnet_diagnostic.RCS1098.severity = none       # Constant values should be placed on right side (Yoda条件 — 不要)
+dotnet_diagnostic.RCS1124.severity = none       # Inline local variable (可読性のためローカル変数を使う場面あり)
+dotnet_diagnostic.RCS1138.severity = none       # Add summary to documentation comment (SA1600系と同様に段階的対応)
+dotnet_diagnostic.RCS1139.severity = none       # Add summary element to documentation comment (同上)
+dotnet_diagnostic.RCS1163.severity = none       # Unused parameter (dotnet_code_quality_unused_parameters / IDE0060 と重複)
+dotnet_diagnostic.RCS1194.severity = none       # Implement exception constructors (カスタム例外は意図的に限定)
+
+# --- Roslynator: suggestion に緩和 (false positive 回避) ---
+dotnet_diagnostic.RCS1102.severity = suggestion # Make class static (テスト/DIパターンでの誤検出回避)
+dotnet_diagnostic.RCS1213.severity = suggestion # Remove unused member declaration (InternalsVisibleTo での誤検出回避)
+
+# --- Roslynator: warning に昇格 (正確性に重要) ---
+dotnet_diagnostic.RCS1155.severity = warning    # Use StringComparison when comparing strings (回帰防止)
 
 # --- テストプロジェクト向け設定 ---
 [tests/**.cs]
@@ -206,3 +230,5 @@ dotnet_diagnostic.CA1848.severity = suggestion   # Use LoggerMessage delegates f
 dotnet_diagnostic.CA1707.severity = none   # Identifiers should not contain underscores
 # テストコードでは static readonly 配列の強制は不要
 dotnet_diagnostic.CA1861.severity = suggestion   # Prefer static readonly over constant array arguments
+# テストコードでは未使用メンバー検出不要
+dotnet_diagnostic.RCS1213.severity = none        # Remove unused member declaration

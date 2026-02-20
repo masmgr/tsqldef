@@ -407,13 +407,13 @@ public sealed class RebuildProposalBuilderTests
     {
         var model = new DatabaseModel();
         var table = model.GetOrAddTable(schema, tableName);
-        foreach (var (Name, Type, Nullable) in columns)
+        foreach (var (name, type, nullable) in columns)
         {
-            table.Columns[IdentifierHelper.NormalizeNameKey(Name)] = new ColumnModel
+            table.Columns[IdentifierHelper.NormalizeNameKey(name)] = new ColumnModel
             {
-                Name = Name,
-                SqlType = Type,
-                IsNullable = Nullable,
+                Name = name,
+                SqlType = type,
+                IsNullable = nullable,
             };
         }
 
