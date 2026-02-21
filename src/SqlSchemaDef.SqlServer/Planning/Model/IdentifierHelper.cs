@@ -17,6 +17,16 @@ namespace SqlSchemaDef.SqlServer.Planning
         public static string BuildTableKey(string schema, string name)
             => NormalizeNameKey(schema) + "." + NormalizeNameKey(name);
 
+        public static string Escape(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                return name ?? string.Empty;
+            }
+
+            return "[" + name.Replace("]", "]]") + "]";
+        }
+
         public static string EscapeIfKeyword(string name)
         {
             if (string.IsNullOrWhiteSpace(name))

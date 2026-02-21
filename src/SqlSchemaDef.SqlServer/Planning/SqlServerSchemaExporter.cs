@@ -218,7 +218,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             }
 
             var sb = new StringBuilder();
-            sb.Append("CREATE TABLE ").Append(table.Schema).Append('.').Append(IdentifierHelper.EscapeIfKeyword(table.Name)).Append(" (");
+            sb.Append("CREATE TABLE ").Append(IdentifierHelper.Escape(table.Schema)).Append('.').Append(IdentifierHelper.Escape(table.Name)).Append(" (");
 
             for (var i = 0; i < exportable.Count; i++)
             {
@@ -228,7 +228,7 @@ namespace SqlSchemaDef.SqlServer.Planning
                     sb.Append(", ");
                 }
 
-                sb.Append(IdentifierHelper.EscapeIfKeyword(column.Name))
+                sb.Append(IdentifierHelper.Escape(column.Name))
                     .Append(' ')
                     .Append(column.SqlType);
 
@@ -286,12 +286,12 @@ namespace SqlSchemaDef.SqlServer.Planning
             }
 
             var unique = index.IsUnique ? "UNIQUE " : string.Empty;
-            var sql = "CREATE " + unique + "INDEX " + IdentifierHelper.EscapeIfKeyword(index.Name) + " ON " +
-                      table.Schema + "." + IdentifierHelper.EscapeIfKeyword(table.Name) + " (" + JoinIndexColumns(index.KeyColumns) + ")";
+            var sql = "CREATE " + unique + "INDEX " + IdentifierHelper.Escape(index.Name) + " ON " +
+                      IdentifierHelper.Escape(table.Schema) + "." + IdentifierHelper.Escape(table.Name) + " (" + JoinIndexColumns(index.KeyColumns) + ")";
 
             if (index.IncludeColumns?.Count > 0)
             {
-                var include = index.IncludeColumns.Select(IdentifierHelper.EscapeIfKeyword);
+                var include = index.IncludeColumns.Select(IdentifierHelper.Escape);
                 sql += " INCLUDE (" + string.Join(", ", include) + ")";
             }
 
@@ -315,7 +315,7 @@ namespace SqlSchemaDef.SqlServer.Planning
                     continue;
                 }
 
-                var name = IdentifierHelper.EscapeIfKeyword(column.Name);
+                var name = IdentifierHelper.Escape(column.Name);
                 parts[i] = column.IsDescending ? name + " DESC" : name;
             }
 

@@ -124,7 +124,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             }
 
             // Step 4: Rename original to _old
-            var renameOldSql = "EXEC sp_rename '" + schema + "." + tableName + "', '" + oldName + "'";
+            var renameOldSql = "EXEC sp_rename '" + IdentifierHelper.Escape(schema) + "." + IdentifierHelper.Escape(tableName) + "', '" + oldName + "'";
             steps.Add(new RebuildStep
             {
                 Kind = RebuildStepKind.RenameOriginalToOld,
@@ -134,7 +134,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             scriptParts.Add(renameOldSql);
 
             // Step 5: Rename shadow to original
-            var renameShadowSql = "EXEC sp_rename '" + schema + "." + shadowName + "', '" + tableName + "'";
+            var renameShadowSql = "EXEC sp_rename '" + IdentifierHelper.Escape(schema) + "." + IdentifierHelper.Escape(shadowName) + "', '" + tableName + "'";
             steps.Add(new RebuildStep
             {
                 Kind = RebuildStepKind.RenameShadowToOriginal,
@@ -170,7 +170,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             }
 
             // Step 8: Drop old table
-            var dropOldSql = "DROP TABLE " + schema + "." + oldName;
+            var dropOldSql = "DROP TABLE " + IdentifierHelper.Escape(schema) + "." + IdentifierHelper.Escape(oldName);
             steps.Add(new RebuildStep
             {
                 Kind = RebuildStepKind.DropOldTable,
@@ -212,7 +212,7 @@ namespace SqlSchemaDef.SqlServer.Planning
                 var key = IdentifierHelper.NormalizeNameKey(desiredCol.Name);
                 if (currentTable.Columns.ContainsKey(key))
                 {
-                    commonColumns.Add(IdentifierHelper.EscapeIfKeyword(desiredCol.Name));
+                    commonColumns.Add(IdentifierHelper.Escape(desiredCol.Name));
                 }
             }
 
@@ -238,17 +238,17 @@ namespace SqlSchemaDef.SqlServer.Planning
             var sb = new StringBuilder();
             if (hasIdentity)
             {
-                sb.Append("SET IDENTITY_INSERT ").Append(schema).Append('.').Append(IdentifierHelper.EscapeIfKeyword(shadowName)).Append(" ON;\n");
+                sb.Append("SET IDENTITY_INSERT ").Append(IdentifierHelper.Escape(schema)).Append('.').Append(IdentifierHelper.Escape(shadowName)).Append(" ON;\n");
             }
 
-            sb.Append("INSERT INTO ").Append(schema).Append('.').Append(IdentifierHelper.EscapeIfKeyword(shadowName))
+            sb.Append("INSERT INTO ").Append(IdentifierHelper.Escape(schema)).Append('.').Append(IdentifierHelper.Escape(shadowName))
               .Append(" (").Append(columnList).Append(')')
               .Append(" SELECT ").Append(columnList)
-              .Append(" FROM ").Append(schema).Append('.').Append(IdentifierHelper.EscapeIfKeyword(tableName));
+              .Append(" FROM ").Append(IdentifierHelper.Escape(schema)).Append('.').Append(IdentifierHelper.Escape(tableName));
 
             if (hasIdentity)
             {
-                sb.Append(";\nSET IDENTITY_INSERT ").Append(schema).Append('.').Append(IdentifierHelper.EscapeIfKeyword(shadowName)).Append(" OFF");
+                sb.Append(";\nSET IDENTITY_INSERT ").Append(IdentifierHelper.Escape(schema)).Append('.').Append(IdentifierHelper.Escape(shadowName)).Append(" OFF");
             }
 
             return sb.ToString();
@@ -261,8 +261,8 @@ namespace SqlSchemaDef.SqlServer.Planning
             foreach (var entry in currentTable.Constraints.OrderBy(e => e.Key, StringComparer.OrdinalIgnoreCase))
             {
                 var constraint = entry.Value;
-                parts.Add("ALTER TABLE " + schema + "." + IdentifierHelper.EscapeIfKeyword(tableName) +
-                          " DROP CONSTRAINT " + IdentifierHelper.EscapeIfKeyword(constraint.Name));
+                parts.Add("ALTER TABLE " + IdentifierHelper.Escape(schema) + "." + IdentifierHelper.Escape(tableName) +
+                          " DROP CONSTRAINT " + IdentifierHelper.Escape(constraint.Name));
             }
 
             return parts.Count > 0 ? string.Join(";\n", parts) : null;

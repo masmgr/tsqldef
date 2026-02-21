@@ -20,7 +20,7 @@ public sealed class SchemaDifferTests
 
         var op = Assert.Single(plan.Operations);
         Assert.Equal(OperationKind.CreateTable, op.Kind);
-        Assert.Equal("CREATE TABLE dbo.Users (Id INT NOT NULL)", op.Sql);
+        Assert.Equal("CREATE TABLE [dbo].[Users] ([Id] INT NOT NULL)", op.Sql);
         Assert.Equal("dbo.Users", op.Target.ToDisplayName());
     }
 
@@ -35,7 +35,7 @@ public sealed class SchemaDifferTests
         var plan = SchemaDiffer.Diff(current, desired, metadata);
 
         var op = Assert.Single(plan.Operations);
-        Assert.Equal("CREATE TABLE dbo.[User] ([Select] INT NOT NULL)", op.Sql);
+        Assert.Equal("CREATE TABLE [dbo].[User] ([Select] INT NOT NULL)", op.Sql);
     }
 
     [Fact]
@@ -59,7 +59,7 @@ public sealed class SchemaDifferTests
 
         var op = Assert.Single(plan.Operations);
         Assert.Equal(OperationKind.AddColumn, op.Kind);
-        Assert.Equal("ALTER TABLE dbo.Users ADD Name NVARCHAR (100) NULL", op.Sql);
+        Assert.Equal("ALTER TABLE [dbo].[Users] ADD [Name] NVARCHAR (100) NULL", op.Sql);
         Assert.Equal("dbo.Users.Name", op.Target.ToDisplayName());
     }
 
@@ -130,11 +130,11 @@ public sealed class SchemaDifferTests
         }, kinds);
 
         var constraintSql = plan.Operations.Take(3).Select(op => op.Sql).ToArray();
-        Assert.Contains(constraintSql, sql => sql.Contains("CONSTRAINT PK_Users PRIMARY KEY"));
-        Assert.Contains(constraintSql, sql => sql.Contains("CONSTRAINT UQ_Users_Name UNIQUE"));
-        Assert.Contains(constraintSql, sql => sql.Contains("CONSTRAINT CK_Users_Age CHECK"));
-        Assert.Contains("CREATE NONCLUSTERED INDEX IX_Users_Name", plan.Operations[3].Sql);
-        Assert.Contains("FOREIGN KEY (TeamId) REFERENCES dbo.Teams (Id)", plan.Operations[4].Sql);
+        Assert.Contains(constraintSql, sql => sql.Contains("CONSTRAINT [PK_Users] PRIMARY KEY"));
+        Assert.Contains(constraintSql, sql => sql.Contains("CONSTRAINT [UQ_Users_Name] UNIQUE"));
+        Assert.Contains(constraintSql, sql => sql.Contains("CONSTRAINT [CK_Users_Age] CHECK"));
+        Assert.Contains("CREATE NONCLUSTERED INDEX [IX_Users_Name]", plan.Operations[3].Sql);
+        Assert.Contains("FOREIGN KEY ([TeamId]) REFERENCES [dbo].[Teams] ([Id])", plan.Operations[4].Sql);
     }
 
     [Fact]
@@ -163,7 +163,7 @@ public sealed class SchemaDifferTests
 
         var op = Assert.Single(plan.Operations);
         Assert.Equal(OperationKind.CreateIndex, op.Kind);
-        Assert.Equal("CREATE NONCLUSTERED INDEX IX_Users_Name ON dbo.Users (Name DESC) INCLUDE (Age)", op.Sql);
+        Assert.Equal("CREATE NONCLUSTERED INDEX [IX_Users_Name] ON [dbo].[Users] ([Name] DESC) INCLUDE ([Age])", op.Sql);
     }
 
     [Fact]
@@ -205,7 +205,7 @@ public sealed class SchemaDifferTests
         Assert.Equal(OperationKind.AddColumn, plan.Operations[0].Kind);
         Assert.Contains("DEFAULT (1)", plan.Operations[0].Sql);
         Assert.Equal(OperationKind.AddConstraint, plan.Operations[1].Kind);
-        Assert.Contains("CONSTRAINT DF_Users_Score DEFAULT (1) FOR Score", plan.Operations[1].Sql);
+        Assert.Contains("CONSTRAINT [DF_Users_Score] DEFAULT (1) FOR [Score]", plan.Operations[1].Sql);
     }
 
     [Fact]
@@ -257,7 +257,7 @@ public sealed class SchemaDifferTests
 
         var op = Assert.Single(plan.Operations);
         Assert.Equal(OperationKind.CreateIndex, op.Kind);
-        Assert.Contains("CREATE NONCLUSTERED INDEX [Order] ON dbo.Users (Id)", op.Sql);
+        Assert.Contains("CREATE NONCLUSTERED INDEX [Order] ON [dbo].[Users] ([Id])", op.Sql);
     }
 
     [Fact]
@@ -283,7 +283,7 @@ public sealed class SchemaDifferTests
         var plan = SchemaDiffer.Diff(current, desired, metadata);
 
         var operation = Assert.Single(plan.Operations);
-        Assert.Contains("CONSTRAINT CK_Users_Age CHECK (Age > 0)", operation.Sql);
+        Assert.Contains("CONSTRAINT [CK_Users_Age] CHECK (Age > 0)", operation.Sql);
     }
 
     [Fact]
@@ -882,7 +882,7 @@ public sealed class SchemaDifferTests
 
         var op = Assert.Single(plan.Operations);
         Assert.Equal(OperationKind.AddConstraint, op.Kind);
-        Assert.Contains("CONSTRAINT DF_Users_Score DEFAULT (0) FOR Score", op.Sql);
+        Assert.Contains("CONSTRAINT [DF_Users_Score] DEFAULT (0) FOR [Score]", op.Sql);
     }
 
     [Fact]
@@ -1283,7 +1283,7 @@ public sealed class SchemaDifferTests
 
         var op = Assert.Single(plan.Operations);
         Assert.Equal(OperationKind.CreateIndex, op.Kind);
-        Assert.Contains("CREATE CLUSTERED INDEX IX_T", op.Sql);
+        Assert.Contains("CREATE CLUSTERED INDEX [IX_T]", op.Sql);
     }
 
     [Fact]
@@ -1300,7 +1300,7 @@ public sealed class SchemaDifferTests
         var plan = SchemaDiffer.Diff(current, desired, metadata);
 
         var op = Assert.Single(plan.Operations);
-        Assert.Contains("CREATE NONCLUSTERED INDEX IX_T", op.Sql);
+        Assert.Contains("CREATE NONCLUSTERED INDEX [IX_T]", op.Sql);
     }
 
     [Fact]

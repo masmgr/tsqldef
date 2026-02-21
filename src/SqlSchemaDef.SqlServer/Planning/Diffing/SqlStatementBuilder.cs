@@ -10,7 +10,7 @@ namespace SqlSchemaDef.SqlServer.Planning
         internal static string BuildCreateTableSql(TableModel table)
         {
             var sb = new StringBuilder();
-            sb.Append("CREATE TABLE ").Append(table.Schema).Append('.').Append(IdentifierHelper.EscapeIfKeyword(table.Name)).Append(" (");
+            sb.Append("CREATE TABLE ").Append(IdentifierHelper.Escape(table.Schema)).Append('.').Append(IdentifierHelper.Escape(table.Name)).Append(" (");
 
             var columns = new List<ColumnModel>(table.Columns.Values);
             columns.Sort((a, b) => string.Compare(
@@ -41,7 +41,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             }
 
             var sb = new StringBuilder();
-            sb.Append(IdentifierHelper.EscapeIfKeyword(column.Name))
+            sb.Append(IdentifierHelper.Escape(column.Name))
                 .Append(' ')
                 .Append(column.SqlType);
 
@@ -68,8 +68,8 @@ namespace SqlSchemaDef.SqlServer.Planning
 
         internal static string BuildAddConstraintSql(TableModel table, ConstraintModel constraint)
         {
-            var prefix = "ALTER TABLE " + table.Schema + "." + IdentifierHelper.EscapeIfKeyword(table.Name) +
-                         " ADD CONSTRAINT " + IdentifierHelper.EscapeIfKeyword(constraint.Name) + " ";
+            var prefix = "ALTER TABLE " + IdentifierHelper.Escape(table.Schema) + "." + IdentifierHelper.Escape(table.Name) +
+                         " ADD CONSTRAINT " + IdentifierHelper.Escape(constraint.Name) + " ";
 
             switch (constraint.Kind)
             {
@@ -95,7 +95,7 @@ namespace SqlSchemaDef.SqlServer.Planning
                         ? "dbo"
                         : constraint.ReferenceSchema;
                     var fkSql = prefix + "FOREIGN KEY (" + JoinColumns(constraint.Columns) + ") REFERENCES " +
-                           referenceSchema + "." + IdentifierHelper.EscapeIfKeyword(constraint.ReferenceTable) +
+                           IdentifierHelper.Escape(referenceSchema) + "." + IdentifierHelper.Escape(constraint.ReferenceTable) +
                            " (" + JoinColumns(constraint.ReferenceColumns) + ")";
                     if (!string.IsNullOrEmpty(constraint.DeleteAction))
                     {
@@ -113,7 +113,7 @@ namespace SqlSchemaDef.SqlServer.Planning
                         defExpr = "(" + defExpr + ")";
                     }
                     return prefix + "DEFAULT " + defExpr + " FOR " +
-                           IdentifierHelper.EscapeIfKeyword(constraint.DefaultColumnName);
+                           IdentifierHelper.Escape(constraint.DefaultColumnName);
                 default:
                     throw new InvalidOperationException("Unsupported constraint kind.");
             }
@@ -123,8 +123,8 @@ namespace SqlSchemaDef.SqlServer.Planning
         {
             var unique = index.IsUnique ? "UNIQUE " : string.Empty;
             var clustered = index.IsClustered ? "CLUSTERED " : "NONCLUSTERED ";
-            var sql = "CREATE " + unique + clustered + "INDEX " + IdentifierHelper.EscapeIfKeyword(index.Name) + " ON " +
-                      table.Schema + "." + IdentifierHelper.EscapeIfKeyword(table.Name) +
+            var sql = "CREATE " + unique + clustered + "INDEX " + IdentifierHelper.Escape(index.Name) + " ON " +
+                      IdentifierHelper.Escape(table.Schema) + "." + IdentifierHelper.Escape(table.Name) +
                       " (" + JoinIndexColumns(index.KeyColumns) + ")";
 
             if (index.IncludeColumns?.Count > 0)
@@ -209,7 +209,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             for (var i = 0; i < columns.Count; i++)
             {
                 var name = columns[i];
-                escaped[i] = string.IsNullOrWhiteSpace(name) ? string.Empty : IdentifierHelper.EscapeIfKeyword(name);
+                escaped[i] = string.IsNullOrWhiteSpace(name) ? string.Empty : IdentifierHelper.Escape(name);
             }
 
             return string.Join(", ", escaped);
@@ -232,7 +232,7 @@ namespace SqlSchemaDef.SqlServer.Planning
                     continue;
                 }
 
-                var name = IdentifierHelper.EscapeIfKeyword(column.Name);
+                var name = IdentifierHelper.Escape(column.Name);
                 parts[i] = column.IsDescending ? name + " DESC" : name;
             }
 

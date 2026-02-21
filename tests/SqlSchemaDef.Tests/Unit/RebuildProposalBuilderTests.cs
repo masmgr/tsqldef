@@ -392,15 +392,15 @@ public sealed class RebuildProposalBuilderTests
         var steps = proposals[0].Steps;
 
         var renameOld = steps.First(s => s.Kind == RebuildStepKind.RenameOriginalToOld);
-        Assert.Contains("'dbo.Users'", renameOld.Sql);
+        Assert.Contains("'[dbo].[Users]'", renameOld.Sql);
         Assert.Contains("'Users_old'", renameOld.Sql);
 
         var renameShadow = steps.First(s => s.Kind == RebuildStepKind.RenameShadowToOriginal);
-        Assert.Contains("'dbo.__Users_rebuild'", renameShadow.Sql);
+        Assert.Contains("'[dbo].[__Users_rebuild]'", renameShadow.Sql);
         Assert.Contains("'Users'", renameShadow.Sql);
 
         var dropOld = steps.First(s => s.Kind == RebuildStepKind.DropOldTable);
-        Assert.Contains("dbo.Users_old", dropOld.Sql);
+        Assert.Contains("[dbo].[Users_old]", dropOld.Sql);
     }
 
     private static DatabaseModel BuildModel(string schema, string tableName, (string Name, string Type, bool Nullable)[] columns)

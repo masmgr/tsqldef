@@ -798,7 +798,7 @@ namespace SqlSchemaDef.SqlServer.Planning
 
         private static SqlOperation AddColumnOperation(TableModel table, ColumnModel column)
         {
-            var sql = "ALTER TABLE " + table.Schema + "." + IdentifierHelper.EscapeIfKeyword(table.Name) +
+            var sql = "ALTER TABLE " + IdentifierHelper.Escape(table.Schema) + "." + IdentifierHelper.Escape(table.Name) +
                       " ADD " + SqlStatementBuilder.BuildColumnDefinitionSql(column);
 
             return new SqlOperation
