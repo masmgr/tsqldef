@@ -1507,4 +1507,122 @@ CREATE TABLE dbo.Users (
         Assert.Contains("FILLFACTOR = 90", op.Sql);
         Assert.Contains("PAD_INDEX = ON", op.Sql);
     }
+
+    [Fact]
+    public void Diff_WhenCurrentColumnHasUnsupportedFeature_SkipsAsUnsupportedFeatureInCurrent()
+    {
+        const string desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL, Age int NULL)";
+        var desired = DesiredSchemaLoader.Load(desiredSql);
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Columns["ID"] = new ColumnModel
+        {
+            Name = "Id", SqlType = "int", IsNullable = false,
+        };
+        currentTable.Columns["AGE"] = new ColumnModel
+        {
+            Name = "Age", SqlType = "int", IsNullable = true,
+            UnsupportedFeature = "ComputedColumn",
+        };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        Assert.Empty(plan.Operations);
+        var skipped = Assert.Single(plan.Skipped);
+        Assert.Equal(SkippedReason.UnsupportedFeatureInCurrent, skipped.Reason);
+        Assert.Equal("Age", skipped.Target.Name);
+        Assert.Contains("ComputedColumn", skipped.Message);
+    }
+
+    [Fact]
+    public void Diff_WhenCurrentConstraintHasUnsupportedFeature_SkipsAsUnsupportedFeatureInCurrent()
+    {
+        const string desiredSql = @"
+CREATE TABLE dbo.Users (Id int NOT NULL)
+ALTER TABLE dbo.Users ADD CONSTRAINT FK_Users_Other FOREIGN KEY (Id) REFERENCES dbo.Other(Id)";
+        var desired = DesiredSchemaLoader.Load(desiredSql);
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Columns["ID"] = new ColumnModel
+        {
+            Name = "Id", SqlType = "int", IsNullable = false,
+        };
+        currentTable.Constraints[IdentifierHelper.NormalizeNameKey("FK_Users_Other")] = new ConstraintModel
+        {
+            Kind = ConstraintKind.ForeignKey,
+            Name = "FK_Users_Other",
+            Columns = new List<string> { "Id" },
+            ReferenceSchema = "dbo",
+            ReferenceTable = "Other",
+            ReferenceColumns = new List<string> { "Id" },
+            UnsupportedFeature = "ForeignKeyReferenceSchema",
+        };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        var skip = plan.Skipped.Single(s => s.Target.Name == "FK_Users_Other");
+        Assert.Equal(SkippedReason.UnsupportedFeatureInCurrent, skip.Reason);
+        Assert.Contains("ForeignKeyReferenceSchema", skip.Message);
+    }
+
+    [Fact]
+    public void Diff_WhenCurrentIndexHasUnsupportedFeature_SkipsAsUnsupportedFeatureInCurrent()
+    {
+        const string desiredSql = @"
+CREATE TABLE dbo.Users (Id int NOT NULL)
+CREATE INDEX IX_Users_Id ON dbo.Users(Id)";
+        var desired = DesiredSchemaLoader.Load(desiredSql);
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Columns["ID"] = new ColumnModel
+        {
+            Name = "Id", SqlType = "int", IsNullable = false,
+        };
+        currentTable.Indexes[IdentifierHelper.NormalizeNameKey("IX_Users_Id")] = new IndexModel
+        {
+            Name = "IX_Users_Id",
+            KeyColumns = new List<IndexKeyColumn> { new IndexKeyColumn { Name = "Id" } },
+            UnsupportedFeature = "ColumnstoreIndex",
+        };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        Assert.Empty(plan.Operations);
+        var skipped = Assert.Single(plan.Skipped);
+        Assert.Equal(SkippedReason.UnsupportedFeatureInCurrent, skipped.Reason);
+        Assert.Contains("ColumnstoreIndex", skipped.Message);
+    }
+
+    [Fact]
+    public void Diff_WhenCurrentColumnIsComputed_DoesNotGenerateRebuildProposal()
+    {
+        const string desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL, Age int NULL)";
+        var desired = DesiredSchemaLoader.Load(desiredSql);
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Columns["ID"] = new ColumnModel
+        {
+            Name = "Id", SqlType = "int", IsNullable = false,
+        };
+        currentTable.Columns["AGE"] = new ColumnModel
+        {
+            Name = "Age", SqlType = "int", IsNullable = true,
+            UnsupportedFeature = "ComputedColumn",
+        };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var options = new PlannerOptions { EmitProposals = true };
+        var plan = SchemaDiffer.Diff(current, desired, metadata, options);
+
+        Assert.Empty(plan.Proposals);
+        var skipped = Assert.Single(plan.Skipped);
+        Assert.Equal(SkippedReason.UnsupportedFeatureInCurrent, skipped.Reason);
+    }
 }

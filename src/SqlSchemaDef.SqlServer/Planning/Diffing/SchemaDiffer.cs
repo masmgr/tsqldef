@@ -206,7 +206,7 @@ namespace SqlSchemaDef.SqlServer.Planning
                     {
                         skipped.Add(new SkippedItem
                         {
-                            Reason = SkippedReason.AlterNotSupported,
+                            Reason = SkippedReason.UnsupportedFeatureInCurrent,
                             Target = new SqlObjectRef
                             {
                                 Type = SqlObjectType.Column,
@@ -214,7 +214,7 @@ namespace SqlSchemaDef.SqlServer.Planning
                                 ParentName = desiredTable.Name,
                                 Name = desiredColumn.Name,
                             },
-                            Message = "alter is not supported in v1",
+                            Message = "current column has unsupported feature: " + currentColumn.UnsupportedFeature,
                         });
                         continue;
                     }
@@ -295,7 +295,7 @@ namespace SqlSchemaDef.SqlServer.Planning
                     {
                         skipped.Add(new SkippedItem
                         {
-                            Reason = SkippedReason.AlterNotSupported,
+                            Reason = SkippedReason.UnsupportedFeatureInCurrent,
                             Target = new SqlObjectRef
                             {
                                 Type = constraintEntry.Value.Kind == ConstraintKind.ForeignKey
@@ -305,7 +305,7 @@ namespace SqlSchemaDef.SqlServer.Planning
                                 ParentName = desiredTable.Name,
                                 Name = constraintEntry.Value.Name,
                             },
-                            Message = "alter is not supported in v1",
+                            Message = "current constraint has unsupported feature: " + currentConstraint.UnsupportedFeature,
                         });
                         continue;
                     }
@@ -369,7 +369,7 @@ namespace SqlSchemaDef.SqlServer.Planning
                     {
                         skipped.Add(new SkippedItem
                         {
-                            Reason = SkippedReason.AlterNotSupported,
+                            Reason = SkippedReason.UnsupportedFeatureInCurrent,
                             Target = new SqlObjectRef
                             {
                                 Type = SqlObjectType.Index,
@@ -377,7 +377,7 @@ namespace SqlSchemaDef.SqlServer.Planning
                                 ParentName = desiredTable.Name,
                                 Name = indexEntry.Value.Name,
                             },
-                            Message = "alter is not supported in v1",
+                            Message = "current index has unsupported feature: " + currentIndex.UnsupportedFeature,
                         });
                         continue;
                     }
