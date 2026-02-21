@@ -20,35 +20,45 @@ namespace SqlSchemaDef.SqlServer.Planning
             if (skipped == null)
                 throw new ArgumentNullException(nameof(skipped));
 
-            var alterColumnSkipped = new Dictionary<string, List<SkippedItem>>(StringComparer.OrdinalIgnoreCase);
+            var rebuildSkipped = new Dictionary<string, List<SkippedItem>>(StringComparer.OrdinalIgnoreCase);
             foreach (var item in skipped)
             {
-                if (item.Reason != SkippedReason.AlterNotSupported || item.Target == null || item.Target.Type != SqlObjectType.Column)
+                if (item.Reason != SkippedReason.AlterNotSupported || item.Target == null)
                 {
                     continue;
                 }
 
-                var tableKey = IdentifierHelper.BuildTableKey(item.Target.Schema, item.Target.ParentName);
-                if (!alterColumnSkipped.TryGetValue(tableKey, out var list))
+                if (item.Target.Type == SqlObjectType.Column)
                 {
-                    list = new List<SkippedItem>();
-                    alterColumnSkipped[tableKey] = list;
+                    AddToRebuildSkipped(rebuildSkipped, item);
                 }
-
-                list.Add(item);
+                else if (item.Target.Type == SqlObjectType.Constraint)
+                {
+                    // Only PK triggers rebuild; other constraints are handled by RecreateConstraint
+                    var tableKey = IdentifierHelper.BuildTableKey(item.Target.Schema, item.Target.ParentName);
+                    if (desired.Tables.TryGetValue(tableKey, out var desiredTable))
+                    {
+                        var constraintKey = IdentifierHelper.NormalizeNameKey(item.Target.Name);
+                        if (desiredTable.Constraints.TryGetValue(constraintKey, out var constraint) &&
+                            constraint.Kind == ConstraintKind.PrimaryKey)
+                        {
+                            AddToRebuildSkipped(rebuildSkipped, item);
+                        }
+                    }
+                }
             }
 
-            if (alterColumnSkipped.Count == 0)
+            if (rebuildSkipped.Count == 0)
             {
                 return Array.Empty<RebuildProposal>();
             }
 
             var proposals = new List<RebuildProposal>();
 
-            foreach (var entry in alterColumnSkipped.OrderBy(e => e.Key, StringComparer.OrdinalIgnoreCase))
+            foreach (var entry in rebuildSkipped.OrderBy(e => e.Key, StringComparer.OrdinalIgnoreCase))
             {
                 var tableKey = entry.Key;
-                var columnSkips = entry.Value;
+                var rebuildSkips = entry.Value;
 
                 if (!desired.Tables.TryGetValue(tableKey, out var desiredTable))
                 {
@@ -60,7 +70,7 @@ namespace SqlSchemaDef.SqlServer.Planning
                     continue;
                 }
 
-                var proposal = BuildProposalForTable(current, currentTable, desiredTable, columnSkips);
+                var proposal = BuildProposalForTable(current, currentTable, desiredTable, rebuildSkips);
                 proposals.Add(proposal);
             }
 
@@ -71,15 +81,14 @@ namespace SqlSchemaDef.SqlServer.Planning
             DatabaseModel currentDb,
             TableModel currentTable,
             TableModel desiredTable,
-            List<SkippedItem> columnSkips)
+            List<SkippedItem> rebuildSkips)
         {
             var schema = desiredTable.Schema;
             var tableName = desiredTable.Name;
             var shadowName = "__" + tableName + "_rebuild";
             var oldName = tableName + "_old";
 
-            var changedColumns = string.Join(", ", columnSkips.Select(s => s.Target.Name));
-            var description = "Rebuild " + schema + "." + tableName + " (column type change: " + changedColumns + ")";
+            var description = BuildDescription(schema, tableName, rebuildSkips);
 
             var steps = new List<RebuildStep>();
             var scriptParts = new List<string>();
@@ -335,6 +344,43 @@ namespace SqlSchemaDef.SqlServer.Planning
             }
 
             return sb.ToString();
+        }
+
+        private static void AddToRebuildSkipped(Dictionary<string, List<SkippedItem>> rebuildSkipped, SkippedItem item)
+        {
+            var tableKey = IdentifierHelper.BuildTableKey(item.Target.Schema, item.Target.ParentName);
+            if (!rebuildSkipped.TryGetValue(tableKey, out var list))
+            {
+                list = new List<SkippedItem>();
+                rebuildSkipped[tableKey] = list;
+            }
+
+            list.Add(item);
+        }
+
+        private static string BuildDescription(string schema, string tableName, List<SkippedItem> rebuildSkips)
+        {
+            var parts = new List<string>();
+
+            var columnNames = rebuildSkips
+                .Where(s => s.Target.Type == SqlObjectType.Column)
+                .Select(s => s.Target.Name)
+                .ToList();
+            if (columnNames.Count > 0)
+            {
+                parts.Add("column change: " + string.Join(", ", columnNames));
+            }
+
+            var pkNames = rebuildSkips
+                .Where(s => s.Target.Type == SqlObjectType.Constraint)
+                .Select(s => s.Target.Name)
+                .ToList();
+            if (pkNames.Count > 0)
+            {
+                parts.Add("primary key change: " + string.Join(", ", pkNames));
+            }
+
+            return "Rebuild " + schema + "." + tableName + " (" + string.Join("; ", parts) + ")";
         }
     }
 }

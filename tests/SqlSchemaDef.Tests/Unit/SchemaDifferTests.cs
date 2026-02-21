@@ -451,7 +451,7 @@ public sealed class SchemaDifferTests
     }
 
     [Fact]
-    public void Diff_WhenIndexDefinitionDiffers_IsSkipped()
+    public void Diff_WhenIndexDefinitionDiffers_EmitsRecreateIndex()
     {
         var desired = new DatabaseModel();
         var desiredTable = desired.GetOrAddTable("dbo", "Users");
@@ -474,15 +474,15 @@ public sealed class SchemaDifferTests
         var metadata = new PlanMetadata { Schema = "dbo" };
         var plan = SchemaDiffer.Diff(current, desired, metadata);
 
-        Assert.Empty(plan.Operations);
-
-        var skipped = Assert.Single(plan.Skipped);
-        Assert.Equal(SkippedReason.AlterNotSupported, skipped.Reason);
-        Assert.Equal("dbo.Users.IX_Users_Name", skipped.Target.ToDisplayName());
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal(OperationKind.RecreateIndex, op.Kind);
+        Assert.Contains("DROP INDEX", op.Sql);
+        Assert.Contains("CREATE", op.Sql);
+        Assert.Empty(plan.Skipped);
     }
 
     [Fact]
-    public void Diff_WhenIndexIncludeDiffers_IsSkipped()
+    public void Diff_WhenIndexIncludeDiffers_EmitsRecreateIndex()
     {
         var desired = new DatabaseModel();
         var desiredTable = desired.GetOrAddTable("dbo", "Users");
@@ -506,11 +506,11 @@ public sealed class SchemaDifferTests
         var metadata = new PlanMetadata { Schema = "dbo" };
         var plan = SchemaDiffer.Diff(current, desired, metadata);
 
-        Assert.Empty(plan.Operations);
-
-        var skipped = Assert.Single(plan.Skipped);
-        Assert.Equal(SkippedReason.AlterNotSupported, skipped.Reason);
-        Assert.Equal("dbo.Users.IX_Users_Name", skipped.Target.ToDisplayName());
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal(OperationKind.RecreateIndex, op.Kind);
+        Assert.Contains("DROP INDEX", op.Sql);
+        Assert.Contains("CREATE", op.Sql);
+        Assert.Empty(plan.Skipped);
     }
 
     [Fact]
@@ -784,7 +784,7 @@ public sealed class SchemaDifferTests
     }
 
     [Fact]
-    public void Diff_ForeignKeyActionDiffers_IsSkipped()
+    public void Diff_ForeignKeyActionDiffers_EmitsRecreateForeignKey()
     {
         var desired = new DatabaseModel();
         var desiredUsers = desired.GetOrAddTable("dbo", "Users");
@@ -814,9 +814,12 @@ public sealed class SchemaDifferTests
         var metadata = new PlanMetadata { Schema = "dbo" };
         var plan = SchemaDiffer.Diff(current, desired, metadata);
 
-        Assert.Empty(plan.Operations);
-        var skipped = Assert.Single(plan.Skipped);
-        Assert.Equal(SkippedReason.AlterNotSupported, skipped.Reason);
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal(OperationKind.RecreateForeignKey, op.Kind);
+        Assert.Contains("DROP CONSTRAINT", op.Sql);
+        Assert.Contains("FOREIGN KEY", op.Sql);
+        Assert.Contains("CASCADE", op.Sql);
+        Assert.Empty(plan.Skipped);
     }
 
     [Fact]
@@ -933,7 +936,7 @@ public sealed class SchemaDifferTests
     }
 
     [Fact]
-    public void Diff_DefaultConstraintDiffers_IsSkipped()
+    public void Diff_DefaultConstraintDiffers_EmitsRecreateConstraint()
     {
         var desired = new DatabaseModel();
         var desiredUsers = desired.GetOrAddTable("dbo", "Users");
@@ -958,9 +961,11 @@ public sealed class SchemaDifferTests
         var metadata = new PlanMetadata { Schema = "dbo" };
         var plan = SchemaDiffer.Diff(current, desired, metadata);
 
-        Assert.Empty(plan.Operations);
-        var skipped = Assert.Single(plan.Skipped);
-        Assert.Equal(SkippedReason.AlterNotSupported, skipped.Reason);
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal(OperationKind.RecreateConstraint, op.Kind);
+        Assert.Contains("DROP CONSTRAINT", op.Sql);
+        Assert.Contains("DEFAULT", op.Sql);
+        Assert.Empty(plan.Skipped);
     }
 
     [Fact]
@@ -1038,6 +1043,76 @@ CREATE TABLE dbo.Users (
 
         Assert.Single(plan.Proposals);
         Assert.Contains(plan.Skipped, s => s.Reason == SkippedReason.AlterNotSupported && s.Target != null && s.Target.Name == "Age");
+        Assert.Empty(plan.Operations);
+    }
+
+    [Fact]
+    public void Diff_WithEmitProposalsTrue_PrimaryKeyDiff_ProducesProposal()
+    {
+        var desired = new DatabaseModel();
+        var desiredTable = desired.GetOrAddTable("dbo", "Users");
+        desiredTable.Columns[IdentifierHelper.NormalizeNameKey("Id")] = new ColumnModel { Name = "Id", SqlType = "INT", IsNullable = false };
+        desiredTable.Columns[IdentifierHelper.NormalizeNameKey("Name")] = new ColumnModel { Name = "Name", SqlType = "NVARCHAR(100)", IsNullable = false };
+        desiredTable.Constraints[IdentifierHelper.NormalizeNameKey("PK_Users")] = new ConstraintModel
+        {
+            Kind = ConstraintKind.PrimaryKey,
+            Name = "PK_Users",
+            Columns = new[] { "Id" },
+        };
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Columns[IdentifierHelper.NormalizeNameKey("Id")] = new ColumnModel { Name = "Id", SqlType = "INT", IsNullable = false };
+        currentTable.Columns[IdentifierHelper.NormalizeNameKey("Name")] = new ColumnModel { Name = "Name", SqlType = "NVARCHAR(100)", IsNullable = false };
+        currentTable.Constraints[IdentifierHelper.NormalizeNameKey("PK_Users")] = new ConstraintModel
+        {
+            Kind = ConstraintKind.PrimaryKey,
+            Name = "PK_Users",
+            Columns = new[] { "Id", "Name" },
+        };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var options = new PlannerOptions { EmitProposals = true };
+        var plan = SchemaDiffer.Diff(current, desired, metadata, options);
+
+        var proposal = Assert.Single(plan.Proposals);
+        Assert.Equal("Users", proposal.Target.Name);
+        Assert.Contains("primary key change", proposal.Description);
+    }
+
+    [Fact]
+    public void Diff_WithEmitProposalsTrue_RecreateOpsOnProposalTargetAreFilteredOut()
+    {
+        // Table has both column rebuild and index recreate — index recreate should be filtered
+        var desired = new DatabaseModel();
+        var desiredTable = desired.GetOrAddTable("dbo", "Users");
+        desiredTable.Columns[IdentifierHelper.NormalizeNameKey("Id")] = new ColumnModel { Name = "Id", SqlType = "INT", IsNullable = false };
+        desiredTable.Columns[IdentifierHelper.NormalizeNameKey("Age")] = new ColumnModel { Name = "Age", SqlType = "BIGINT", IsNullable = true };
+        desiredTable.Indexes[IdentifierHelper.NormalizeNameKey("IX_Users_Age")] = new IndexModel
+        {
+            Name = "IX_Users_Age",
+            IsUnique = true,
+            KeyColumns = new[] { new IndexKeyColumn { Name = "Age" } },
+        };
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Columns[IdentifierHelper.NormalizeNameKey("Id")] = new ColumnModel { Name = "Id", SqlType = "INT", IsNullable = false };
+        currentTable.Columns[IdentifierHelper.NormalizeNameKey("Age")] = new ColumnModel { Name = "Age", SqlType = "INT", IsNullable = true };
+        currentTable.Indexes[IdentifierHelper.NormalizeNameKey("IX_Users_Age")] = new IndexModel
+        {
+            Name = "IX_Users_Age",
+            IsUnique = false,
+            KeyColumns = new[] { new IndexKeyColumn { Name = "Age" } },
+        };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var options = new PlannerOptions { EmitProposals = true };
+        var plan = SchemaDiffer.Diff(current, desired, metadata, options);
+
+        Assert.Single(plan.Proposals);
+
+        // RecreateIndex operation should be filtered out because rebuild covers the same table
         Assert.Empty(plan.Operations);
     }
 
@@ -1328,7 +1403,7 @@ CREATE TABLE dbo.Users (
     }
 
     [Fact]
-    public void Diff_WhenTableAlreadyHasClusteredIndex_NewClusteredIndexIsSkipped()
+    public void Diff_WhenTableAlreadyHasClusteredIndex_EmitsRecreateIndex()
     {
         const string desiredSql =
             "CREATE TABLE dbo.T (Id int NOT NULL, Val int NOT NULL)\nCREATE CLUSTERED INDEX IX_T_Val ON dbo.T (Val)";
@@ -1349,12 +1424,16 @@ CREATE TABLE dbo.Users (
         var metadata = new PlanMetadata { Schema = "dbo" };
         var plan = SchemaDiffer.Diff(current, desired, metadata);
 
-        Assert.Empty(plan.Operations);
+        // IX_T_Val: RecreateIndex (既存 IX_T_Id を DROP → IX_T_Val を CREATE)
+        var recreateOp = Assert.Single(plan.Operations);
+        Assert.Equal(OperationKind.RecreateIndex, recreateOp.Kind);
+        Assert.Contains("DROP INDEX [IX_T_Id]", recreateOp.Sql);
+        Assert.Contains("CLUSTERED", recreateOp.Sql);
+        Assert.Contains("IX_T_Val", recreateOp.Sql);
 
-        // IX_T_Val が AlterNotSupported (既存クラスタインデックスと競合)
-        // IX_T_Id が DropNotSupported (desired に存在しない既存インデックス)
-        var clusteredSkip = plan.Skipped.Single(s => s.Target.Name == "IX_T_Val");
-        Assert.Equal(SkippedReason.AlterNotSupported, clusteredSkip.Reason);
+        // IX_T_Id は DropNotSupported (desired に存在しない既存インデックス)
+        var dropSkip = Assert.Single(plan.Skipped);
+        Assert.Equal(SkippedReason.DropNotSupported, dropSkip.Reason);
     }
 
     [Fact]
@@ -1403,7 +1482,7 @@ CREATE TABLE dbo.Users (
     }
 
     [Fact]
-    public void Diff_WhenExistingIndexHasDifferentFilterPredicate_IsSkipped()
+    public void Diff_WhenExistingIndexHasDifferentFilterPredicate_EmitsRecreateIndex()
     {
         const string desiredSql =
             "CREATE TABLE dbo.T (Id int NOT NULL)\nCREATE INDEX IX_T ON dbo.T (Id) WHERE Id > 0";
@@ -1426,10 +1505,11 @@ CREATE TABLE dbo.Users (
         var metadata = new PlanMetadata { Schema = "dbo" };
         var plan = SchemaDiffer.Diff(current, desired, metadata);
 
-        Assert.Empty(plan.Operations);
-        var skip = Assert.Single(plan.Skipped);
-        Assert.Equal(SkippedReason.AlterNotSupported, skip.Reason);
-        Assert.Equal("IX_T", skip.Target.Name);
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal(OperationKind.RecreateIndex, op.Kind);
+        Assert.Contains("DROP INDEX", op.Sql);
+        Assert.Contains("WHERE", op.Sql);
+        Assert.Empty(plan.Skipped);
     }
 
     [Fact]
@@ -1459,7 +1539,7 @@ CREATE TABLE dbo.Users (
     }
 
     [Fact]
-    public void Diff_WhenExistingIndexHasDifferentFillFactor_IsSkipped()
+    public void Diff_WhenExistingIndexHasDifferentFillFactor_EmitsRecreateIndex()
     {
         const string desiredSql =
             "CREATE TABLE dbo.T (Id int NOT NULL)\nCREATE INDEX IX_T ON dbo.T (Id) WITH (FILLFACTOR = 80)";
@@ -1483,10 +1563,11 @@ CREATE TABLE dbo.Users (
         var metadata = new PlanMetadata { Schema = "dbo" };
         var plan = SchemaDiffer.Diff(current, desired, metadata);
 
-        Assert.Empty(plan.Operations);
-        var skip = Assert.Single(plan.Skipped);
-        Assert.Equal(SkippedReason.AlterNotSupported, skip.Reason);
-        Assert.Equal("IX_T", skip.Target.Name);
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal(OperationKind.RecreateIndex, op.Kind);
+        Assert.Contains("DROP INDEX", op.Sql);
+        Assert.Contains("FILLFACTOR = 80", op.Sql);
+        Assert.Empty(plan.Skipped);
     }
 
     [Fact]

@@ -145,6 +145,18 @@ namespace SqlSchemaDef.SqlServer.Planning
             return sql;
         }
 
+        internal static string BuildDropConstraintSql(string schema, string tableName, string constraintName)
+        {
+            return "ALTER TABLE " + IdentifierHelper.Escape(schema) + "." + IdentifierHelper.Escape(tableName) +
+                   " DROP CONSTRAINT " + IdentifierHelper.Escape(constraintName);
+        }
+
+        internal static string BuildDropIndexSql(string schema, string tableName, string indexName)
+        {
+            return "DROP INDEX " + IdentifierHelper.Escape(indexName) +
+                   " ON " + IdentifierHelper.Escape(schema) + "." + IdentifierHelper.Escape(tableName);
+        }
+
         internal static string BuildIndexWithClause(IDictionary<string, string> options)
         {
             var parts = new List<string>();

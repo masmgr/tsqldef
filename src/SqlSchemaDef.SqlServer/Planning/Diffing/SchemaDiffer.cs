@@ -24,9 +24,12 @@ namespace SqlSchemaDef.SqlServer.Planning
 
             var createTableOps = new List<SqlOperation>();
             var addColumnOps = new List<SqlOperation>();
+            var recreateConstraintOps = new List<SqlOperation>();
             var addConstraintOps = new List<SqlOperation>();
+            var recreateIndexOps = new List<SqlOperation>();
             var createIndexOps = new List<SqlOperation>();
             var addForeignKeyOps = new List<SqlOperation>();
+            var recreateForeignKeyOps = new List<SqlOperation>();
             var descriptionOps = new List<SqlOperation>();
             var skipped = new List<SkippedItem>();
 
@@ -55,8 +58,8 @@ namespace SqlSchemaDef.SqlServer.Planning
                     DiffColumns(currentTable, desiredTable, options, addColumnOps, skipped);
                 }
 
-                DiffConstraints(currentTable, desiredTable, hasCurrentTable, addConstraintOps, addForeignKeyOps, skipped);
-                DiffIndexes(currentTable, desiredTable, hasCurrentTable, createIndexOps, skipped);
+                DiffConstraints(currentTable, desiredTable, hasCurrentTable, addConstraintOps, addForeignKeyOps, recreateConstraintOps, recreateForeignKeyOps, skipped);
+                DiffIndexes(currentTable, desiredTable, hasCurrentTable, createIndexOps, recreateIndexOps, skipped);
                 DiffDescriptions(currentTable, desiredTable, hasCurrentTable, descriptionOps, skipped);
 
                 if (hasCurrentTable)
@@ -93,9 +96,12 @@ namespace SqlSchemaDef.SqlServer.Planning
             var operations = new List<SqlOperation>();
             operations.AddRange(createTableOps);
             operations.AddRange(addColumnOps);
+            operations.AddRange(recreateConstraintOps);
             operations.AddRange(addConstraintOps);
+            operations.AddRange(recreateIndexOps);
             operations.AddRange(createIndexOps);
             operations.AddRange(addForeignKeyOps);
+            operations.AddRange(recreateForeignKeyOps);
             operations.AddRange(descriptionOps);
 
             IReadOnlyList<RebuildProposal> proposals = Array.Empty<RebuildProposal>();
@@ -285,6 +291,8 @@ namespace SqlSchemaDef.SqlServer.Planning
             bool hasCurrentTable,
             List<SqlOperation> addConstraintOps,
             List<SqlOperation> addForeignKeyOps,
+            List<SqlOperation> recreateConstraintOps,
+            List<SqlOperation> recreateForeignKeyOps,
             List<SkippedItem> skipped)
         {
             foreach (var constraintEntry in desiredTable.Constraints.OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase))
@@ -312,20 +320,35 @@ namespace SqlSchemaDef.SqlServer.Planning
 
                     if (IsConstraintDifferent(currentConstraint, constraintEntry.Value))
                     {
-                        skipped.Add(new SkippedItem
+                        var desiredConstraint = constraintEntry.Value;
+                        if (desiredConstraint.Kind == ConstraintKind.PrimaryKey)
                         {
-                            Reason = SkippedReason.AlterNotSupported,
-                            Target = new SqlObjectRef
+                            // PK changes require rebuild (shadow table swap)
+                            skipped.Add(new SkippedItem
                             {
-                                Type = constraintEntry.Value.Kind == ConstraintKind.ForeignKey
-                                    ? SqlObjectType.ForeignKey
-                                    : SqlObjectType.Constraint,
-                                Schema = desiredTable.Schema,
-                                ParentName = desiredTable.Name,
-                                Name = constraintEntry.Value.Name,
-                            },
-                            Message = "alter is not supported in v1",
-                        });
+                                Reason = SkippedReason.AlterNotSupported,
+                                Target = new SqlObjectRef
+                                {
+                                    Type = SqlObjectType.Constraint,
+                                    Schema = desiredTable.Schema,
+                                    ParentName = desiredTable.Name,
+                                    Name = desiredConstraint.Name,
+                                },
+                                Message = "alter is not supported in v1",
+                            });
+                        }
+                        else
+                        {
+                            var recreateOp = RecreateConstraintOperation(desiredTable, currentConstraint, desiredConstraint);
+                            if (desiredConstraint.Kind == ConstraintKind.ForeignKey)
+                            {
+                                recreateForeignKeyOps.Add(recreateOp);
+                            }
+                            else
+                            {
+                                recreateConstraintOps.Add(recreateOp);
+                            }
+                        }
                     }
                     continue;
                 }
@@ -356,6 +379,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             TableModel desiredTable,
             bool hasCurrentTable,
             List<SqlOperation> createIndexOps,
+            List<SqlOperation> recreateIndexOps,
             List<SkippedItem> skipped)
         {
             var currentHasClusteredIndex = hasCurrentTable &&
@@ -384,36 +408,15 @@ namespace SqlSchemaDef.SqlServer.Planning
 
                     if (IsIndexDifferent(currentIndex, indexEntry.Value))
                     {
-                        skipped.Add(new SkippedItem
-                        {
-                            Reason = SkippedReason.AlterNotSupported,
-                            Target = new SqlObjectRef
-                            {
-                                Type = SqlObjectType.Index,
-                                Schema = desiredTable.Schema,
-                                ParentName = desiredTable.Name,
-                                Name = indexEntry.Value.Name,
-                            },
-                            Message = "alter is not supported in v1",
-                        });
+                        recreateIndexOps.Add(RecreateIndexOperation(desiredTable, currentIndex, indexEntry.Value));
                     }
                     continue;
                 }
 
                 if (indexEntry.Value.IsClustered && currentHasClusteredIndex)
                 {
-                    skipped.Add(new SkippedItem
-                    {
-                        Reason = SkippedReason.AlterNotSupported,
-                        Target = new SqlObjectRef
-                        {
-                            Type = SqlObjectType.Index,
-                            Schema = desiredTable.Schema,
-                            ParentName = desiredTable.Name,
-                            Name = indexEntry.Value.Name,
-                        },
-                        Message = "table already has a clustered index; cannot add another in v1",
-                    });
+                    var existingClustered = currentTable.Indexes.Values.First(ix => ix.IsClustered);
+                    recreateIndexOps.Add(RecreateIndexOperation(desiredTable, existingClustered, indexEntry.Value));
                     continue;
                 }
 
@@ -637,6 +640,50 @@ namespace SqlSchemaDef.SqlServer.Planning
                     Schema = table.Schema,
                     ParentName = table.Name,
                     Name = index.Name,
+                },
+            };
+        }
+
+        private static SqlOperation RecreateConstraintOperation(
+            TableModel table, ConstraintModel current, ConstraintModel desired)
+        {
+            var dropSql = SqlStatementBuilder.BuildDropConstraintSql(table.Schema, table.Name, current.Name);
+            var addSql = SqlStatementBuilder.BuildAddConstraintSql(table, desired);
+            var kind = desired.Kind == ConstraintKind.ForeignKey
+                ? OperationKind.RecreateForeignKey
+                : OperationKind.RecreateConstraint;
+            return new SqlOperation
+            {
+                Kind = kind,
+                Description = "Recreate constraint " + table.Schema + "." + table.Name + "." + desired.Name,
+                Sql = dropSql + ";\n" + addSql,
+                Target = new SqlObjectRef
+                {
+                    Type = desired.Kind == ConstraintKind.ForeignKey
+                        ? SqlObjectType.ForeignKey
+                        : SqlObjectType.Constraint,
+                    Schema = table.Schema,
+                    ParentName = table.Name,
+                    Name = desired.Name,
+                },
+            };
+        }
+
+        private static SqlOperation RecreateIndexOperation(TableModel table, IndexModel current, IndexModel desired)
+        {
+            var dropSql = SqlStatementBuilder.BuildDropIndexSql(table.Schema, table.Name, current.Name);
+            var createSql = SqlStatementBuilder.BuildCreateIndexSql(table, desired);
+            return new SqlOperation
+            {
+                Kind = OperationKind.RecreateIndex,
+                Description = "Recreate index " + table.Schema + "." + table.Name + "." + desired.Name,
+                Sql = dropSql + ";\n" + createSql,
+                Target = new SqlObjectRef
+                {
+                    Type = SqlObjectType.Index,
+                    Schema = table.Schema,
+                    ParentName = table.Name,
+                    Name = desired.Name,
                 },
             };
         }

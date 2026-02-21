@@ -309,10 +309,26 @@ public sealed class RebuildProposalBuilderTests
     }
 
     [Fact]
-    public void BuildProposals_OnlyColumnAlterSkipped_NotConstraintOnly()
+    public void BuildProposals_PrimaryKeyAlterSkipped_ProducesProposal()
     {
-        var current = BuildModel("dbo", "Users", new[] { ("Id", "INT", false) });
-        var desired = BuildModel("dbo", "Users", new[] { ("Id", "INT", false) });
+        var current = BuildModel("dbo", "Users", new[] { ("Id", "INT", false), ("Name", "NVARCHAR(100)", false) });
+        var desired = BuildModel("dbo", "Users", new[] { ("Id", "INT", false), ("Name", "NVARCHAR(100)", false) });
+
+        var desiredTable = desired.Tables[IdentifierHelper.BuildTableKey("dbo", "Users")];
+        desiredTable.Constraints[IdentifierHelper.NormalizeNameKey("PK_Users")] = new ConstraintModel
+        {
+            Kind = ConstraintKind.PrimaryKey,
+            Name = "PK_Users",
+            Columns = new[] { "Id" },
+        };
+
+        var currentTable = current.Tables[IdentifierHelper.BuildTableKey("dbo", "Users")];
+        currentTable.Constraints[IdentifierHelper.NormalizeNameKey("PK_Users")] = new ConstraintModel
+        {
+            Kind = ConstraintKind.PrimaryKey,
+            Name = "PK_Users",
+            Columns = new[] { "Id", "Name" },
+        };
 
         var skipped = new[]
         {
@@ -320,6 +336,81 @@ public sealed class RebuildProposalBuilderTests
             {
                 Reason = SkippedReason.AlterNotSupported,
                 Target = new SqlObjectRef { Type = SqlObjectType.Constraint, Schema = "dbo", ParentName = "Users", Name = "PK_Users" },
+            },
+        };
+
+        var proposals = RebuildProposalBuilder.BuildProposals(current, desired, skipped);
+
+        var proposal = Assert.Single(proposals);
+        Assert.Equal("Users", proposal.Target.Name);
+        Assert.Contains("primary key change", proposal.Description);
+        Assert.Contains("PK_Users", proposal.Description);
+    }
+
+    [Fact]
+    public void BuildProposals_ColumnAndPkOnSameTable_SingleProposal()
+    {
+        var current = BuildModel("dbo", "Users", new[] { ("Id", "INT", false), ("Age", "INT", true) });
+        var desired = BuildModel("dbo", "Users", new[] { ("Id", "INT", false), ("Age", "BIGINT", true) });
+
+        var desiredTable = desired.Tables[IdentifierHelper.BuildTableKey("dbo", "Users")];
+        desiredTable.Constraints[IdentifierHelper.NormalizeNameKey("PK_Users")] = new ConstraintModel
+        {
+            Kind = ConstraintKind.PrimaryKey,
+            Name = "PK_Users",
+            Columns = new[] { "Id" },
+        };
+
+        var currentTable = current.Tables[IdentifierHelper.BuildTableKey("dbo", "Users")];
+        currentTable.Constraints[IdentifierHelper.NormalizeNameKey("PK_Users")] = new ConstraintModel
+        {
+            Kind = ConstraintKind.PrimaryKey,
+            Name = "PK_Users",
+            Columns = new[] { "Id", "Age" },
+        };
+
+        var skipped = new[]
+        {
+            new SkippedItem
+            {
+                Reason = SkippedReason.AlterNotSupported,
+                Target = new SqlObjectRef { Type = SqlObjectType.Column, Schema = "dbo", ParentName = "Users", Name = "Age" },
+            },
+            new SkippedItem
+            {
+                Reason = SkippedReason.AlterNotSupported,
+                Target = new SqlObjectRef { Type = SqlObjectType.Constraint, Schema = "dbo", ParentName = "Users", Name = "PK_Users" },
+            },
+        };
+
+        var proposals = RebuildProposalBuilder.BuildProposals(current, desired, skipped);
+
+        var proposal = Assert.Single(proposals);
+        Assert.Contains("column change", proposal.Description);
+        Assert.Contains("primary key change", proposal.Description);
+    }
+
+    [Fact]
+    public void BuildProposals_NonPkConstraintSkipped_DoesNotProduceProposal()
+    {
+        var current = BuildModel("dbo", "Users", new[] { ("Id", "INT", false) });
+        var desired = BuildModel("dbo", "Users", new[] { ("Id", "INT", false) });
+
+        // desired には UNIQUE 制約を追加（PK ではない）
+        var desiredTable = desired.Tables[IdentifierHelper.BuildTableKey("dbo", "Users")];
+        desiredTable.Constraints[IdentifierHelper.NormalizeNameKey("UQ_Users")] = new ConstraintModel
+        {
+            Kind = ConstraintKind.Unique,
+            Name = "UQ_Users",
+            Columns = new[] { "Id" },
+        };
+
+        var skipped = new[]
+        {
+            new SkippedItem
+            {
+                Reason = SkippedReason.AlterNotSupported,
+                Target = new SqlObjectRef { Type = SqlObjectType.Constraint, Schema = "dbo", ParentName = "Users", Name = "UQ_Users" },
             },
         };
 

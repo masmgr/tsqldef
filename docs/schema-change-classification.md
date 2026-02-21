@@ -1,11 +1,12 @@
 # Schema Change Classification
 
 tsqldef v1 follows an **additive-only** policy.
-Schema differences are classified into three categories:
+Schema differences are classified into four categories:
 
 | Category | Data Migration | Execution |
 |---|---|---|
 | **Additive** | Not required | Executed directly via `apply` |
+| **Recreate (DROP + ADD)** | Not required | Executed directly via `apply` |
 | **Rebuild (data migration)** | Required | Executed via `apply --swap` |
 | **Unsupported (skipped)** | - | Manual intervention required |
 
@@ -21,17 +22,43 @@ These are executed directly by the `plan` / `apply` commands.
 | Create new table | `CREATE TABLE` | Table does not exist in current DB |
 | Add column | `ALTER TABLE ... ADD <column>` | Column does not exist on existing table |
 | Add constraint (PK / UNIQUE / CHECK / DEFAULT) | `ALTER TABLE ... ADD CONSTRAINT` | Constraint with the same name does not exist |
-| Create index | `CREATE [UNIQUE] [CLUSTERED|NONCLUSTERED] INDEX` | Index with the same name does not exist |
+| Create index | `CREATE [UNIQUE] [CLUSTERED|NONCLUSTERED] INDEX` | Index with the same name does not exist (and no clustered conflict) |
 | Add foreign key | `ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY` | FK with the same name does not exist |
 | Add description (MS_Description) | `sp_addextendedproperty` | Extended property does not exist |
 | Update description (MS_Description) | `sp_updateextendedproperty` | Extended property value differs |
 
 ---
 
-## 2. Changes Requiring Rebuild (Data Migration)
+## 2. Recreate Changes (DROP + ADD, No Data Migration)
 
-**Column definition changes on existing columns** fall into this category.
-Since many column alterations cannot be performed with a simple `ALTER COLUMN` in SQL Server, tsqldef proposes a shadow-table rebuild approach.
+When a constraint or index definition differs between desired and current, tsqldef generates a `DROP` followed by `ADD/CREATE` in a single operation. No data migration is required.
+
+### Constraint Recreate (`RecreateConstraint` / `RecreateForeignKey`)
+
+| Constraint Type | Generated SQL | Example |
+|---|---|---|
+| UNIQUE | `DROP CONSTRAINT` + `ADD CONSTRAINT ... UNIQUE` | Column list changed |
+| CHECK | `DROP CONSTRAINT` + `ADD CONSTRAINT ... CHECK` | Expression changed |
+| DEFAULT | `DROP CONSTRAINT` + `ADD CONSTRAINT ... DEFAULT` | Default value changed |
+| FOREIGN KEY | `DROP CONSTRAINT` + `ADD CONSTRAINT ... FOREIGN KEY` | ON DELETE/UPDATE action changed, reference columns changed |
+
+> **Note**: PRIMARY KEY changes are NOT handled by recreate — they require a rebuild (see section 3).
+
+### Index Recreate (`RecreateIndex`)
+
+| Scenario | Generated SQL |
+|---|---|
+| Index definition differs (same name) | `DROP INDEX` + `CREATE INDEX` |
+| Clustered index conflict (different name) | `DROP INDEX` (existing clustered) + `CREATE CLUSTERED INDEX` (desired) |
+
+All index properties are compared: uniqueness, clustering, key columns (incl. sort direction), INCLUDE columns, filter predicate, WITH options (excluding `ONLINE` and `SORTINTEMPDB`).
+
+---
+
+## 3. Changes Requiring Rebuild (Data Migration)
+
+**Column definition changes** and **PRIMARY KEY changes** on existing tables fall into this category.
+A shadow-table rebuild approach is used.
 
 ### Column Properties That Trigger Rebuild
 
@@ -45,8 +72,9 @@ Since many column alterations cannot be performed with a simple `ALTER COLUMN` i
 | Default expression (`DefaultExpression`) | Case-insensitive | `(0)` → `(1)`, adding or removing DEFAULT |
 | Collation (`Collation`) | Case-insensitive | `Latin1_General_CI_AS` → `Japanese_CI_AS` |
 
-When any of the above differ, the column is skipped as `SkippedReason.AlterNotSupported`.
-A rebuild proposal is generated when the `--emit-swap-sql` option is specified.
+### Primary Key Changes That Trigger Rebuild
+
+PRIMARY KEY column list changes (e.g., `PK(Id)` → `PK(Id, TenantId)`) require a rebuild because other tables may reference the PK via foreign keys. Dropping the PK would violate those FK constraints.
 
 ### Rebuild Process (8 Steps)
 
@@ -80,7 +108,7 @@ tsqldef plan --connection <cs> --file desired.sql --emit-swap-sql --format json
 
 ---
 
-## 3. Unsupported Changes (Skipped)
+## 4. Unsupported Changes (Skipped)
 
 The following changes are detected but no SQL is generated.
 Use `--strict` mode (exit code 30) in CI to detect the presence of skipped items.
@@ -95,14 +123,6 @@ Use `--strict` mode (exit code 30) in CI to detect the presence of skipped items
 | Drop index | `DropNotSupported` | Index exists in current table but not in desired |
 | Drop description | `DropNotSupported` | MS_Description exists in current DB but not in desired |
 
-### ALTER Operations (Not Eligible for Rebuild)
-
-| Target | SkippedReason | Description |
-|---|---|---|
-| Constraint definition change | `AlterNotSupported` | PK columns, CHECK expression, FK definition, DEFAULT expression changed |
-| Index definition change | `AlterNotSupported` | Key columns, INCLUDE columns, uniqueness, clustering, filter, options changed |
-| Add clustered index | `AlterNotSupported` | Table already has a clustered index |
-
 ### Other
 
 | Target | SkippedReason | Description |
@@ -113,7 +133,7 @@ Use `--strict` mode (exit code 30) in CI to detect the presence of skipped items
 
 ---
 
-## 4. Decision Flow
+## 5. Decision Flow
 
 ```
 Does the desired object exist in the current DB?
@@ -126,12 +146,16 @@ Does the desired object exist in the current DB?
     │
     └─ Difference found → Object type?
         │
-        ├─ Column     → AlterNotSupported (skipped)
-        │               └─ --emit-swap-sql → Rebuild proposal generated
+        ├─ Column        → AlterNotSupported (skipped)
+        │                  └─ --emit-swap-sql → Rebuild proposal generated
         │
-        ├─ Constraint → AlterNotSupported (skipped only)
+        ├─ Primary Key   → AlterNotSupported (skipped)
+        │                  └─ --emit-swap-sql → Rebuild proposal generated
         │
-        └─ Index      → AlterNotSupported (skipped only)
+        ├─ Constraint    → RecreateConstraint / RecreateForeignKey
+        │   (UNIQUE, CHECK, DEFAULT, FK)    (DROP + ADD, executed directly)
+        │
+        └─ Index         → RecreateIndex (DROP + CREATE, executed directly)
 
 Object exists in current DB but not in desired:
 └─ DropNotSupported (skipped only)
@@ -139,7 +163,7 @@ Object exists in current DB but not in desired:
 
 ---
 
-## 5. Comparison Logic Details
+## 6. Comparison Logic Details
 
 ### Column Comparison (`IsColumnDifferent`)
 
