@@ -437,6 +437,23 @@ public sealed class CurrentSchemaReaderTests
     }
 
     [Fact]
+    public void BuildModel_NonDboSchema_MapsTablesWithCorrectSchema()
+    {
+        var tables = new[]
+        {
+            new CurrentSchemaReader.TableRow { SchemaName = "sales", TableName = "Products", ObjectId = 1 },
+        };
+
+        var columns = System.Array.Empty<CurrentSchemaReader.ColumnRow>();
+
+        var model = CurrentSchemaReader.BuildModel(tables, columns);
+
+        Assert.True(model.Tables.ContainsKey("SALES.PRODUCTS"));
+        Assert.Equal("sales", model.Tables["SALES.PRODUCTS"].Schema);
+        Assert.Equal("Products", model.Tables["SALES.PRODUCTS"].Name);
+    }
+
+    [Fact]
     public void BuildModel_WithExtendedProperties_SetsColumnDescription()
     {
         var tables = new[]

@@ -31,7 +31,7 @@ public sealed class DesiredModelBuilderVisitorTests
     }
 
     [Fact]
-    public void Load_UnsupportedSchema_Throws()
+    public void Load_SchemaMismatch_Throws()
     {
         var ex = Assert.Throws<UnsupportedSchemaException>(() =>
             DesiredSchemaLoader.Load("CREATE TABLE foo.Bar (Id int)"));
@@ -39,17 +39,41 @@ public sealed class DesiredModelBuilderVisitorTests
         Assert.Equal(0, ex.BatchIndex);
         Assert.Equal(1, ex.Line);
         Assert.Equal("foo", ex.SchemaName);
-        Assert.Contains("Only schema 'dbo' is supported", ex.Message);
+        Assert.Contains("Schema mismatch", ex.Message);
     }
 
     [Fact]
-    public void Load_UnsupportedForeignKeySchema_Throws()
+    public void Load_NonDboSchema_WithMatchingOptions_Succeeds()
     {
-        var ex = Assert.Throws<UnsupportedSchemaException>(() =>
-            DesiredSchemaLoader.Load("CREATE TABLE dbo.T (Id int, CONSTRAINT FK_T FOREIGN KEY (Id) REFERENCES foo.Ref(Id))"));
+        var options = new PlannerOptions { Schema = "sales" };
+        var model = DesiredSchemaLoader.Load("CREATE TABLE sales.T (Id int NOT NULL)", options, out _);
 
-        Assert.Equal("foo", ex.SchemaName);
-        Assert.Contains("Only schema 'dbo' is supported", ex.Message);
+        var table = model.Tables.Values.Single();
+        Assert.Equal("sales", table.Schema);
+        Assert.Equal("T", table.Name);
+    }
+
+    [Fact]
+    public void Load_NoSchemaPrefix_UsesOptionsSchema()
+    {
+        var options = new PlannerOptions { Schema = "sales" };
+        var model = DesiredSchemaLoader.Load("CREATE TABLE T (Id int NOT NULL)", options, out _);
+
+        var table = model.Tables.Values.Single();
+        Assert.Equal("sales", table.Schema);
+    }
+
+    [Fact]
+    public void Load_ForeignKeyReferencingDifferentSchema_Throws()
+    {
+        var options = new PlannerOptions { Schema = "sales" };
+        var ex = Assert.Throws<UnsupportedSchemaException>(() =>
+            DesiredSchemaLoader.Load(
+                "CREATE TABLE sales.T (Id int, CONSTRAINT FK_T FOREIGN KEY (Id) REFERENCES dbo.Ref(Id))",
+                options, out _));
+
+        Assert.Equal("dbo", ex.SchemaName);
+        Assert.Contains("Schema mismatch", ex.Message);
     }
 
     [Fact]

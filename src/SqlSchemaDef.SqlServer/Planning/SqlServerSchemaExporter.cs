@@ -351,18 +351,7 @@ namespace SqlSchemaDef.SqlServer.Planning
 
         private static string NormalizeAndValidateSchema(string schema)
         {
-            var normalized = string.IsNullOrWhiteSpace(schema) ? "dbo" : schema.Trim();
-            if (string.Equals(normalized, "dbo", StringComparison.OrdinalIgnoreCase))
-            {
-                return "dbo";
-            }
-
-            throw new UnsupportedSchemaException(
-                "Unsupported schema in v1." + Environment.NewLine +
-                "Only schema 'dbo' is supported. Found: '" + normalized + "'.")
-            {
-                SchemaName = normalized,
-            };
+            return string.IsNullOrWhiteSpace(schema) ? "dbo" : schema.Trim();
         }
     }
 }

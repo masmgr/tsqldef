@@ -35,12 +35,7 @@ namespace SqlSchemaDef.SqlServer.Planning
                 if (table == null)
                     continue;
 
-                if (!string.Equals(table.SchemaName, "dbo", StringComparison.OrdinalIgnoreCase))
-                {
-                    throw new InvalidOperationException("Current schema reader only supports dbo.");
-                }
-
-                var tableModel = model.GetOrAddTable("dbo", table.TableName);
+                var tableModel = model.GetOrAddTable(table.SchemaName, table.TableName);
                 tableMap[table.ObjectId] = tableModel;
             }
 
@@ -324,7 +319,7 @@ namespace SqlSchemaDef.SqlServer.Planning
                     UpdateAction = rows[0].UpdateAction,
                 };
 
-                if (!string.Equals(referenceSchema, "dbo", StringComparison.OrdinalIgnoreCase))
+                if (!string.Equals(referenceSchema, table.Schema, StringComparison.OrdinalIgnoreCase))
                 {
                     constraint.UnsupportedFeature = "ForeignKeyReferenceSchema";
                 }

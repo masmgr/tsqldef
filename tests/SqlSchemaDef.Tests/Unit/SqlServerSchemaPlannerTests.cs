@@ -1,3 +1,4 @@
+using System;
 using System.Threading.Tasks;
 using Microsoft.Data.SqlClient;
 using SqlSchemaDef.Core.Planning;
@@ -8,32 +9,32 @@ namespace SqlSchemaDef.Tests;
 public sealed class SqlServerSchemaPlannerTests
 {
     [Fact]
-    public async Task PlanAsync_WhenOptionsSchemaIsNotDbo_ThrowsUnsupportedSchemaException()
+    public async Task PlanAsync_WithNonDboSchema_PassesSchemaValidation()
     {
         await using var connection = new SqlConnection();
         var planner = new SqlServerSchemaPlanner();
 
-        var ex = await Assert.ThrowsAsync<UnsupportedSchemaException>(() =>
+        // スキーマ検証は通過し、接続エラーが発生することを確認（UnsupportedSchemaException ではない）
+        var ex = await Assert.ThrowsAnyAsync<Exception>(() =>
             planner.PlanAsync(
                 connection,
-                "CREATE TABLE dbo.Users (Id int NOT NULL)",
-                new PlannerOptions { Schema = "foo" }));
+                "CREATE TABLE sales.T (Id int NOT NULL)",
+                new PlannerOptions { Schema = "sales" }));
 
-        Assert.Equal("foo", ex.SchemaName);
-        Assert.Contains("Only schema 'dbo' is supported", ex.Message);
+        Assert.IsNotType<UnsupportedSchemaException>(ex);
     }
 
     [Fact]
-    public async Task ExportAsync_WhenOptionsSchemaIsNotDbo_ThrowsUnsupportedSchemaException()
+    public async Task ExportAsync_WithNonDboSchema_PassesSchemaValidation()
     {
         await using var connection = new SqlConnection();
 
-        var ex = await Assert.ThrowsAsync<UnsupportedSchemaException>(() =>
+        // スキーマ検証は通過し、接続エラーが発生することを確認（UnsupportedSchemaException ではない）
+        var ex = await Assert.ThrowsAnyAsync<Exception>(() =>
             SqlServerSchemaExporter.ExportAsync(
                 connection,
-                new ExportOptions { Schema = "foo" }));
+                new ExportOptions { Schema = "sales" }));
 
-        Assert.Equal("foo", ex.SchemaName);
-        Assert.Contains("Only schema 'dbo' is supported", ex.Message);
+        Assert.IsNotType<UnsupportedSchemaException>(ex);
     }
 }

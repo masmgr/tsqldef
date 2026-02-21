@@ -404,8 +404,8 @@ namespace SqlSchemaDef.SqlServer.Planning
                 throw CreateUnsupportedFeatureException(exec, "ExecuteStatement", "ExtendedPropertyLevel");
             }
 
-            var schema = string.IsNullOrWhiteSpace(level0Name) ? "dbo" : level0Name;
-            if (!string.Equals(schema, "dbo", StringComparison.OrdinalIgnoreCase))
+            var schema = string.IsNullOrWhiteSpace(level0Name) ? _options.Schema : level0Name;
+            if (!string.Equals(schema, _options.Schema, StringComparison.OrdinalIgnoreCase))
             {
                 throw CreateUnsupportedSchemaException(exec, schema);
             }
@@ -415,7 +415,7 @@ namespace SqlSchemaDef.SqlServer.Planning
                 throw CreateUnsupportedFeatureException(exec, "ExecuteStatement", "MissingTableName");
             }
 
-            var tableKey = IdentifierHelper.BuildTableKey("dbo", level1Name);
+            var tableKey = IdentifierHelper.BuildTableKey(_options.Schema, level1Name);
             if (!_model.Tables.TryGetValue(tableKey, out var table))
             {
                 throw CreateUnsupportedFeatureException(exec, "ExecuteStatement", "TableNotFound");
@@ -499,14 +499,14 @@ namespace SqlSchemaDef.SqlServer.Planning
             }
 
             var schemaIdentifier = name.SchemaIdentifier;
-            var schemaName = schemaIdentifier == null ? "dbo" : schemaIdentifier.Value;
+            var schemaName = schemaIdentifier == null ? _options.Schema : schemaIdentifier.Value;
 
-            if (!string.Equals(schemaName, "dbo", StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(schemaName, _options.Schema, StringComparison.OrdinalIgnoreCase))
             {
                 throw CreateUnsupportedSchemaException(node, schemaName);
             }
 
-            return ("dbo", name.BaseIdentifier.Value);
+            return (_options.Schema, name.BaseIdentifier.Value);
         }
 
         private static string GenerateScript(TSqlFragment fragment)
@@ -565,8 +565,7 @@ namespace SqlSchemaDef.SqlServer.Planning
         {
             var (line, column) = GetLocation(node);
             var message =
-                "Unsupported schema in v1." + Environment.NewLine +
-                "Only schema 'dbo' is supported. Found: '" + schemaName + "'." + Environment.NewLine +
+                "Schema mismatch: SQL uses schema '" + schemaName + "' but target schema is '" + _options.Schema + "'." + Environment.NewLine +
                 $"Location: batch {_batchIndex}, line {line}, column {column}.";
 
             return new UnsupportedSchemaException(message)
