@@ -524,6 +524,149 @@ EXEC sp_addextendedproperty @name = N'MS_Description', @value = N'Version 1', @l
         return Convert.ToInt32(result, CultureInfo.InvariantCulture);
     }
 
+    [Fact]
+    public async Task ApplyWithSwap_ColumnTypeChange_RebuildsTableAndPreservesData()
+    {
+        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
+        if (string.IsNullOrWhiteSpace(master))
+        {
+            return;
+        }
+
+        await using var db = await SqlServerTestDatabase.CreateAsync(master);
+
+        // Seed: Users with INT Age column and data
+        await using (var conn = new SqlConnection(db.ConnectionString))
+        {
+            await conn.OpenAsync();
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = @"
+CREATE TABLE dbo.Users (Id int NOT NULL, Age int NULL);
+INSERT INTO dbo.Users (Id, Age) VALUES (1, 30);
+";
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        // Desired: Age changed to BIGINT
+        const string desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL, Age bigint NULL)";
+
+        await using var conn2 = new SqlConnection(db.ConnectionString);
+        await conn2.OpenAsync();
+
+        var planner = new SqlServerSchemaPlanner();
+        var applier = new SqlServerSchemaApplier();
+
+        var plan = await planner.PlanAsync(conn2, desiredSql, new PlannerOptions { EmitProposals = true });
+
+        // No additive ops; alter is skipped; one proposal generated
+        Assert.Empty(plan.Operations);
+        Assert.Single(plan.Skipped);
+        Assert.Single(plan.Proposals);
+
+        await applier.ApplyAsync(conn2, plan, new ApplyOptions { ApplyProposals = true });
+
+        // Verify column type changed to bigint
+        var typeName = await GetColumnTypeNameAsync(conn2, "Users", "Age");
+        Assert.Equal("bigint", typeName);
+
+        // Verify data preserved
+        var ageVal = await GetScalarAsync(conn2, "SELECT Age FROM dbo.Users WHERE Id = 1");
+        Assert.Equal(30L, Convert.ToInt64(ageVal, CultureInfo.InvariantCulture));
+
+        // Verify shadow and old tables are gone
+        Assert.Equal(0, await CountTablesAsync(conn2, "__Users_rebuild"));
+        Assert.Equal(0, await CountTablesAsync(conn2, "Users_old"));
+    }
+
+    [Fact]
+    public async Task ApplyWithSwap_StepFails_ThrowsRebuildFailedException()
+    {
+        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
+        if (string.IsNullOrWhiteSpace(master))
+        {
+            return;
+        }
+
+        await using var db = await SqlServerTestDatabase.CreateAsync(master);
+
+        // Build a plan with a deliberately bad SQL step
+        var proposal = new RebuildProposal
+        {
+            Target = new SqlObjectRef { Type = SqlObjectType.Table, Schema = "dbo", Name = "T" },
+            Description = "Bad proposal",
+            Steps = new[]
+            {
+                new RebuildStep { Kind = RebuildStepKind.CreateShadowTable, Description = "bad step", Sql = "THIS IS NOT VALID SQL AT ALL" },
+            },
+        };
+        var plan = new MigrationPlan(
+            new PlanMetadata { Schema = "dbo" },
+            Array.Empty<SqlOperation>(),
+            Array.Empty<SkippedItem>(),
+            new[] { proposal });
+
+        await using var conn = new SqlConnection(db.ConnectionString);
+        await conn.OpenAsync();
+
+        var applier = new SqlServerSchemaApplier();
+        var ex = await Assert.ThrowsAsync<RebuildFailedException>(() =>
+            applier.ApplyAsync(conn, plan, new ApplyOptions { ApplyProposals = true }));
+
+        Assert.NotNull(ex.Proposal);
+        Assert.Equal("Bad proposal", ex.Proposal.Description);
+        Assert.Equal(RebuildStepKind.CreateShadowTable, ex.Step.Kind);
+        Assert.NotNull(ex.InnerException);
+    }
+
+    [Fact]
+    public async Task ApplyWithSwap_NoProposals_SucceedsWithoutError()
+    {
+        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
+        if (string.IsNullOrWhiteSpace(master))
+        {
+            return;
+        }
+
+        await using var db = await SqlServerTestDatabase.CreateAsync(master);
+
+        const string desiredSql = "CREATE TABLE dbo.Items (Id int NOT NULL)";
+
+        await using var conn = new SqlConnection(db.ConnectionString);
+        await conn.OpenAsync();
+
+        var planner = new SqlServerSchemaPlanner();
+        var applier = new SqlServerSchemaApplier();
+
+        var plan = await planner.PlanAsync(conn, desiredSql, new PlannerOptions { EmitProposals = true });
+        Assert.False(plan.IsEmpty);
+        Assert.Empty(plan.Proposals);
+
+        // ApplyProposals=true with no proposals is a no-op
+        await applier.ApplyAsync(conn, plan, new ApplyOptions { ApplyProposals = true });
+
+        Assert.Equal(1, await CountTablesAsync(conn, "Items"));
+    }
+
+    private static async Task<string> GetColumnTypeNameAsync(SqlConnection conn, string tableName, string columnName)
+    {
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"SELECT TYPE_NAME(c.system_type_id) FROM sys.columns c
+            JOIN sys.tables t ON c.object_id = t.object_id
+            WHERE t.name = @table AND c.name = @column AND t.schema_id = SCHEMA_ID(N'dbo')";
+        cmd.Parameters.AddWithValue("@table", tableName);
+        cmd.Parameters.AddWithValue("@column", columnName);
+        var result = await cmd.ExecuteScalarAsync();
+        return result as string ?? string.Empty;
+    }
+
+    private static async Task<object> GetScalarAsync(SqlConnection conn, string sql)
+    {
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = sql;
+        var result = await cmd.ExecuteScalarAsync();
+        return result ?? DBNull.Value;
+    }
+
     private static async Task<bool> ForeignKeyExistsAsync(SqlConnection conn, string fkName)
     {
         await using var cmd = conn.CreateCommand();

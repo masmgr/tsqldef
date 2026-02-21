@@ -23,12 +23,13 @@ namespace SqlSchemaDef.Cli
             Console.Error.WriteLine("Usage:");
             Console.Error.WriteLine("  SqlSchemaDef.Cli export --connection <cs> [--out <desired.sql>]");
             Console.Error.WriteLine("  SqlSchemaDef.Cli plan   --connection <cs> --file <desired.sql> [--format script|json] [--strict] [--emit-swap-sql] [--include <tables>] [--exclude <tables>]");
-            Console.Error.WriteLine("  SqlSchemaDef.Cli apply  --connection <cs> (--file <desired.sql> | --plan <plan.json>) [--include <tables>] [--exclude <tables>]");
+            Console.Error.WriteLine("  SqlSchemaDef.Cli apply  --connection <cs> (--file <desired.sql> | --plan <plan.json>) [--include <tables>] [--exclude <tables>] [--swap]");
             Console.Error.WriteLine();
             Console.Error.WriteLine("Notes:");
             Console.Error.WriteLine("  - plan prints the review script (dry-run) or JSON plan.");
             Console.Error.WriteLine("  - --strict exits non-zero (30) if any skipped items exist.");
             Console.Error.WriteLine("  - --emit-swap-sql generates rebuild proposals for non-additive diffs.");
+            Console.Error.WriteLine("  - --swap executes rebuild proposals for non-additive column changes (shadow-table swap).");
             Console.Error.WriteLine("  - v1 is additive-only (dbo fixed by default).");
             return exitCode;
         }
@@ -243,6 +244,7 @@ namespace SqlSchemaDef.Cli
             string? planJsonPath = null;
             string? includeArg = null;
             string? excludeArg = null;
+            var applySwap = false;
 
             for (int i = 0; i < args.Count; i++)
             {
@@ -265,6 +267,9 @@ namespace SqlSchemaDef.Cli
                         break;
                     case "--exclude":
                         excludeArg = GetArg(args, ref i);
+                        break;
+                    case "--swap":
+                        applySwap = true;
                         break;
                     case "--help":
                     case "-h":
@@ -302,7 +307,7 @@ namespace SqlSchemaDef.Cli
             {
                 var desiredSql = await File.ReadAllTextAsync(filePath!).ConfigureAwait(false);
 
-                var plannerOptions = new PlannerOptions();
+                var plannerOptions = new PlannerOptions { EmitProposals = applySwap };
                 if (includeArg != null)
                 {
                     plannerOptions.IncludeTablePatterns = CliArgumentParser.ParseCsvArg(includeArg);
@@ -321,18 +326,38 @@ namespace SqlSchemaDef.Cli
 
             PlanValidator.ValidateForApply(plan);
 
-            Console.Write(plan.ToScript(new ScriptOptions { HeaderMode = ScriptHeaderMode.DryRunStyle }));
+            if (applySwap)
+            {
+                PrintRebuildWarnings(plan);
+            }
 
-            if (!plan.IsEmpty)
+            Console.Write(plan.ToScript(new ScriptOptions
+            {
+                HeaderMode = ScriptHeaderMode.DryRunStyle,
+                IncludeProposals = applySwap,
+            }));
+
+            if (!plan.IsEmpty || (applySwap && plan.Proposals.Count > 0))
             {
                 await using var applyConn = new SqlConnection(connectionString);
                 await applyConn.OpenAsync().ConfigureAwait(false);
 
                 var applier = new SqlServerSchemaApplier();
-                await applier.ApplyAsync(applyConn, plan, new ApplyOptions()).ConfigureAwait(false);
+                await applier.ApplyAsync(applyConn, plan, new ApplyOptions { ApplyProposals = applySwap }).ConfigureAwait(false);
             }
 
             return ExitOk;
+        }
+
+        private static void PrintRebuildWarnings(MigrationPlan plan)
+        {
+            foreach (var proposal in plan.Proposals)
+            {
+                if (!string.IsNullOrEmpty(proposal.Warning))
+                {
+                    Console.Error.WriteLine("WARNING (rebuild " + (proposal.Target?.ToDisplayName() ?? string.Empty) + "): " + proposal.Warning);
+                }
+            }
         }
 
         private static int HandleException(Exception ex)
@@ -354,6 +379,9 @@ namespace SqlSchemaDef.Cli
                 case UnsupportedBatchSeparatorException separator:
                     Console.Error.WriteLine(separator.Message);
                     return ExitDesiredUnsupported;
+                case RebuildFailedException rebuildFailed:
+                    Console.Error.WriteLine(rebuildFailed.Message);
+                    return ExitApplyFailed;
                 case ApplyFailedException applyFailed:
                     Console.Error.WriteLine(applyFailed.Message);
                     return ExitApplyFailed;

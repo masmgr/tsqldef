@@ -25,6 +25,26 @@ public sealed class CoreOptionsAndExceptionsTests
     }
 
     [Fact]
+    public void ApplyOptions_DefaultApplyProposals_IsFalse()
+    {
+        var options = new ApplyOptions();
+        Assert.False(options.ApplyProposals);
+    }
+
+    [Fact]
+    public void RebuildFailedException_StoresProposalAndStep()
+    {
+        var proposal = new RebuildProposal { Description = "Rebuild T" };
+        var step = new RebuildStep { Kind = RebuildStepKind.CopyData };
+        var inner = new InvalidOperationException("inner");
+        var ex = new RebuildFailedException("failed", proposal, step, inner);
+        Assert.Same(proposal, ex.Proposal);
+        Assert.Same(step, ex.Step);
+        Assert.Same(inner, ex.InnerException);
+        Assert.Equal("failed", ex.Message);
+    }
+
+    [Fact]
     public void ApplyFailedException_ExposesOperationAndInnerException()
     {
         var operation = new SqlOperation

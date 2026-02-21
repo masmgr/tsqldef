@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Data;
 using System.Data.Common;
 using System.Threading;
@@ -35,11 +36,23 @@ namespace SqlSchemaDef.SqlServer.Planning
             options = options ?? new ApplyOptions();
             PlanValidator.ValidateForApply(plan);
 
-            if (plan.Operations.Count == 0)
+            if (plan.Operations.Count > 0)
             {
-                return;
+                await ExecuteOperationsAsync(sqlConnection, plan, options, cancellationToken).ConfigureAwait(false);
             }
 
+            if (options.ApplyProposals && plan.Proposals.Count > 0)
+            {
+                await ExecuteProposalsAsync(sqlConnection, plan.Proposals, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        private async Task ExecuteOperationsAsync(
+            SqlConnection sqlConnection,
+            MigrationPlan plan,
+            ApplyOptions options,
+            CancellationToken cancellationToken)
+        {
             SqlTransaction tx = null;
             try
             {
@@ -108,6 +121,65 @@ namespace SqlSchemaDef.SqlServer.Planning
             finally
             {
                 tx?.Dispose();
+            }
+        }
+
+        private async Task ExecuteProposalsAsync(
+            SqlConnection sqlConnection,
+            IReadOnlyList<RebuildProposal> proposals,
+            CancellationToken cancellationToken)
+        {
+            for (int p = 0; p < proposals.Count; p++)
+            {
+                var proposal = proposals[p];
+
+                if (!string.IsNullOrEmpty(proposal.Warning))
+                {
+                    _logger?.LogWarning("Rebuild warning for {Target}: {Warning}",
+                        proposal.Target?.ToDisplayName() ?? "(unknown)", proposal.Warning);
+                }
+
+                _logger?.LogInformation("Executing rebuild: {Description}", proposal.Description ?? string.Empty);
+
+                if (proposal.Steps == null)
+                {
+                    continue;
+                }
+
+                for (int s = 0; s < proposal.Steps.Count; s++)
+                {
+                    var step = proposal.Steps[s];
+
+                    _logger?.LogInformation("  Step {StepKind}: {Description}", step.Kind, step.Description ?? string.Empty);
+
+                    var fragments = RebuildStepSqlSplitter.Split(step.Sql);
+                    for (int f = 0; f < fragments.Count; f++)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        var fragment = fragments[f];
+
+                        using (var cmd = sqlConnection.CreateCommand())
+                        {
+                            cmd.CommandType = CommandType.Text;
+                            cmd.CommandText = fragment;
+
+                            // No transaction — auto-commit; sp_rename, SET IDENTITY_INSERT are session-scoped
+                            try
+                            {
+                                await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                            }
+                            catch (Exception ex)
+                            {
+                                throw new RebuildFailedException(
+                                    "Failed to execute rebuild step " + step.Kind + " for " +
+                                    (proposal.Target?.ToDisplayName() ?? "(unknown)"),
+                                    proposal,
+                                    step,
+                                    ex);
+                            }
+                        }
+                    }
+                }
             }
         }
     }

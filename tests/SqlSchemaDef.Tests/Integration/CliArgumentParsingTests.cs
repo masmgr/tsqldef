@@ -271,6 +271,86 @@ public sealed class CliArgumentParsingTests
     }
 
     [Fact]
+    public async Task Apply_SwapFlag_IsRecognized()
+    {
+        var originalError = Console.Error;
+        try
+        {
+            using var stderr = new StringWriter();
+            Console.SetError(stderr);
+
+            // --swap should be recognized (not "Unknown arg").
+            // Will fail at file-not-found, but that's not a usage error (exit 2).
+            var exitCode = await SqlSchemaDef.Cli.Program.Main(new[]
+            {
+                "apply",
+                "--connection", "Server=(local);Database=master;Trusted_Connection=True;",
+                "--swap",
+                "--file", "nonexistent.sql",
+            });
+
+            var output = stderr.ToString();
+            Assert.DoesNotContain("Unknown arg: --swap", output);
+            Assert.NotEqual(2, exitCode);
+        }
+        finally
+        {
+            Console.SetError(originalError);
+        }
+    }
+
+    [Fact]
+    public async Task Help_MentionsSwapFlag()
+    {
+        var originalError = Console.Error;
+        try
+        {
+            using var stderr = new StringWriter();
+            Console.SetError(stderr);
+
+            await SqlSchemaDef.Cli.Program.Main(new[] { "--help" });
+
+            var output = stderr.ToString();
+            Assert.Contains("--swap", output);
+        }
+        finally
+        {
+            Console.SetError(originalError);
+        }
+    }
+
+    [Fact]
+    public void RebuildFailedException_IsMappedToApplyFailedExitCode()
+    {
+        var originalError = Console.Error;
+        try
+        {
+            using var stderr = new StringWriter();
+            Console.SetError(stderr);
+
+            var handle = typeof(SqlSchemaDef.Cli.Program).GetMethod(
+                "HandleException",
+                BindingFlags.NonPublic | BindingFlags.Static);
+
+            Assert.NotNull(handle);
+            var proposal = new RebuildProposal { Description = "Rebuild T" };
+            var step = new RebuildStep { Kind = RebuildStepKind.CopyData };
+            var ex = new RebuildFailedException("rebuild step failed", proposal, step, new InvalidOperationException("inner"));
+            var result = handle!.Invoke(null, new object[] { ex });
+
+            var exitCode = Assert.IsType<int>(result);
+
+            // exit code 20 = ExitApplyFailed
+            Assert.Equal(20, exitCode);
+            Assert.Contains("rebuild step failed", stderr.ToString());
+        }
+        finally
+        {
+            Console.SetError(originalError);
+        }
+    }
+
+    [Fact]
     public void UnsupportedBatchSeparator_IsMappedToUnsupportedExitCode()
     {
         var originalError = Console.Error;
