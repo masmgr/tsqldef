@@ -299,15 +299,15 @@ public sealed class CliArgumentParsingTests
     [Fact]
     public void ParseCsvArg_TrimsWhitespaceAndRemovesEmptyEntries()
     {
-        var parse = typeof(SqlSchemaDef.Cli.Program).GetMethod(
-            "ParseCsvArg",
-            BindingFlags.NonPublic | BindingFlags.Static);
-
-        Assert.NotNull(parse);
-
-        var result = parse!.Invoke(null, new object[] { " Users, Orders ,, Logs " });
-        var values = Assert.IsType<string[]>(result);
+        var values = SqlSchemaDef.Cli.CliArgumentParser.ParseCsvArg(" Users, Orders ,, Logs ");
 
         Assert.Equal(new[] { "Users", "Orders", "Logs" }, values.ToArray());
+    }
+
+    [Fact]
+    public void ParseCsvArg_WhitespaceOnly_ReturnsEmpty()
+    {
+        var values = SqlSchemaDef.Cli.CliArgumentParser.ParseCsvArg("   ");
+        Assert.Empty(values);
     }
 }

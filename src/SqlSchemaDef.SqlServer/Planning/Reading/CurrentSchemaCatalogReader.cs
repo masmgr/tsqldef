@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Data;
-using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Data.SqlClient;
@@ -295,17 +294,7 @@ ORDER BY ep.major_id, ep.minor_id;";
 
         private static int GetInt32(SqlDataReader reader, int ordinal)
         {
-            var value = reader.GetValue(ordinal);
-            if (value is int intValue)
-                return intValue;
-            if (value is short shortValue)
-                return shortValue;
-            if (value is byte byteValue)
-                return byteValue;
-            if (value is long longValue)
-                return checked((int)longValue);
-
-            return Convert.ToInt32(value, CultureInfo.InvariantCulture);
+            return CatalogValueNormalizer.ToInt32(reader.GetValue(ordinal));
         }
 
         private static async Task<List<CurrentSchemaReader.TableRow>> ReadTablesResultSetAsync(
@@ -456,8 +445,8 @@ ORDER BY ep.major_id, ep.minor_id;";
                     Ordinal = reader.GetInt32(7),
                     ParentColumnName = reader.GetString(8),
                     ReferencedColumnName = reader.GetString(9),
-                    DeleteAction = NormalizeForeignKeyAction(reader.GetString(10)),
-                    UpdateAction = NormalizeForeignKeyAction(reader.GetString(11)),
+                    DeleteAction = CatalogValueNormalizer.NormalizeForeignKeyAction(reader.GetString(10)),
+                    UpdateAction = CatalogValueNormalizer.NormalizeForeignKeyAction(reader.GetString(11)),
                 });
             }
 
@@ -491,32 +480,6 @@ ORDER BY ep.major_id, ep.minor_id;";
             {
                 throw new InvalidOperationException("Expected schema result set for " + resultSetName + ".");
             }
-        }
-
-        private static string NormalizeForeignKeyAction(string actionDesc)
-        {
-            if (string.IsNullOrWhiteSpace(actionDesc) ||
-                string.Equals(actionDesc, "NO_ACTION", StringComparison.OrdinalIgnoreCase))
-            {
-                return null;
-            }
-
-            if (string.Equals(actionDesc, "CASCADE", StringComparison.OrdinalIgnoreCase))
-            {
-                return "CASCADE";
-            }
-
-            if (string.Equals(actionDesc, "SET_NULL", StringComparison.OrdinalIgnoreCase))
-            {
-                return "SET NULL";
-            }
-
-            if (string.Equals(actionDesc, "SET_DEFAULT", StringComparison.OrdinalIgnoreCase))
-            {
-                return "SET DEFAULT";
-            }
-
-            return null;
         }
 
         private static SqlCommand CreateCommand(SqlConnection connection, string sql, string schema)

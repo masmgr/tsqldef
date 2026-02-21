@@ -137,22 +137,6 @@ namespace SqlSchemaDef.Cli
             return ExitOk;
         }
 
-        private static readonly char[] CsvSeparator = { ',' };
-
-        private static string[] ParseCsvArg(string value)
-        {
-            if (string.IsNullOrWhiteSpace(value))
-            {
-                return Array.Empty<string>();
-            }
-
-            return value
-                .Split(CsvSeparator, StringSplitOptions.RemoveEmptyEntries)
-                .Select(part => part.Trim())
-                .Where(part => part.Length > 0)
-                .ToArray();
-        }
-
         private static async Task<int> RunPlanAsync(List<string> args)
         {
             string? connectionString = null;
@@ -217,11 +201,11 @@ namespace SqlSchemaDef.Cli
             var plannerOptions = new PlannerOptions { EmitProposals = emitSwapSql };
             if (includeArg != null)
             {
-                plannerOptions.IncludeTablePatterns = ParseCsvArg(includeArg);
+                plannerOptions.IncludeTablePatterns = CliArgumentParser.ParseCsvArg(includeArg);
             }
             if (excludeArg != null)
             {
-                plannerOptions.ExcludeTablePatterns = ParseCsvArg(excludeArg);
+                plannerOptions.ExcludeTablePatterns = CliArgumentParser.ParseCsvArg(excludeArg);
             }
 
             await using var conn = new SqlConnection(connectionString);
@@ -321,11 +305,11 @@ namespace SqlSchemaDef.Cli
                 var plannerOptions = new PlannerOptions();
                 if (includeArg != null)
                 {
-                    plannerOptions.IncludeTablePatterns = ParseCsvArg(includeArg);
+                    plannerOptions.IncludeTablePatterns = CliArgumentParser.ParseCsvArg(includeArg);
                 }
                 if (excludeArg != null)
                 {
-                    plannerOptions.ExcludeTablePatterns = ParseCsvArg(excludeArg);
+                    plannerOptions.ExcludeTablePatterns = CliArgumentParser.ParseCsvArg(excludeArg);
                 }
 
                 await using var planConn = new SqlConnection(connectionString);

@@ -50,51 +50,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             IList<ParseError> errors;
             var parser = new TSql160Parser(true);
             var tokens = parser.GetTokenStream(new StringReader(name), out errors);
-            if (errors?.Count > 0)
-            {
-                return true;
-            }
-
-            var token = GetFirstMeaningfulToken(tokens);
-            if (token == null)
-            {
-                return false;
-            }
-
-            return token.TokenType != TSqlTokenType.Identifier &&
-                   token.TokenType != TSqlTokenType.QuotedIdentifier;
-        }
-
-        private static TSqlParserToken GetFirstMeaningfulToken(IList<TSqlParserToken> tokens)
-        {
-            if (tokens == null || tokens.Count == 0)
-            {
-                return null;
-            }
-
-            for (var i = 0; i < tokens.Count; i++)
-            {
-                var token = tokens[i];
-                if (token == null)
-                {
-                    continue;
-                }
-
-                if (IsIgnorableToken(token.TokenType))
-                {
-                    continue;
-                }
-
-                return token;
-            }
-
-            return null;
-        }
-
-        private static bool IsIgnorableToken(TSqlTokenType tokenType)
-        {
-            return tokenType == TSqlTokenType.WhiteSpace ||
-                   tokenType == TSqlTokenType.EndOfFile;
+            return IdentifierEscapingAnalyzer.RequiresEscaping(errors, tokens);
         }
     }
 }

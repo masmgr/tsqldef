@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 
 namespace SqlSchemaDef.SqlServer.Planning
 {
@@ -24,11 +23,11 @@ namespace SqlSchemaDef.SqlServer.Planning
             var model = new DatabaseModel();
             var tableMap = new Dictionary<int, TableModel>();
             var columnIdMap = new Dictionary<(int ObjectId, int ColumnId), ColumnModel>();
-            var defaultMap = BuildDefaultMap(defaults);
-            var keyConstraintGroups = BuildKeyConstraintGroups(keyConstraints);
-            var checkConstraintGroups = BuildCheckConstraintGroups(checkConstraints);
-            var foreignKeyGroups = BuildForeignKeyGroups(foreignKeys);
-            var indexGroups = BuildIndexGroups(indexes);
+            var defaultMap = CurrentSchemaRowGrouping.BuildDefaultMap(defaults);
+            var keyConstraintGroups = CurrentSchemaRowGrouping.BuildKeyConstraintGroups(keyConstraints);
+            var checkConstraintGroups = CurrentSchemaRowGrouping.BuildCheckConstraintGroups(checkConstraints);
+            var foreignKeyGroups = CurrentSchemaRowGrouping.BuildForeignKeyGroups(foreignKeys);
+            var indexGroups = CurrentSchemaRowGrouping.BuildIndexGroups(indexes);
 
             foreach (var table in tables)
             {
@@ -59,7 +58,7 @@ namespace SqlSchemaDef.SqlServer.Planning
                         column.Scale),
                     IsNullable = column.IsNullable,
                     IsIdentity = column.IsIdentity,
-                    DefaultExpression = GetDefaultDefinition(defaultMap, column.ObjectId, column.ColumnId),
+                    DefaultExpression = CurrentSchemaModelBuilderHelpers.GetDefaultDefinition(defaultMap, column.ObjectId, column.ColumnId),
                     IsFromAlterAdd = false,
                     UnsupportedFeature = column.IsComputed ? "ComputedColumn" : null,
                     Collation = column.Collation,
@@ -77,66 +76,6 @@ namespace SqlSchemaDef.SqlServer.Planning
             ApplyExtendedProperties(tableMap, columnIdMap, extendedProperties);
 
             return model;
-        }
-
-        private static Dictionary<(int ObjectId, int ColumnId), string> BuildDefaultMap(
-            IEnumerable<CurrentSchemaReader.DefaultRow> defaults)
-        {
-            var map = new Dictionary<(int ObjectId, int ColumnId), string>();
-            if (defaults == null)
-            {
-                return map;
-            }
-
-            foreach (var item in defaults)
-            {
-                if (item == null)
-                    continue;
-
-                map[(item.ObjectId, item.ColumnId)] = item.DefaultDefinition;
-            }
-
-            return map;
-        }
-
-        private static string GetDefaultDefinition(
-            Dictionary<(int ObjectId, int ColumnId), string> map,
-            int objectId,
-            int columnId)
-        {
-            if (map.TryGetValue((objectId, columnId), out var definition))
-            {
-                return definition;
-            }
-
-            return null;
-        }
-
-        private static Dictionary<(int ObjectId, string ConstraintName), List<CurrentSchemaReader.KeyConstraintRow>> BuildKeyConstraintGroups(
-            IEnumerable<CurrentSchemaReader.KeyConstraintRow> keyConstraints)
-        {
-            var groups = new Dictionary<(int ObjectId, string ConstraintName), List<CurrentSchemaReader.KeyConstraintRow>>();
-            if (keyConstraints == null)
-            {
-                return groups;
-            }
-
-            foreach (var item in keyConstraints)
-            {
-                if (item == null)
-                    continue;
-
-                var key = (item.ObjectId, item.ConstraintName ?? string.Empty);
-                if (!groups.TryGetValue(key, out var list))
-                {
-                    list = new List<CurrentSchemaReader.KeyConstraintRow>();
-                    groups[key] = list;
-                }
-
-                list.Add(item);
-            }
-
-            return groups;
         }
 
         private static void ApplyKeyConstraints(
@@ -159,7 +98,7 @@ namespace SqlSchemaDef.SqlServer.Planning
                 var rows = entry.Value;
                 rows.Sort((left, right) => left.KeyOrdinal.CompareTo(right.KeyOrdinal));
 
-                var kind = ResolveKeyConstraintKind(rows[0].ConstraintType);
+                var kind = CurrentSchemaModelBuilderHelpers.ResolveKeyConstraintKind(rows[0].ConstraintType);
                 var columns = new List<string>(rows.Count);
                 foreach (var row in rows)
                 {
@@ -175,48 +114,6 @@ namespace SqlSchemaDef.SqlServer.Planning
 
                 table.Constraints[IdentifierHelper.NormalizeNameKey(constraint.Name)] = constraint;
             }
-        }
-
-        private static ConstraintKind ResolveKeyConstraintKind(string constraintType)
-        {
-            if (string.Equals(constraintType, "PK", StringComparison.OrdinalIgnoreCase))
-            {
-                return ConstraintKind.PrimaryKey;
-            }
-
-            if (string.Equals(constraintType, "UQ", StringComparison.OrdinalIgnoreCase))
-            {
-                return ConstraintKind.Unique;
-            }
-
-            throw new InvalidOperationException("Unsupported key constraint type.");
-        }
-
-        private static Dictionary<(int ObjectId, string ConstraintName), List<CurrentSchemaReader.CheckConstraintRow>> BuildCheckConstraintGroups(
-            IEnumerable<CurrentSchemaReader.CheckConstraintRow> checkConstraints)
-        {
-            var groups = new Dictionary<(int ObjectId, string ConstraintName), List<CurrentSchemaReader.CheckConstraintRow>>();
-            if (checkConstraints == null)
-            {
-                return groups;
-            }
-
-            foreach (var item in checkConstraints)
-            {
-                if (item == null)
-                    continue;
-
-                var key = (item.ObjectId, item.ConstraintName ?? string.Empty);
-                if (!groups.TryGetValue(key, out var list))
-                {
-                    list = new List<CurrentSchemaReader.CheckConstraintRow>();
-                    groups[key] = list;
-                }
-
-                list.Add(item);
-            }
-
-            return groups;
         }
 
         private static void ApplyCheckConstraints(
@@ -248,33 +145,6 @@ namespace SqlSchemaDef.SqlServer.Planning
             }
         }
 
-        private static Dictionary<(int ParentObjectId, string ConstraintName), List<CurrentSchemaReader.ForeignKeyRow>> BuildForeignKeyGroups(
-            IEnumerable<CurrentSchemaReader.ForeignKeyRow> foreignKeys)
-        {
-            var groups = new Dictionary<(int ParentObjectId, string ConstraintName), List<CurrentSchemaReader.ForeignKeyRow>>();
-            if (foreignKeys == null)
-            {
-                return groups;
-            }
-
-            foreach (var item in foreignKeys)
-            {
-                if (item == null)
-                    continue;
-
-                var key = (item.ParentObjectId, item.ConstraintName ?? string.Empty);
-                if (!groups.TryGetValue(key, out var list))
-                {
-                    list = new List<CurrentSchemaReader.ForeignKeyRow>();
-                    groups[key] = list;
-                }
-
-                list.Add(item);
-            }
-
-            return groups;
-        }
-
         private static void ApplyForeignKeys(
             Dictionary<int, TableModel> tableMap,
             Dictionary<(int ParentObjectId, string ConstraintName), List<CurrentSchemaReader.ForeignKeyRow>> groups)
@@ -295,9 +165,7 @@ namespace SqlSchemaDef.SqlServer.Planning
                 var rows = entry.Value;
                 rows.Sort((left, right) => left.Ordinal.CompareTo(right.Ordinal));
 
-                var referenceSchema = string.IsNullOrWhiteSpace(rows[0].ReferencedSchemaName)
-                    ? "dbo"
-                    : rows[0].ReferencedSchemaName;
+                var referenceSchema = CurrentSchemaModelBuilderHelpers.ResolveReferenceSchema(rows[0].ReferencedSchemaName);
 
                 var parentColumns = new List<string>(rows.Count);
                 var referencedColumns = new List<string>(rows.Count);
@@ -358,33 +226,6 @@ namespace SqlSchemaDef.SqlServer.Planning
 
                 table.Constraints[IdentifierHelper.NormalizeNameKey(constraint.Name)] = constraint;
             }
-        }
-
-        private static Dictionary<(int ObjectId, string IndexName), List<CurrentSchemaReader.IndexRow>> BuildIndexGroups(
-            IEnumerable<CurrentSchemaReader.IndexRow> indexes)
-        {
-            var groups = new Dictionary<(int ObjectId, string IndexName), List<CurrentSchemaReader.IndexRow>>();
-            if (indexes == null)
-            {
-                return groups;
-            }
-
-            foreach (var item in indexes)
-            {
-                if (item == null)
-                    continue;
-
-                var key = (item.ObjectId, item.IndexName ?? string.Empty);
-                if (!groups.TryGetValue(key, out var list))
-                {
-                    list = new List<CurrentSchemaReader.IndexRow>();
-                    groups[key] = list;
-                }
-
-                list.Add(item);
-            }
-
-            return groups;
         }
 
         private static void ApplyExtendedProperties(
@@ -473,48 +314,11 @@ namespace SqlSchemaDef.SqlServer.Planning
                     FilterPredicate = firstRow.FilterPredicate,
                     KeyColumns = keyColumns,
                     IncludeColumns = includeColumns.Count == 0 ? null : includeColumns,
-                    Options = BuildIndexOptionsFromRow(firstRow),
+                    Options = CurrentSchemaModelBuilderHelpers.BuildIndexOptionsFromRow(firstRow),
                 };
 
                 table.Indexes[IdentifierHelper.NormalizeNameKey(index.Name)] = index;
             }
-        }
-
-        private static Dictionary<string, string> BuildIndexOptionsFromRow(CurrentSchemaReader.IndexRow row)
-        {
-            var options = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-
-            if (row.FillFactor > 0)
-            {
-                options["FILLFACTOR"] = row.FillFactor.ToString(CultureInfo.InvariantCulture);
-            }
-
-            if (row.IsPadded)
-            {
-                options["PAD_INDEX"] = "ON";
-            }
-
-            if (row.IgnoreDupKey)
-            {
-                options["IGNORE_DUP_KEY"] = "ON";
-            }
-
-            if (!row.AllowRowLocks)
-            {
-                options["ALLOW_ROW_LOCKS"] = "OFF";
-            }
-
-            if (!row.AllowPageLocks)
-            {
-                options["ALLOW_PAGE_LOCKS"] = "OFF";
-            }
-
-            if (row.NoRecompute)
-            {
-                options["STATISTICS_NORECOMPUTE"] = "ON";
-            }
-
-            return options.Count == 0 ? null : options;
         }
     }
 }
