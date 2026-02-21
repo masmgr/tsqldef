@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Linq;
 using SqlSchemaDef.Core.Planning;
 using SqlSchemaDef.SqlServer.Planning;
@@ -132,7 +133,7 @@ public sealed class SchemaDifferTests
         Assert.Contains(constraintSql, sql => sql.Contains("CONSTRAINT PK_Users PRIMARY KEY"));
         Assert.Contains(constraintSql, sql => sql.Contains("CONSTRAINT UQ_Users_Name UNIQUE"));
         Assert.Contains(constraintSql, sql => sql.Contains("CONSTRAINT CK_Users_Age CHECK"));
-        Assert.Contains("CREATE INDEX IX_Users_Name", plan.Operations[3].Sql);
+        Assert.Contains("CREATE NONCLUSTERED INDEX IX_Users_Name", plan.Operations[3].Sql);
         Assert.Contains("FOREIGN KEY (TeamId) REFERENCES dbo.Teams (Id)", plan.Operations[4].Sql);
     }
 
@@ -162,7 +163,7 @@ public sealed class SchemaDifferTests
 
         var op = Assert.Single(plan.Operations);
         Assert.Equal(OperationKind.CreateIndex, op.Kind);
-        Assert.Equal("CREATE INDEX IX_Users_Name ON dbo.Users (Name DESC) INCLUDE (Age)", op.Sql);
+        Assert.Equal("CREATE NONCLUSTERED INDEX IX_Users_Name ON dbo.Users (Name DESC) INCLUDE (Age)", op.Sql);
     }
 
     [Fact]
@@ -256,7 +257,7 @@ public sealed class SchemaDifferTests
 
         var op = Assert.Single(plan.Operations);
         Assert.Equal(OperationKind.CreateIndex, op.Kind);
-        Assert.Contains("CREATE INDEX [Order] ON dbo.Users (Id)", op.Sql);
+        Assert.Contains("CREATE NONCLUSTERED INDEX [Order] ON dbo.Users (Id)", op.Sql);
     }
 
     [Fact]
@@ -1189,5 +1190,191 @@ public sealed class SchemaDifferTests
 
         var kinds = plan.Operations.Select(op => op.Kind).ToArray();
         Assert.Equal(new[] { OperationKind.AddForeignKey, OperationKind.AddDescription }, kinds);
+    }
+
+    [Fact]
+    public void Diff_WhenNewTableHasColumnWithCollation_EmitsCollationInCreateTable()
+    {
+        const string desiredSql = "CREATE TABLE dbo.T (Name nvarchar(100) COLLATE Japanese_CI_AS NOT NULL)";
+        var desired = DesiredSchemaLoader.Load(desiredSql);
+        var current = new DatabaseModel();
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal(OperationKind.CreateTable, op.Kind);
+        Assert.Contains("COLLATE Japanese_CI_AS", op.Sql);
+    }
+
+    [Fact]
+    public void Diff_WhenAddingColumnWithCollation_EmitsCollationInAddColumn()
+    {
+        const string desiredSql =
+            "CREATE TABLE dbo.T (Id int NOT NULL)\nALTER TABLE dbo.T ADD Name nvarchar(100) COLLATE Latin1_General_CI_AS NULL";
+        var desired = DesiredSchemaLoader.Load(desiredSql);
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "T");
+        currentTable.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal(OperationKind.AddColumn, op.Kind);
+        Assert.Contains("COLLATE Latin1_General_CI_AS", op.Sql);
+    }
+
+    [Fact]
+    public void Diff_WhenExistingColumnHasDifferentCollation_IsSkipped()
+    {
+        const string desiredSql = "CREATE TABLE dbo.T (Name nvarchar(100) COLLATE Japanese_CI_AS NOT NULL)";
+        var desired = DesiredSchemaLoader.Load(desiredSql);
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "T");
+        currentTable.Columns["NAME"] = new ColumnModel
+        {
+            Name = "Name",
+            SqlType = "nvarchar(100)",
+            IsNullable = false,
+            Collation = "SQL_Latin1_General_CP1_CI_AS",
+        };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        Assert.Empty(plan.Operations);
+        var skipped = Assert.Single(plan.Skipped);
+        Assert.Equal(SkippedReason.AlterNotSupported, skipped.Reason);
+    }
+
+    [Fact]
+    public void Diff_WhenNewFilteredIndex_EmitsWhereClause()
+    {
+        const string desiredSql =
+            "CREATE TABLE dbo.T (Id int NOT NULL)\nCREATE INDEX IX_T ON dbo.T (Id) WHERE Id > 0";
+        var desired = DesiredSchemaLoader.Load(desiredSql);
+        var current = new DatabaseModel();
+        current.GetOrAddTable("dbo", "T").Columns["ID"] =
+            new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal(OperationKind.CreateIndex, op.Kind);
+        Assert.Contains("WHERE", op.Sql);
+    }
+
+    [Fact]
+    public void Diff_WhenNewClusteredIndex_EmitsClusteredKeyword()
+    {
+        const string desiredSql =
+            "CREATE TABLE dbo.T (Id int NOT NULL)\nCREATE CLUSTERED INDEX IX_T ON dbo.T (Id)";
+        var desired = DesiredSchemaLoader.Load(desiredSql);
+        var current = new DatabaseModel();
+        current.GetOrAddTable("dbo", "T").Columns["ID"] =
+            new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal(OperationKind.CreateIndex, op.Kind);
+        Assert.Contains("CREATE CLUSTERED INDEX IX_T", op.Sql);
+    }
+
+    [Fact]
+    public void Diff_WhenNewNonClusteredIndex_EmitsNonClusteredKeyword()
+    {
+        const string desiredSql =
+            "CREATE TABLE dbo.T (Id int NOT NULL)\nCREATE INDEX IX_T ON dbo.T (Id)";
+        var desired = DesiredSchemaLoader.Load(desiredSql);
+        var current = new DatabaseModel();
+        current.GetOrAddTable("dbo", "T").Columns["ID"] =
+            new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        var op = Assert.Single(plan.Operations);
+        Assert.Contains("CREATE NONCLUSTERED INDEX IX_T", op.Sql);
+    }
+
+    [Fact]
+    public void Diff_WhenTableAlreadyHasClusteredIndex_NewClusteredIndexIsSkipped()
+    {
+        const string desiredSql =
+            "CREATE TABLE dbo.T (Id int NOT NULL, Val int NOT NULL)\nCREATE CLUSTERED INDEX IX_T_Val ON dbo.T (Val)";
+        var desired = DesiredSchemaLoader.Load(desiredSql);
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "T");
+        currentTable.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+        currentTable.Columns["VAL"] = new ColumnModel { Name = "Val", SqlType = "int", IsNullable = false };
+        currentTable.Indexes["IX_T_ID"] = new IndexModel
+        {
+            Name = "IX_T_Id",
+            IsUnique = false,
+            IsClustered = true,
+            KeyColumns = new List<IndexKeyColumn> { new IndexKeyColumn { Name = "Id" } },
+        };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        Assert.Empty(plan.Operations);
+
+        // IX_T_Val が AlterNotSupported (既存クラスタインデックスと競合)
+        // IX_T_Id が DropNotSupported (desired に存在しない既存インデックス)
+        var clusteredSkip = plan.Skipped.Single(s => s.Target.Name == "IX_T_Val");
+        Assert.Equal(SkippedReason.AlterNotSupported, clusteredSkip.Reason);
+    }
+
+    [Fact]
+    public void Diff_WhenNewIndexHasFillFactor_EmitsWithClause()
+    {
+        const string desiredSql =
+            "CREATE TABLE dbo.T (Id int NOT NULL)\nCREATE INDEX IX_T ON dbo.T (Id) WITH (FILLFACTOR = 80)";
+        var desired = DesiredSchemaLoader.Load(desiredSql);
+        var current = new DatabaseModel();
+        current.GetOrAddTable("dbo", "T").Columns["ID"] =
+            new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal(OperationKind.CreateIndex, op.Kind);
+        Assert.Contains("WITH (FILLFACTOR = 80)", op.Sql);
+    }
+
+    [Fact]
+    public void Diff_WhenDesiredIndexHasOnlineOption_ExistingHasNone_NoSkip()
+    {
+        const string desiredSql =
+            "CREATE TABLE dbo.T (Id int NOT NULL)\nCREATE INDEX IX_T ON dbo.T (Id) WITH (ONLINE = ON)";
+        var desired = DesiredSchemaLoader.Load(desiredSql);
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "T");
+        currentTable.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+        currentTable.Indexes["IX_T"] = new IndexModel
+        {
+            Name = "IX_T",
+            IsUnique = false,
+            IsClustered = false,
+            KeyColumns = new List<IndexKeyColumn> { new IndexKeyColumn { Name = "Id" } },
+            Options = null,
+        };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        // ONLINE は比較対象外なので diff なし → 操作もスキップもない
+        Assert.Empty(plan.Operations);
+        Assert.Empty(plan.Skipped);
     }
 }

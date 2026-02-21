@@ -157,14 +157,20 @@ namespace SqlSchemaDef.SqlServer.Planning
             var (schema, tableName) = ResolveSchemaAndName(node.OnName, node);
             var table = _model.GetOrAddTable(schema, tableName);
 
+            string filterPredicate = null;
             if (node.FilterPredicate != null)
             {
-                throw CreateUnsupportedFeatureException(node, "CreateIndexStatement", "IndexFilter");
+                filterPredicate = GenerateScript(node.FilterPredicate).Trim();
             }
 
-            if (node.IndexOptions?.Count > 0)
+            Dictionary<string, string> parsedOptions = null;
+            if (node.IndexOptions != null && node.IndexOptions.Count > 0)
             {
-                throw CreateUnsupportedFeatureException(node, "CreateIndexStatement", "IndexOptions");
+                parsedOptions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var option in node.IndexOptions)
+                {
+                    ParseIndexOption(option, parsedOptions);
+                }
             }
 
             var keyColumns = new List<IndexKeyColumn>();
@@ -191,11 +197,31 @@ namespace SqlSchemaDef.SqlServer.Planning
             {
                 Name = RequireIdentifier(node.Name, node, "IndexName", "CreateIndexStatement"),
                 IsUnique = node.Unique,
+                IsClustered = node.Clustered == true,
+                FilterPredicate = filterPredicate,
                 KeyColumns = keyColumns,
                 IncludeColumns = includeColumns.Count == 0 ? null : includeColumns,
+                Options = parsedOptions,
             };
 
             table.Indexes[IdentifierHelper.NormalizeNameKey(index.Name)] = index;
+        }
+
+        private static void ParseIndexOption(IndexOption option, Dictionary<string, string> options)
+        {
+            var name = option.OptionKind.ToString().ToUpperInvariant();
+            if (option is IndexExpressionOption exprOpt)
+            {
+                options[name] = (exprOpt.Expression as Literal)?.Value ?? string.Empty;
+            }
+            else if (option is IndexStateOption stateOpt)
+            {
+                options[name] = stateOpt.OptionState == OptionState.On ? "ON" : "OFF";
+            }
+            else
+            {
+                options[name] = GenerateScript(option).Trim();
+            }
         }
 
         private void AddColumn(TableModel table, ColumnDefinition column, bool isFromAlterAdd, string statementType)
@@ -218,6 +244,7 @@ namespace SqlSchemaDef.SqlServer.Planning
                 IsIdentity = column.IdentityOptions != null,
                 DefaultExpression = column.DefaultConstraint == null ? null : GenerateScript(column.DefaultConstraint.Expression),
                 IsFromAlterAdd = isFromAlterAdd,
+                Collation = column.Collation != null ? column.Collation.Value : null,
             };
 
             if (isFromAlterAdd &&

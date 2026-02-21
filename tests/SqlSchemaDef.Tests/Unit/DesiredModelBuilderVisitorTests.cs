@@ -70,23 +70,135 @@ public sealed class DesiredModelBuilderVisitorTests
     }
 
     [Fact]
-    public void Load_FilteredIndex_Throws()
+    public void Load_FilteredIndex_ExtractsFilterPredicate()
     {
-        var ex = Assert.Throws<UnsupportedDesiredFeatureException>(() =>
-            DesiredSchemaLoader.Load("CREATE INDEX IX_T ON dbo.T (Id) WHERE Id > 0"));
+        var model = DesiredSchemaLoader.Load(
+            "CREATE TABLE dbo.T (Id int NOT NULL)\nCREATE INDEX IX_T ON dbo.T (Id) WHERE Id > 0");
 
-        Assert.Equal("IndexFilter", ex.FeatureName);
-        Assert.Contains("Unsupported desired feature in v1", ex.Message);
+        var index = model.Tables.Values.Single().Indexes.Values.Single();
+        Assert.NotNull(index.FilterPredicate);
+        Assert.False(string.IsNullOrWhiteSpace(index.FilterPredicate));
     }
 
     [Fact]
-    public void Load_IndexOptions_Throws()
+    public void Load_NonFilteredIndex_FilterPredicateIsNull()
     {
-        var ex = Assert.Throws<UnsupportedDesiredFeatureException>(() =>
-            DesiredSchemaLoader.Load("CREATE INDEX IX_T ON dbo.T (Id) WITH (ONLINE = ON)"));
+        var model = DesiredSchemaLoader.Load(
+            "CREATE TABLE dbo.T (Id int NOT NULL)\nCREATE INDEX IX_T ON dbo.T (Id)");
 
-        Assert.Equal("IndexOptions", ex.FeatureName);
-        Assert.Contains("Unsupported desired feature in v1", ex.Message);
+        var index = model.Tables.Values.Single().Indexes.Values.Single();
+        Assert.Null(index.FilterPredicate);
+    }
+
+    [Fact]
+    public void Load_ClusteredIndex_IsClusteredIsTrue()
+    {
+        var model = DesiredSchemaLoader.Load(
+            "CREATE TABLE dbo.T (Id int NOT NULL)\nCREATE CLUSTERED INDEX IX_T ON dbo.T (Id)");
+
+        var index = model.Tables.Values.Single().Indexes.Values.Single();
+        Assert.True(index.IsClustered);
+    }
+
+    [Fact]
+    public void Load_NonClusteredIndex_IsClusteredIsFalse()
+    {
+        var model = DesiredSchemaLoader.Load(
+            "CREATE TABLE dbo.T (Id int NOT NULL)\nCREATE NONCLUSTERED INDEX IX_T ON dbo.T (Id)");
+
+        var index = model.Tables.Values.Single().Indexes.Values.Single();
+        Assert.False(index.IsClustered);
+    }
+
+    [Fact]
+    public void Load_DefaultIndex_IsClusteredIsFalse()
+    {
+        var model = DesiredSchemaLoader.Load(
+            "CREATE TABLE dbo.T (Id int NOT NULL)\nCREATE INDEX IX_T ON dbo.T (Id)");
+
+        var index = model.Tables.Values.Single().Indexes.Values.Single();
+        Assert.False(index.IsClustered);
+    }
+
+    [Fact]
+    public void Load_IndexWithFillFactor_ParsesOptions()
+    {
+        var model = DesiredSchemaLoader.Load(
+            "CREATE TABLE dbo.T (Id int NOT NULL)\nCREATE INDEX IX_T ON dbo.T (Id) WITH (FILLFACTOR = 80)");
+
+        var index = model.Tables.Values.Single().Indexes.Values.Single();
+        Assert.NotNull(index.Options);
+        Assert.True(index.Options.TryGetValue("FILLFACTOR", out var val));
+        Assert.Equal("80", val);
+    }
+
+    [Fact]
+    public void Load_IndexWithOnlineOption_ParsesOnlineOption()
+    {
+        var model = DesiredSchemaLoader.Load(
+            "CREATE TABLE dbo.T (Id int NOT NULL)\nCREATE INDEX IX_T ON dbo.T (Id) WITH (ONLINE = ON)");
+
+        var index = model.Tables.Values.Single().Indexes.Values.Single();
+        Assert.NotNull(index.Options);
+        Assert.True(index.Options.TryGetValue("ONLINE", out var val));
+        Assert.Equal("ON", val);
+    }
+
+    [Fact]
+    public void Load_IndexWithMultipleOptions_ParsesAllOptions()
+    {
+        var model = DesiredSchemaLoader.Load(
+            "CREATE TABLE dbo.T (Id int NOT NULL)\nCREATE INDEX IX_T ON dbo.T (Id) WITH (FILLFACTOR = 90, PAD_INDEX = ON)");
+
+        var index = model.Tables.Values.Single().Indexes.Values.Single();
+        Assert.NotNull(index.Options);
+        Assert.True(index.Options.TryGetValue("FILLFACTOR", out var ff));
+        Assert.Equal("90", ff);
+        Assert.True(index.Options.TryGetValue("PADINDEX", out var pi));
+        Assert.Equal("ON", pi);
+    }
+
+    [Fact]
+    public void Load_IndexWithNoOptions_OptionsIsNull()
+    {
+        var model = DesiredSchemaLoader.Load(
+            "CREATE TABLE dbo.T (Id int NOT NULL)\nCREATE INDEX IX_T ON dbo.T (Id)");
+
+        var index = model.Tables.Values.Single().Indexes.Values.Single();
+        Assert.Null(index.Options);
+    }
+
+    [Fact]
+    public void Load_ColumnWithCollation_StoresCollation()
+    {
+        var model = DesiredSchemaLoader.Load(
+            "CREATE TABLE dbo.T (Name nvarchar(100) COLLATE Japanese_CI_AS NOT NULL)");
+
+        var column = model.Tables.Values.Single().Columns["NAME"];
+        Assert.Equal("Japanese_CI_AS", column.Collation);
+    }
+
+    [Fact]
+    public void Load_ColumnWithoutCollation_CollationIsNull()
+    {
+        var model = DesiredSchemaLoader.Load(
+            "CREATE TABLE dbo.T (Name nvarchar(100) NOT NULL)");
+
+        var column = model.Tables.Values.Single().Columns["NAME"];
+        Assert.Null(column.Collation);
+    }
+
+    [Fact]
+    public void Load_AlterTableAddColumnWithCollation_StoresCollation()
+    {
+        var model = DesiredSchemaLoader.Load(string.Join("\n", new[]
+        {
+            "CREATE TABLE dbo.T (Id int NOT NULL)",
+            "ALTER TABLE dbo.T ADD Name nvarchar(100) COLLATE Latin1_General_CI_AS NULL",
+        }));
+
+        var column = model.Tables.Values.Single().Columns["NAME"];
+        Assert.Equal("Latin1_General_CI_AS", column.Collation);
     }
 
     [Fact]

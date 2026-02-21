@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 
 namespace SqlSchemaDef.SqlServer.Planning
@@ -43,6 +44,11 @@ namespace SqlSchemaDef.SqlServer.Planning
             sb.Append(IdentifierHelper.EscapeIfKeyword(column.Name))
                 .Append(' ')
                 .Append(column.SqlType);
+
+            if (!string.IsNullOrWhiteSpace(column.Collation))
+            {
+                sb.Append(" COLLATE ").Append(column.Collation.Trim());
+            }
 
             if (column.IsIdentity)
             {
@@ -116,7 +122,8 @@ namespace SqlSchemaDef.SqlServer.Planning
         internal static string BuildCreateIndexSql(TableModel table, IndexModel index)
         {
             var unique = index.IsUnique ? "UNIQUE " : string.Empty;
-            var sql = "CREATE " + unique + "INDEX " + IdentifierHelper.EscapeIfKeyword(index.Name) + " ON " +
+            var clustered = index.IsClustered ? "CLUSTERED " : "NONCLUSTERED ";
+            var sql = "CREATE " + unique + clustered + "INDEX " + IdentifierHelper.EscapeIfKeyword(index.Name) + " ON " +
                       table.Schema + "." + IdentifierHelper.EscapeIfKeyword(table.Name) +
                       " (" + JoinIndexColumns(index.KeyColumns) + ")";
 
@@ -125,7 +132,28 @@ namespace SqlSchemaDef.SqlServer.Planning
                 sql += " INCLUDE (" + JoinColumns(index.IncludeColumns) + ")";
             }
 
+            if (!string.IsNullOrWhiteSpace(index.FilterPredicate))
+            {
+                sql += " WHERE " + index.FilterPredicate.Trim();
+            }
+
+            if (index.Options != null && index.Options.Count > 0)
+            {
+                sql += BuildIndexWithClause(index.Options);
+            }
+
             return sql;
+        }
+
+        internal static string BuildIndexWithClause(IDictionary<string, string> options)
+        {
+            var parts = new List<string>();
+            foreach (var kv in options.OrderBy(k => k.Key, StringComparer.OrdinalIgnoreCase))
+            {
+                parts.Add(kv.Key + " = " + kv.Value);
+            }
+
+            return " WITH (" + string.Join(", ", parts) + ")";
         }
 
         internal static string BuildAddDescriptionSql(

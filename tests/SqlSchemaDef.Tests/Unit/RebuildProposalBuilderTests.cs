@@ -229,7 +229,7 @@ public sealed class RebuildProposalBuilderTests
         var recreateStep = proposals[0].Steps.First(s => s.Kind == RebuildStepKind.RecreateIndexes);
 
         Assert.Contains("IX_Users_Age", recreateStep.Sql);
-        Assert.Contains("CREATE INDEX", recreateStep.Sql);
+        Assert.Contains("NONCLUSTERED INDEX", recreateStep.Sql);
     }
 
     [Fact]

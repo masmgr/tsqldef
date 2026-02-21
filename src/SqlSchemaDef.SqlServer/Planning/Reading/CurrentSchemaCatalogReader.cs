@@ -41,7 +41,9 @@ SELECT
 
   CASE WHEN ic.object_id IS NULL THEN 0 ELSE 1 END AS is_identity,
   ic.seed_value,
-  ic.increment_value
+  ic.increment_value,
+
+  c.collation_name
 FROM sys.tables AS t
 JOIN sys.schemas AS s
   ON s.schema_id = t.schema_id
@@ -144,7 +146,16 @@ SELECT
   ic.key_ordinal,
   ic.is_included_column,
   ic.is_descending_key,
-  c.name AS column_name
+  c.name AS column_name,
+
+  i.has_filter,
+  i.filter_definition,
+  i.fill_factor,
+  i.is_padded,
+  i.ignore_dup_key,
+  i.allow_row_locks,
+  i.allow_page_locks,
+  i.no_recompute
 FROM sys.tables AS t
 JOIN sys.schemas AS s
   ON s.schema_id = t.schema_id
@@ -331,6 +342,7 @@ ORDER BY ep.major_id, ep.minor_id;";
                     Scale = reader.GetByte(9),
                     IsComputed = reader.GetBoolean(10),
                     IsIdentity = reader.GetInt32(11) != 0,
+                    Collation = reader.IsDBNull(14) ? null : reader.GetString(14),
                 });
             }
 
@@ -407,10 +419,18 @@ ORDER BY ep.major_id, ep.minor_id;";
                     ObjectId = reader.GetInt32(2),
                     IndexName = reader.GetString(4),
                     IsUnique = reader.GetBoolean(5),
+                    IsClustered = string.Equals(reader.GetString(6), "CLUSTERED", StringComparison.OrdinalIgnoreCase),
                     KeyOrdinal = GetInt32(reader, 9),
                     IsIncludedColumn = reader.GetBoolean(10),
                     IsDescendingKey = reader.GetBoolean(11),
                     ColumnName = reader.GetString(12),
+                    FilterPredicate = reader.GetBoolean(13) ? reader.GetString(14) : null,
+                    FillFactor = GetInt32(reader, 15),
+                    IsPadded = reader.GetBoolean(16),
+                    IgnoreDupKey = reader.GetBoolean(17),
+                    AllowRowLocks = reader.GetBoolean(18),
+                    AllowPageLocks = reader.GetBoolean(19),
+                    NoRecompute = reader.GetBoolean(20),
                 });
             }
 

@@ -6,8 +6,11 @@ namespace SqlSchemaDef.SqlServer.Planning
     {
         public string Name { get; set; }
         public bool IsUnique { get; set; }
+        public bool IsClustered { get; set; }
+        public string FilterPredicate { get; set; }
         public IReadOnlyList<IndexKeyColumn> KeyColumns { get; set; }
         public IReadOnlyList<string> IncludeColumns { get; set; }
+        public IDictionary<string, string> Options { get; set; }
         public string UnsupportedFeature { get; set; }
     }
 

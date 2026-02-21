@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 
 namespace SqlSchemaDef.SqlServer.Planning
 {
@@ -66,6 +67,7 @@ namespace SqlSchemaDef.SqlServer.Planning
                     DefaultExpression = GetDefaultDefinition(defaultMap, column.ObjectId, column.ColumnId),
                     IsFromAlterAdd = false,
                     UnsupportedFeature = column.IsComputed ? "ComputedColumn" : null,
+                    Collation = column.Collation,
                 };
 
                 table.Columns[IdentifierHelper.NormalizeNameKey(columnModel.Name)] = columnModel;
@@ -442,6 +444,7 @@ namespace SqlSchemaDef.SqlServer.Planning
                 var rows = entry.Value;
                 rows.Sort((left, right) => left.KeyOrdinal.CompareTo(right.KeyOrdinal));
 
+                var firstRow = rows[0];
                 var isUnique = false;
                 var keyColumns = new List<IndexKeyColumn>();
                 var includeColumns = new List<string>();
@@ -471,12 +474,52 @@ namespace SqlSchemaDef.SqlServer.Planning
                 {
                     Name = indexName,
                     IsUnique = isUnique,
+                    IsClustered = firstRow.IsClustered,
+                    FilterPredicate = firstRow.FilterPredicate,
                     KeyColumns = keyColumns,
                     IncludeColumns = includeColumns.Count == 0 ? null : includeColumns,
+                    Options = BuildIndexOptionsFromRow(firstRow),
                 };
 
                 table.Indexes[IdentifierHelper.NormalizeNameKey(index.Name)] = index;
             }
+        }
+
+        private static Dictionary<string, string> BuildIndexOptionsFromRow(CurrentSchemaReader.IndexRow row)
+        {
+            var options = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+            if (row.FillFactor > 0)
+            {
+                options["FILLFACTOR"] = row.FillFactor.ToString(CultureInfo.InvariantCulture);
+            }
+
+            if (row.IsPadded)
+            {
+                options["PADINDEX"] = "ON";
+            }
+
+            if (row.IgnoreDupKey)
+            {
+                options["IGNOREDUPKEY"] = "ON";
+            }
+
+            if (!row.AllowRowLocks)
+            {
+                options["ALLOWROWLOCKS"] = "OFF";
+            }
+
+            if (!row.AllowPageLocks)
+            {
+                options["ALLOWPAGELOCKS"] = "OFF";
+            }
+
+            if (row.NoRecompute)
+            {
+                options["STATISTICSNORECOMPUTE"] = "ON";
+            }
+
+            return options.Count == 0 ? null : options;
         }
     }
 }

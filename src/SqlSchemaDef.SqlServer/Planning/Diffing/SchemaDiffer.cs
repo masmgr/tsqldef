@@ -275,6 +275,9 @@ namespace SqlSchemaDef.SqlServer.Planning
             List<SqlOperation> createIndexOps,
             List<SkippedItem> skipped)
         {
+            var currentHasClusteredIndex = hasCurrentTable &&
+                currentTable.Indexes.Values.Any(ix => ix.IsClustered);
+
             foreach (var indexEntry in desiredTable.Indexes.OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase))
             {
                 if (hasCurrentTable && currentTable.Indexes.TryGetValue(indexEntry.Key, out var currentIndex))
@@ -311,6 +314,23 @@ namespace SqlSchemaDef.SqlServer.Planning
                             Message = "alter is not supported in v1",
                         });
                     }
+                    continue;
+                }
+
+                if (indexEntry.Value.IsClustered && currentHasClusteredIndex)
+                {
+                    skipped.Add(new SkippedItem
+                    {
+                        Reason = SkippedReason.AlterNotSupported,
+                        Target = new SqlObjectRef
+                        {
+                            Type = SqlObjectType.Index,
+                            Schema = desiredTable.Schema,
+                            ParentName = desiredTable.Name,
+                            Name = indexEntry.Value.Name,
+                        },
+                        Message = "table already has a clustered index; cannot add another in v1",
+                    });
                     continue;
                 }
 
@@ -560,6 +580,11 @@ namespace SqlSchemaDef.SqlServer.Planning
                 return true;
             }
 
+            if (!string.Equals(current.Collation ?? string.Empty, desired.Collation ?? string.Empty, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
             return false;
         }
 
@@ -638,12 +663,62 @@ namespace SqlSchemaDef.SqlServer.Planning
                 return true;
             }
 
+            if (current.IsClustered != desired.IsClustered)
+            {
+                return true;
+            }
+
             if (!SequenceEqual(current.KeyColumns, desired.KeyColumns))
             {
                 return true;
             }
 
-            return !SequenceEqual(current.IncludeColumns, desired.IncludeColumns);
+            if (!SequenceEqual(current.IncludeColumns, desired.IncludeColumns))
+            {
+                return true;
+            }
+
+            var currentFilter = (current.FilterPredicate ?? string.Empty).Trim();
+            var desiredFilter = (desired.FilterPredicate ?? string.Empty).Trim();
+            if (!string.Equals(currentFilter, desiredFilter, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            return AreIndexOptionsDifferent(current.Options, desired.Options);
+        }
+
+        private static bool AreIndexOptionsDifferent(
+            IDictionary<string, string> current,
+            IDictionary<string, string> desired)
+        {
+            if (desired == null || desired.Count == 0)
+            {
+                return false;
+            }
+
+            var executionTimeKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "ONLINE",
+                "SORTINTEMPDB",
+            };
+
+            foreach (var kv in desired)
+            {
+                if (executionTimeKeys.Contains(kv.Key))
+                {
+                    continue;
+                }
+
+                string currentVal = null;
+                current?.TryGetValue(kv.Key, out currentVal);
+                if (!string.Equals(currentVal ?? string.Empty, kv.Value, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static bool SequenceEqual(IReadOnlyList<string> left, IReadOnlyList<string> right)

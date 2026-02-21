@@ -9,6 +9,7 @@ namespace SqlSchemaDef.SqlServer.Planning
         public string DefaultExpression { get; set; }
         public bool IsFromAlterAdd { get; set; }
         public string UnsupportedFeature { get; set; }
+        public string Collation { get; set; }
         public string Description { get; set; }
     }
 }

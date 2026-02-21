@@ -52,6 +52,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             public byte Scale { get; set; }
             public bool IsComputed { get; set; }
             public bool IsIdentity { get; set; }
+            public string Collation { get; set; }
         }
 
         internal sealed class DefaultRow
@@ -97,10 +98,18 @@ namespace SqlSchemaDef.SqlServer.Planning
             public int ObjectId { get; set; }
             public string IndexName { get; set; }
             public bool IsUnique { get; set; }
+            public bool IsClustered { get; set; }
             public int KeyOrdinal { get; set; }
             public bool IsIncludedColumn { get; set; }
             public bool IsDescendingKey { get; set; }
             public string ColumnName { get; set; }
+            public string FilterPredicate { get; set; }
+            public int FillFactor { get; set; }
+            public bool IsPadded { get; set; }
+            public bool IgnoreDupKey { get; set; }
+            public bool AllowRowLocks { get; set; }
+            public bool AllowPageLocks { get; set; }
+            public bool NoRecompute { get; set; }
         }
 
         internal sealed class ExtendedPropertyRow
