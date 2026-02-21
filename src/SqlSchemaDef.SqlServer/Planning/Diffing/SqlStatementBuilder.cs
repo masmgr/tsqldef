@@ -157,6 +157,26 @@ namespace SqlSchemaDef.SqlServer.Planning
                    " ON " + IdentifierHelper.Escape(schema) + "." + IdentifierHelper.Escape(tableName);
         }
 
+        internal static string BuildDropColumnSql(string schema, string tableName, string columnName)
+        {
+            return "ALTER TABLE " + IdentifierHelper.Escape(schema) + "." + IdentifierHelper.Escape(tableName) +
+                   " DROP COLUMN " + IdentifierHelper.Escape(columnName);
+        }
+
+        internal static string BuildDropDescriptionSql(string schema, string tableName, string columnName)
+        {
+            var sql = "EXEC sp_dropextendedproperty @name = N'MS_Description'" +
+                      ", @level0type = N'SCHEMA', @level0name = N'" + EscapeSqlString(schema) + "'" +
+                      ", @level1type = N'TABLE', @level1name = N'" + EscapeSqlString(tableName) + "'";
+
+            if (columnName != null)
+            {
+                sql += ", @level2type = N'COLUMN', @level2name = N'" + EscapeSqlString(columnName) + "'";
+            }
+
+            return sql;
+        }
+
         internal static string BuildIndexWithClause(IDictionary<string, string> options)
         {
             var parts = new List<string>();

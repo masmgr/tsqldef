@@ -18,6 +18,16 @@ public sealed class PlanValidationTests
                 new SqlOperation { Kind = OperationKind.AddConstraint, Sql = "ALTER TABLE dbo.T ADD CONSTRAINT PK PRIMARY KEY (Id)" },
                 new SqlOperation { Kind = OperationKind.CreateIndex, Sql = "CREATE INDEX IX ON dbo.T (Col)" },
                 new SqlOperation { Kind = OperationKind.AddForeignKey, Sql = "ALTER TABLE dbo.T ADD CONSTRAINT FK FOREIGN KEY (Col) REFERENCES dbo.R (Id)" },
+                new SqlOperation { Kind = OperationKind.RecreateConstraint, Sql = "DROP CONSTRAINT; ADD CONSTRAINT" },
+                new SqlOperation { Kind = OperationKind.RecreateIndex, Sql = "DROP INDEX; CREATE INDEX" },
+                new SqlOperation { Kind = OperationKind.RecreateForeignKey, Sql = "DROP CONSTRAINT; ADD CONSTRAINT FK" },
+                new SqlOperation { Kind = OperationKind.AddDescription, Sql = "EXEC sp_addextendedproperty" },
+                new SqlOperation { Kind = OperationKind.UpdateDescription, Sql = "EXEC sp_updateextendedproperty" },
+                new SqlOperation { Kind = OperationKind.DropDescription, Sql = "EXEC sp_dropextendedproperty" },
+                new SqlOperation { Kind = OperationKind.DropForeignKey, Sql = "ALTER TABLE dbo.T DROP CONSTRAINT FK" },
+                new SqlOperation { Kind = OperationKind.DropIndex, Sql = "DROP INDEX IX ON dbo.T" },
+                new SqlOperation { Kind = OperationKind.DropConstraint, Sql = "ALTER TABLE dbo.T DROP CONSTRAINT UQ" },
+                new SqlOperation { Kind = OperationKind.DropColumn, Sql = "ALTER TABLE dbo.T DROP COLUMN Col" },
             },
             Array.Empty<SkippedItem>());
 

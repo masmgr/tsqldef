@@ -20,5 +20,10 @@ namespace SqlSchemaDef.Core.Planning
         RecreateForeignKey = 55,
         AddDescription = 60,
         UpdateDescription = 61,
+        DropDescription = 70,
+        DropForeignKey = 71,
+        DropIndex = 72,
+        DropConstraint = 73,
+        DropColumn = 74,
     }
 }

@@ -31,6 +31,11 @@ namespace SqlSchemaDef.SqlServer.Planning
             var addForeignKeyOps = new List<SqlOperation>();
             var recreateForeignKeyOps = new List<SqlOperation>();
             var descriptionOps = new List<SqlOperation>();
+            var dropDescriptionOps = new List<SqlOperation>();
+            var dropForeignKeyOps = new List<SqlOperation>();
+            var dropIndexOps = new List<SqlOperation>();
+            var dropConstraintOps = new List<SqlOperation>();
+            var dropColumnOps = new List<SqlOperation>();
             var skipped = new List<SkippedItem>();
 
             var includePatterns = options.IncludeTablePatterns;
@@ -55,16 +60,16 @@ namespace SqlSchemaDef.SqlServer.Planning
 
                 if (hasCurrentTable)
                 {
-                    DiffColumns(currentTable, desiredTable, options, addColumnOps, skipped);
+                    DiffColumns(currentTable, desiredTable, options, addColumnOps, dropColumnOps, skipped);
                 }
 
                 DiffConstraints(currentTable, desiredTable, hasCurrentTable, addConstraintOps, addForeignKeyOps, recreateConstraintOps, recreateForeignKeyOps, skipped);
                 DiffIndexes(currentTable, desiredTable, hasCurrentTable, createIndexOps, recreateIndexOps, skipped);
-                DiffDescriptions(currentTable, desiredTable, hasCurrentTable, descriptionOps, skipped);
+                DiffDescriptions(currentTable, desiredTable, hasCurrentTable, descriptionOps, dropDescriptionOps, skipped);
 
                 if (hasCurrentTable)
                 {
-                    CollectDroppedItems(currentTable, desiredTable, skipped);
+                    EmitDropOperations(currentTable, desiredTable, dropForeignKeyOps, dropIndexOps, dropConstraintOps);
                 }
             }
 
@@ -103,6 +108,11 @@ namespace SqlSchemaDef.SqlServer.Planning
             operations.AddRange(addForeignKeyOps);
             operations.AddRange(recreateForeignKeyOps);
             operations.AddRange(descriptionOps);
+            operations.AddRange(dropDescriptionOps);
+            operations.AddRange(dropForeignKeyOps);
+            operations.AddRange(dropIndexOps);
+            operations.AddRange(dropConstraintOps);
+            operations.AddRange(dropColumnOps);
 
             IReadOnlyList<RebuildProposal> proposals = Array.Empty<RebuildProposal>();
             if (options.EmitProposals)
@@ -201,6 +211,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             TableModel desiredTable,
             PlannerOptions options,
             List<SqlOperation> addColumnOps,
+            List<SqlOperation> dropColumnOps,
             List<SkippedItem> skipped)
         {
             foreach (var columnEntry in desiredTable.Columns.OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase))
@@ -270,18 +281,7 @@ namespace SqlSchemaDef.SqlServer.Planning
                     continue;
                 }
 
-                skipped.Add(new SkippedItem
-                {
-                    Reason = SkippedReason.DropNotSupported,
-                    Target = new SqlObjectRef
-                    {
-                        Type = SqlObjectType.Column,
-                        Schema = desiredTable.Schema,
-                        ParentName = desiredTable.Name,
-                        Name = currentColumnEntry.Value.Name,
-                    },
-                    Message = "drop is not supported in v1",
-                });
+                dropColumnOps.Add(DropColumnOperation(desiredTable, currentColumnEntry.Value));
             }
         }
 
@@ -429,6 +429,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             TableModel desiredTable,
             bool hasCurrentTable,
             List<SqlOperation> descriptionOps,
+            List<SqlOperation> dropDescriptionOps,
             List<SkippedItem> skipped)
         {
             var currentTableDesc = hasCurrentTable ? currentTable.Description : null;
@@ -449,17 +450,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             }
             else if (currentTableDesc != null)
             {
-                skipped.Add(new SkippedItem
-                {
-                    Reason = SkippedReason.DropNotSupported,
-                    Target = new SqlObjectRef
-                    {
-                        Type = SqlObjectType.Description,
-                        Schema = desiredTable.Schema,
-                        Name = desiredTable.Name,
-                    },
-                    Message = "drop is not supported in v1",
-                });
+                dropDescriptionOps.Add(DropDescriptionOperation(desiredTable, null));
             }
 
             foreach (var columnEntry in desiredTable.Columns.OrderBy(e => e.Key, StringComparer.OrdinalIgnoreCase))
@@ -502,18 +493,7 @@ namespace SqlSchemaDef.SqlServer.Planning
 
                     if (desiredColumnDesc == null)
                     {
-                        skipped.Add(new SkippedItem
-                        {
-                            Reason = SkippedReason.DropNotSupported,
-                            Target = new SqlObjectRef
-                            {
-                                Type = SqlObjectType.Description,
-                                Schema = desiredTable.Schema,
-                                ParentName = desiredTable.Name,
-                                Name = currentColumn.Name,
-                            },
-                            Message = "drop is not supported in v1",
-                        });
+                        dropDescriptionOps.Add(DropDescriptionOperation(desiredTable, currentColumn.Name));
                     }
                 }
             }
@@ -554,10 +534,12 @@ namespace SqlSchemaDef.SqlServer.Planning
             };
         }
 
-        private static void CollectDroppedItems(
+        private static void EmitDropOperations(
             TableModel currentTable,
             TableModel desiredTable,
-            List<SkippedItem> skipped)
+            List<SqlOperation> dropForeignKeyOps,
+            List<SqlOperation> dropIndexOps,
+            List<SqlOperation> dropConstraintOps)
         {
             foreach (var currentConstraintEntry in currentTable.Constraints.OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase))
             {
@@ -566,20 +548,31 @@ namespace SqlSchemaDef.SqlServer.Planning
                     continue;
                 }
 
-                skipped.Add(new SkippedItem
+                var constraint = currentConstraintEntry.Value;
+                var isFk = constraint.Kind == ConstraintKind.ForeignKey;
+                var sql = SqlStatementBuilder.BuildDropConstraintSql(desiredTable.Schema, desiredTable.Name, constraint.Name);
+                var op = new SqlOperation
                 {
-                    Reason = SkippedReason.DropNotSupported,
+                    Kind = isFk ? OperationKind.DropForeignKey : OperationKind.DropConstraint,
+                    Description = "Drop constraint " + desiredTable.Schema + "." + desiredTable.Name + "." + constraint.Name,
+                    Sql = sql,
                     Target = new SqlObjectRef
                     {
-                        Type = currentConstraintEntry.Value.Kind == ConstraintKind.ForeignKey
-                            ? SqlObjectType.ForeignKey
-                            : SqlObjectType.Constraint,
+                        Type = isFk ? SqlObjectType.ForeignKey : SqlObjectType.Constraint,
                         Schema = desiredTable.Schema,
                         ParentName = desiredTable.Name,
-                        Name = currentConstraintEntry.Value.Name,
+                        Name = constraint.Name,
                     },
-                    Message = "drop is not supported in v1",
-                });
+                };
+
+                if (isFk)
+                {
+                    dropForeignKeyOps.Add(op);
+                }
+                else
+                {
+                    dropConstraintOps.Add(op);
+                }
             }
 
             foreach (var currentIndexEntry in currentTable.Indexes.OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase))
@@ -589,17 +582,20 @@ namespace SqlSchemaDef.SqlServer.Planning
                     continue;
                 }
 
-                skipped.Add(new SkippedItem
+                var index = currentIndexEntry.Value;
+                var sql = SqlStatementBuilder.BuildDropIndexSql(desiredTable.Schema, desiredTable.Name, index.Name);
+                dropIndexOps.Add(new SqlOperation
                 {
-                    Reason = SkippedReason.DropNotSupported,
+                    Kind = OperationKind.DropIndex,
+                    Description = "Drop index " + desiredTable.Schema + "." + desiredTable.Name + "." + index.Name,
+                    Sql = sql,
                     Target = new SqlObjectRef
                     {
                         Type = SqlObjectType.Index,
                         Schema = desiredTable.Schema,
                         ParentName = desiredTable.Name,
-                        Name = currentIndexEntry.Value.Name,
+                        Name = index.Name,
                     },
-                    Message = "drop is not supported in v1",
                 });
             }
         }
@@ -943,6 +939,46 @@ namespace SqlSchemaDef.SqlServer.Planning
                     Schema = table.Schema,
                     ParentName = table.Name,
                     Name = column.Name,
+                },
+            };
+        }
+
+        private static SqlOperation DropColumnOperation(TableModel table, ColumnModel column)
+        {
+            var sql = SqlStatementBuilder.BuildDropColumnSql(table.Schema, table.Name, column.Name);
+            return new SqlOperation
+            {
+                Kind = OperationKind.DropColumn,
+                Description = "Drop column " + table.Schema + "." + table.Name + "." + column.Name,
+                Sql = sql,
+                Target = new SqlObjectRef
+                {
+                    Type = SqlObjectType.Column,
+                    Schema = table.Schema,
+                    ParentName = table.Name,
+                    Name = column.Name,
+                },
+            };
+        }
+
+        private static SqlOperation DropDescriptionOperation(TableModel table, string columnName)
+        {
+            var sql = SqlStatementBuilder.BuildDropDescriptionSql(table.Schema, table.Name, columnName);
+            var descText = columnName != null
+                ? "Drop description " + table.Schema + "." + table.Name + "." + columnName
+                : "Drop description " + table.Schema + "." + table.Name;
+
+            return new SqlOperation
+            {
+                Kind = OperationKind.DropDescription,
+                Description = descText,
+                Sql = sql,
+                Target = new SqlObjectRef
+                {
+                    Type = SqlObjectType.Description,
+                    Schema = table.Schema,
+                    ParentName = columnName != null ? table.Name : null,
+                    Name = columnName ?? table.Name,
                 },
             };
         }

@@ -5,7 +5,7 @@ namespace SqlSchemaDef.Core.Planning
 {
     public static class PlanValidator
     {
-        private static readonly HashSet<OperationKind> AllowedAdditiveKinds = new HashSet<OperationKind>
+        private static readonly HashSet<OperationKind> AllowedKinds = new HashSet<OperationKind>
         {
             OperationKind.CreateTable,
             OperationKind.AddColumn,
@@ -17,6 +17,11 @@ namespace SqlSchemaDef.Core.Planning
             OperationKind.RecreateForeignKey,
             OperationKind.AddDescription,
             OperationKind.UpdateDescription,
+            OperationKind.DropDescription,
+            OperationKind.DropForeignKey,
+            OperationKind.DropIndex,
+            OperationKind.DropConstraint,
+            OperationKind.DropColumn,
         };
 
         public static void ValidateForApply(MigrationPlan plan)
@@ -32,11 +37,11 @@ namespace SqlSchemaDef.Core.Planning
                     continue;
                 }
 
-                if (!AllowedAdditiveKinds.Contains(op.Kind))
+                if (!AllowedKinds.Contains(op.Kind))
                 {
                     throw new InvalidOperationException(
                         "Operation " + i + " has unsupported OperationKind " + (int)op.Kind +
-                        " (" + op.Kind + "). Only additive operations are allowed.");
+                        " (" + op.Kind + "). Only recognized operation kinds are allowed.");
                 }
             }
         }

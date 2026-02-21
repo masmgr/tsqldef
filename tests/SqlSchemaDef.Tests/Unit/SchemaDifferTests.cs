@@ -514,7 +514,7 @@ public sealed class SchemaDifferTests
     }
 
     [Fact]
-    public void Diff_CurrentOnlyConstraintsAndIndexes_AreSkippedInOrder()
+    public void Diff_CurrentOnlyConstraintsAndIndexes_EmitsDropOperationsInOrder()
     {
         var desired = new DatabaseModel();
         desired.GetOrAddTable("dbo", "Users");
@@ -543,12 +543,23 @@ public sealed class SchemaDifferTests
         var metadata = new PlanMetadata { Schema = "dbo" };
         var plan = SchemaDiffer.Diff(current, desired, metadata);
 
-        var targets = plan.Skipped.Select(item => item.Target.ToDisplayName()).ToArray();
+        Assert.Empty(plan.Skipped);
+
+        // Order: DropIndex → DropConstraint (alphabetical within each)
+        var kinds = plan.Operations.Select(op => op.Kind).ToArray();
         Assert.Equal(new[]
         {
+            OperationKind.DropIndex,
+            OperationKind.DropConstraint,
+            OperationKind.DropConstraint,
+        }, kinds);
+
+        var targets = plan.Operations.Select(op => op.Target.ToDisplayName()).ToArray();
+        Assert.Equal(new[]
+        {
+            "dbo.Users.IX_Users_Name",
             "dbo.Users.CK_Users_Age",
             "dbo.Users.UQ_Users_Name",
-            "dbo.Users.IX_Users_Name",
         }, targets);
     }
 
@@ -578,7 +589,7 @@ public sealed class SchemaDifferTests
     }
 
     [Fact]
-    public void Diff_CurrentOnlyItemsAcrossTables_AreSkippedDeterministically()
+    public void Diff_CurrentOnlyItemsAcrossTables_EmitsDropOperationsDeterministically()
     {
         var desired = new DatabaseModel();
         desired.GetOrAddTable("dbo", "Alpha");
@@ -616,18 +627,21 @@ public sealed class SchemaDifferTests
         var metadata = new PlanMetadata { Schema = "dbo" };
         var plan = SchemaDiffer.Diff(current, desired, metadata);
 
-        var targets = plan.Skipped.Select(item => item.Target.ToDisplayName()).ToArray();
+        Assert.Empty(plan.Skipped);
+
+        // Order: DropIndex (Alpha, Beta) → DropConstraint (Alpha, Beta)
+        var targets = plan.Operations.Select(op => op.Target.ToDisplayName()).ToArray();
         Assert.Equal(new[]
         {
-            "dbo.Alpha.CK_Alpha",
             "dbo.Alpha.IX_Alpha",
-            "dbo.Beta.UQ_Beta",
             "dbo.Beta.IX_Beta",
+            "dbo.Alpha.CK_Alpha",
+            "dbo.Beta.UQ_Beta",
         }, targets);
     }
 
     [Fact]
-    public void Diff_CurrentOnlyColumnsAcrossTables_AreSkippedDeterministically()
+    public void Diff_CurrentOnlyColumnsAcrossTables_EmitsDropColumnsDeterministically()
     {
         var desired = new DatabaseModel();
         desired.GetOrAddTable("dbo", "Alpha");
@@ -665,7 +679,10 @@ public sealed class SchemaDifferTests
         var metadata = new PlanMetadata { Schema = "dbo" };
         var plan = SchemaDiffer.Diff(current, desired, metadata);
 
-        var targets = plan.Skipped.Select(item => item.Target.ToDisplayName()).ToArray();
+        Assert.Empty(plan.Skipped);
+        Assert.All(plan.Operations, op => Assert.Equal(OperationKind.DropColumn, op.Kind));
+
+        var targets = plan.Operations.Select(op => op.Target.ToDisplayName()).ToArray();
         Assert.Equal(new[]
         {
             "dbo.Alpha.Id",
@@ -676,7 +693,7 @@ public sealed class SchemaDifferTests
     }
 
     [Fact]
-    public void Diff_CurrentOnlyForeignKeysAcrossTables_AreSkippedDeterministically()
+    public void Diff_CurrentOnlyForeignKeysAcrossTables_EmitsDropForeignKeysDeterministically()
     {
         var desired = new DatabaseModel();
         desired.GetOrAddTable("dbo", "Alpha");
@@ -708,7 +725,10 @@ public sealed class SchemaDifferTests
         var metadata = new PlanMetadata { Schema = "dbo" };
         var plan = SchemaDiffer.Diff(current, desired, metadata);
 
-        var targets = plan.Skipped.Select(item => item.Target.ToDisplayName()).ToArray();
+        Assert.Empty(plan.Skipped);
+        Assert.All(plan.Operations, op => Assert.Equal(OperationKind.DropForeignKey, op.Kind));
+
+        var targets = plan.Operations.Select(op => op.Target.ToDisplayName()).ToArray();
         Assert.Equal(new[]
         {
             "dbo.Alpha.FK_Alpha_Beta",
@@ -1220,7 +1240,7 @@ CREATE TABLE dbo.Users (
     }
 
     [Fact]
-    public void Diff_WhenCurrentOnlyDescription_IsSkipped()
+    public void Diff_WhenCurrentOnlyDescription_EmitsDropDescription()
     {
         var desired = new DatabaseModel();
         var desiredTable = desired.GetOrAddTable("dbo", "Users");
@@ -1234,9 +1254,9 @@ CREATE TABLE dbo.Users (
         var metadata = new PlanMetadata { Schema = "dbo" };
         var plan = SchemaDiffer.Diff(current, desired, metadata);
 
-        Assert.Empty(plan.Operations);
-        Assert.Equal(2, plan.Skipped.Count);
-        Assert.All(plan.Skipped, item => Assert.Equal(SkippedReason.DropNotSupported, item.Reason));
+        Assert.Empty(plan.Skipped);
+        Assert.Equal(2, plan.Operations.Count);
+        Assert.All(plan.Operations, op => Assert.Equal(OperationKind.DropDescription, op.Kind));
     }
 
     [Fact]
@@ -1424,16 +1444,19 @@ CREATE TABLE dbo.Users (
         var metadata = new PlanMetadata { Schema = "dbo" };
         var plan = SchemaDiffer.Diff(current, desired, metadata);
 
+        Assert.Equal(2, plan.Operations.Count);
+
         // IX_T_Val: RecreateIndex (既存 IX_T_Id を DROP → IX_T_Val を CREATE)
-        var recreateOp = Assert.Single(plan.Operations);
+        var recreateOp = plan.Operations[0];
         Assert.Equal(OperationKind.RecreateIndex, recreateOp.Kind);
         Assert.Contains("DROP INDEX [IX_T_Id]", recreateOp.Sql);
         Assert.Contains("CLUSTERED", recreateOp.Sql);
         Assert.Contains("IX_T_Val", recreateOp.Sql);
 
-        // IX_T_Id は DropNotSupported (desired に存在しない既存インデックス)
-        var dropSkip = Assert.Single(plan.Skipped);
-        Assert.Equal(SkippedReason.DropNotSupported, dropSkip.Reason);
+        // IX_T_Id: DropIndex (desired に存在しない既存インデックス)
+        var dropOp = plan.Operations[1];
+        Assert.Equal(OperationKind.DropIndex, dropOp.Kind);
+        Assert.Empty(plan.Skipped);
     }
 
     [Fact]
@@ -1705,5 +1728,209 @@ CREATE INDEX IX_Users_Id ON dbo.Users(Id)";
         Assert.Empty(plan.Proposals);
         var skipped = Assert.Single(plan.Skipped);
         Assert.Equal(SkippedReason.UnsupportedFeatureInCurrent, skipped.Reason);
+    }
+
+    [Fact]
+    public void Diff_DropColumn_EmitsCorrectSql()
+    {
+        var desired = new DatabaseModel();
+        var desiredTable = desired.GetOrAddTable("dbo", "Users");
+        desiredTable.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+        currentTable.Columns["LEGACY"] = new ColumnModel { Name = "Legacy", SqlType = "int", IsNullable = true };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal(OperationKind.DropColumn, op.Kind);
+        Assert.Equal("ALTER TABLE [dbo].[Users] DROP COLUMN [Legacy]", op.Sql);
+        Assert.Equal("dbo.Users.Legacy", op.Target.ToDisplayName());
+    }
+
+    [Fact]
+    public void Diff_DropConstraint_EmitsCorrectSql()
+    {
+        var desired = new DatabaseModel();
+        desired.GetOrAddTable("dbo", "Users");
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Constraints["UQ_USERS_NAME"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.Unique,
+            Name = "UQ_Users_Name",
+            Columns = new[] { "Name" },
+        };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal(OperationKind.DropConstraint, op.Kind);
+        Assert.Equal("ALTER TABLE [dbo].[Users] DROP CONSTRAINT [UQ_Users_Name]", op.Sql);
+    }
+
+    [Fact]
+    public void Diff_DropForeignKey_EmitsCorrectSql()
+    {
+        var desired = new DatabaseModel();
+        desired.GetOrAddTable("dbo", "Users");
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Constraints["FK_USERS_TEAMS"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.ForeignKey,
+            Name = "FK_Users_Teams",
+            Columns = new[] { "TeamId" },
+            ReferenceSchema = "dbo",
+            ReferenceTable = "Teams",
+            ReferenceColumns = new[] { "Id" },
+        };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal(OperationKind.DropForeignKey, op.Kind);
+        Assert.Equal("ALTER TABLE [dbo].[Users] DROP CONSTRAINT [FK_Users_Teams]", op.Sql);
+    }
+
+    [Fact]
+    public void Diff_DropIndex_EmitsCorrectSql()
+    {
+        var desired = new DatabaseModel();
+        desired.GetOrAddTable("dbo", "Users");
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Indexes["IX_USERS_NAME"] = new IndexModel
+        {
+            Name = "IX_Users_Name",
+            IsUnique = false,
+            KeyColumns = new[] { new IndexKeyColumn { Name = "Name" } },
+        };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal(OperationKind.DropIndex, op.Kind);
+        Assert.Equal("DROP INDEX [IX_Users_Name] ON [dbo].[Users]", op.Sql);
+    }
+
+    [Fact]
+    public void Diff_DropDescription_Table_EmitsCorrectSql()
+    {
+        var desired = new DatabaseModel();
+        var desiredTable = desired.GetOrAddTable("dbo", "Users");
+        desiredTable.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+        currentTable.Description = "Old table desc";
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal(OperationKind.DropDescription, op.Kind);
+        Assert.Contains("sp_dropextendedproperty", op.Sql);
+        Assert.Contains("MS_Description", op.Sql);
+        Assert.DoesNotContain("COLUMN", op.Sql);
+    }
+
+    [Fact]
+    public void Diff_DropDescription_Column_EmitsCorrectSql()
+    {
+        var desired = new DatabaseModel();
+        var desiredTable = desired.GetOrAddTable("dbo", "Users");
+        desiredTable.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false, Description = "Primary key" };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal(OperationKind.DropDescription, op.Kind);
+        Assert.Contains("sp_dropextendedproperty", op.Sql);
+        Assert.Contains("COLUMN", op.Sql);
+        Assert.Contains("Id", op.Sql);
+    }
+
+    [Fact]
+    public void Diff_DropOperationsOrderedAfterAddOperations()
+    {
+        var desired = new DatabaseModel();
+        var desiredTable = desired.GetOrAddTable("dbo", "Users");
+        desiredTable.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+        desiredTable.Columns["EMAIL"] = new ColumnModel { Name = "Email", SqlType = "nvarchar(200)", IsNullable = true };
+        desiredTable.Constraints["UQ_USERS_EMAIL"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.Unique,
+            Name = "UQ_Users_Email",
+            Columns = new[] { "Email" },
+        };
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+        currentTable.Columns["LEGACY"] = new ColumnModel { Name = "Legacy", SqlType = "int", IsNullable = true };
+        currentTable.Indexes["IX_USERS_LEGACY"] = new IndexModel
+        {
+            Name = "IX_Users_Legacy",
+            IsUnique = false,
+            KeyColumns = new[] { new IndexKeyColumn { Name = "Legacy" } },
+        };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        var kinds = plan.Operations.Select(op => op.Kind).ToArray();
+        Assert.Equal(new[]
+        {
+            OperationKind.AddColumn,
+            OperationKind.AddConstraint,
+            OperationKind.DropIndex,
+            OperationKind.DropColumn,
+        }, kinds);
+    }
+
+    [Fact]
+    public void Diff_WithEmitProposals_DropOpsOnProposalTargetAreFilteredOut()
+    {
+        var desired = new DatabaseModel();
+        var desiredTable = desired.GetOrAddTable("dbo", "Users");
+        desiredTable.Columns[IdentifierHelper.NormalizeNameKey("Id")] = new ColumnModel { Name = "Id", SqlType = "INT", IsNullable = false };
+        desiredTable.Columns[IdentifierHelper.NormalizeNameKey("Age")] = new ColumnModel { Name = "Age", SqlType = "BIGINT", IsNullable = true };
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Columns[IdentifierHelper.NormalizeNameKey("Id")] = new ColumnModel { Name = "Id", SqlType = "INT", IsNullable = false };
+        currentTable.Columns[IdentifierHelper.NormalizeNameKey("Age")] = new ColumnModel { Name = "Age", SqlType = "INT", IsNullable = true };
+        currentTable.Columns[IdentifierHelper.NormalizeNameKey("Legacy")] = new ColumnModel { Name = "Legacy", SqlType = "INT", IsNullable = true };
+        currentTable.Indexes[IdentifierHelper.NormalizeNameKey("IX_Users_Legacy")] = new IndexModel
+        {
+            Name = "IX_Users_Legacy",
+            IsUnique = false,
+            KeyColumns = new[] { new IndexKeyColumn { Name = "Legacy" } },
+        };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var options = new PlannerOptions { EmitProposals = true };
+        var plan = SchemaDiffer.Diff(current, desired, metadata, options);
+
+        Assert.Single(plan.Proposals);
+
+        // Drop operations on the same table as the rebuild proposal should be filtered out
+        Assert.Empty(plan.Operations);
     }
 }

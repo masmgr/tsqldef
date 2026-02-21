@@ -157,9 +157,19 @@ public static class DomainArbitraries
         from kind in Gen.Elements(
             OperationKind.CreateTable,
             OperationKind.AddColumn,
+            OperationKind.RecreateConstraint,
             OperationKind.AddConstraint,
+            OperationKind.RecreateIndex,
             OperationKind.CreateIndex,
-            OperationKind.AddForeignKey)
+            OperationKind.AddForeignKey,
+            OperationKind.RecreateForeignKey,
+            OperationKind.AddDescription,
+            OperationKind.UpdateDescription,
+            OperationKind.DropDescription,
+            OperationKind.DropForeignKey,
+            OperationKind.DropIndex,
+            OperationKind.DropConstraint,
+            OperationKind.DropColumn)
         from name in GenSqlIdentifier()
         select new SqlOperation
         {
