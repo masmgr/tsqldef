@@ -282,11 +282,12 @@ Exit criteria:
 - The tool never executes non-additive DDL even if `desired.sql` suggests it
 - JSON plan has a versioned schema and round-trips without losing fidelity (SQL + metadata + skipped)
 
-### v0.4: rebuild “proposal” (swap SQL generation only)
+### v0.4: rebuild proposal + optional swap apply
 
 User-facing:
 - For non-additive diffs (e.g., column type change), emit a **proposal**: shadow table + copy + swap SQL
-- Proposals are **not applied automatically**; they are review output only
+- `plan --emit-swap-sql` includes proposals in review output
+- `apply --swap` executes proposals (shadow-table rebuild) in addition to additive operations
 
 Exit criteria:
 - Non-additive diffs can produce actionable “swap SQL” instead of only `Skipped`

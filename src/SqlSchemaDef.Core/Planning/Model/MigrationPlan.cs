@@ -87,17 +87,30 @@ namespace SqlSchemaDef.Core.Planning
 
             if (options.IncludeProposals && Proposals.Count > 0)
             {
-                AppendProposals(sb, Proposals, newLine);
+                AppendProposals(sb, Proposals, newLine, options.ProposalsWillBeApplied);
             }
 
             return sb.ToString();
         }
 
-        private static void AppendProposals(StringBuilder sb, IReadOnlyList<RebuildProposal> proposals, string newLine)
+        private static void AppendProposals(
+            StringBuilder sb,
+            IReadOnlyList<RebuildProposal> proposals,
+            string newLine,
+            bool proposalsWillBeApplied)
         {
             sb.Append(newLine);
             sb.Append("-- ============================================================").Append(newLine);
-            sb.Append("-- PROPOSALS (review only - NOT applied automatically)").Append(newLine);
+            sb.Append("-- PROPOSALS ");
+            if (proposalsWillBeApplied)
+            {
+                sb.Append("(will be applied by apply --swap)");
+            }
+            else
+            {
+                sb.Append("(review only - NOT applied automatically)");
+            }
+            sb.Append(newLine);
             sb.Append("-- ============================================================").Append(newLine);
 
             for (int p = 0; p < proposals.Count; p++)

@@ -207,6 +207,39 @@ public sealed class MigrationPlanToScriptTests
     }
 
     [Fact]
+    public void ToScript_WithProposalsMarkedExecutable_UsesApplyHeader()
+    {
+        var plan = new MigrationPlan(
+            new PlanMetadata { Schema = "dbo" },
+            Array.Empty<SqlOperation>(),
+            Array.Empty<SkippedItem>(),
+            new[]
+            {
+                new RebuildProposal
+                {
+                    Target = new SqlObjectRef { Type = SqlObjectType.Table, Schema = "dbo", Name = "Users" },
+                    Description = "Rebuild dbo.Users",
+                    Steps = new[]
+                    {
+                        new RebuildStep { Kind = RebuildStepKind.CreateShadowTable, Description = "Create shadow table", Sql = "CREATE TABLE dbo.__Users_rebuild (Id INT NOT NULL)" },
+                    },
+                    Script = "CREATE TABLE dbo.__Users_rebuild (Id INT NOT NULL)",
+                },
+            });
+
+        var script = plan.ToScript(new ScriptOptions
+        {
+            HeaderMode = ScriptHeaderMode.None,
+            NewLine = "\n",
+            IncludeProposals = true,
+            ProposalsWillBeApplied = true,
+        });
+
+        Assert.Contains("-- PROPOSALS (will be applied by apply --swap)", script);
+        Assert.DoesNotContain("review only", script);
+    }
+
+    [Fact]
     public void ToScript_WithEmptyProposals_NoProposalSection()
     {
         var plan = new MigrationPlan(

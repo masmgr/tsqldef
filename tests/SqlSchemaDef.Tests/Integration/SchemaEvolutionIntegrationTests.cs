@@ -579,6 +579,118 @@ INSERT INTO dbo.Users (Id, Age) VALUES (1, 30);
     }
 
     [Fact]
+    public async Task ApplyWithSwap_ColumnTypeChangeAndConstraintAdd_SucceedsWithoutConstraintConflict()
+    {
+        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
+        if (string.IsNullOrWhiteSpace(master))
+        {
+            return;
+        }
+
+        await using var db = await SqlServerTestDatabase.CreateAsync(master);
+
+        await using (var conn = new SqlConnection(db.ConnectionString))
+        {
+            await conn.OpenAsync();
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = @"
+CREATE TABLE dbo.Users (
+    Id int NOT NULL CONSTRAINT PK_Users PRIMARY KEY,
+    Age int NULL
+);
+INSERT INTO dbo.Users (Id, Age) VALUES (1, 30);
+";
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        const string desiredSql = @"
+CREATE TABLE dbo.Users (
+    Id int NOT NULL,
+    Age bigint NULL,
+    CONSTRAINT PK_Users PRIMARY KEY (Id),
+    CONSTRAINT CK_Users_Age CHECK (Age >= 0)
+)";
+
+        await using var conn2 = new SqlConnection(db.ConnectionString);
+        await conn2.OpenAsync();
+
+        var planner = new SqlServerSchemaPlanner();
+        var applier = new SqlServerSchemaApplier();
+
+        var plan = await planner.PlanAsync(conn2, desiredSql, new PlannerOptions { EmitProposals = true });
+
+        Assert.Single(plan.Proposals);
+        Assert.Single(plan.Skipped);
+        Assert.Empty(plan.Operations);
+
+        await applier.ApplyAsync(conn2, plan, new ApplyOptions { ApplyProposals = true });
+
+        Assert.Equal("bigint", await GetColumnTypeNameAsync(conn2, "Users", "Age"));
+        Assert.Equal(1, await CountConstraintsAsync(conn2, "Users", "PK_Users"));
+        Assert.Equal(1, await CountConstraintsAsync(conn2, "Users", "CK_Users_Age"));
+        Assert.Equal(0, await CountTablesAsync(conn2, "__Users_rebuild"));
+        Assert.Equal(0, await CountTablesAsync(conn2, "Users_old"));
+    }
+
+    [Fact]
+    public async Task ApplyWithSwap_ProposalFailure_RollsBackOperationsInSingleTransaction()
+    {
+        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
+        if (string.IsNullOrWhiteSpace(master))
+        {
+            return;
+        }
+
+        await using var db = await SqlServerTestDatabase.CreateAsync(master);
+
+        var proposal = new RebuildProposal
+        {
+            Target = new SqlObjectRef { Type = SqlObjectType.Table, Schema = "dbo", Name = "T" },
+            Description = "Failing proposal",
+            Steps = new[]
+            {
+                new RebuildStep
+                {
+                    Kind = RebuildStepKind.CreateShadowTable,
+                    Description = "create temporary shadow table",
+                    Sql = "CREATE TABLE dbo.__T_rebuild (Id int NOT NULL)",
+                },
+                new RebuildStep
+                {
+                    Kind = RebuildStepKind.CopyData,
+                    Description = "fail intentionally",
+                    Sql = "THIS IS NOT VALID SQL",
+                },
+            },
+        };
+
+        var plan = new MigrationPlan(
+            new PlanMetadata { Schema = "dbo" },
+            new[]
+            {
+                new SqlOperation
+                {
+                    Kind = OperationKind.CreateTable,
+                    Description = "Create table dbo.OperationAppliedBeforeProposal",
+                    Sql = "CREATE TABLE dbo.OperationAppliedBeforeProposal (Id int NOT NULL)",
+                    Target = new SqlObjectRef { Type = SqlObjectType.Table, Schema = "dbo", Name = "OperationAppliedBeforeProposal" },
+                },
+            },
+            Array.Empty<SkippedItem>(),
+            new[] { proposal });
+
+        await using var conn = new SqlConnection(db.ConnectionString);
+        await conn.OpenAsync();
+
+        var applier = new SqlServerSchemaApplier();
+        await Assert.ThrowsAsync<RebuildFailedException>(() =>
+            applier.ApplyAsync(conn, plan, new ApplyOptions { ApplyProposals = true }));
+
+        Assert.Equal(0, await CountTablesAsync(conn, "OperationAppliedBeforeProposal"));
+        Assert.Equal(0, await CountTablesAsync(conn, "__T_rebuild"));
+    }
+
+    [Fact]
     public async Task ApplyWithSwap_StepFails_ThrowsRebuildFailedException()
     {
         var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();

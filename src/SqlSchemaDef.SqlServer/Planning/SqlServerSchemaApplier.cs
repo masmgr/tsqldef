@@ -36,23 +36,19 @@ namespace SqlSchemaDef.SqlServer.Planning
             options = options ?? new ApplyOptions();
             PlanValidator.ValidateForApply(plan);
 
-            if (plan.Operations.Count > 0)
+            var operationsToApply = plan.Operations;
+            if (options.ApplyProposals && plan.Proposals.Count > 0 && plan.Operations.Count > 0)
             {
-                await ExecuteOperationsAsync(sqlConnection, plan, options, cancellationToken).ConfigureAwait(false);
+                operationsToApply = FilterOperationsCoveredByProposals(plan.Operations, plan.Proposals);
             }
 
-            if (options.ApplyProposals && plan.Proposals.Count > 0)
+            var applyOperations = operationsToApply.Count > 0;
+            var applyProposals = options.ApplyProposals && plan.Proposals.Count > 0;
+            if (!applyOperations && !applyProposals)
             {
-                await ExecuteProposalsAsync(sqlConnection, plan.Proposals, cancellationToken).ConfigureAwait(false);
+                return;
             }
-        }
 
-        private async Task ExecuteOperationsAsync(
-            SqlConnection sqlConnection,
-            MigrationPlan plan,
-            ApplyOptions options,
-            CancellationToken cancellationToken)
-        {
             SqlTransaction tx = null;
             try
             {
@@ -61,43 +57,14 @@ namespace SqlSchemaDef.SqlServer.Planning
                     tx = sqlConnection.BeginTransaction();
                 }
 
-                for (int i = 0; i < plan.Operations.Count; i++)
+                if (applyOperations)
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    var op = plan.Operations[i];
-                    if (op == null)
-                    {
-                        continue;
-                    }
+                    await ExecuteOperationsAsync(sqlConnection, operationsToApply, tx, cancellationToken).ConfigureAwait(false);
+                }
 
-                    if (string.IsNullOrWhiteSpace(op.Sql))
-                    {
-                        throw new InvalidOperationException("Operation.Sql is empty.");
-                    }
-
-                    _logger?.LogInformation("Applying: {Description}", op.Description ?? op.Kind.ToString());
-
-                    using (var cmd = sqlConnection.CreateCommand())
-                    {
-                        cmd.CommandType = CommandType.Text;
-                        cmd.CommandText = op.Sql;
-                        if (tx != null)
-                        {
-                            cmd.Transaction = tx;
-                        }
-
-                        try
-                        {
-                            await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-                        }
-                        catch (Exception ex)
-                        {
-                            throw new ApplyFailedException(
-                                "Failed to apply operation: " + (op.Description ?? op.Kind.ToString()),
-                                op,
-                                ex);
-                        }
-                    }
+                if (applyProposals)
+                {
+                    await ExecuteProposalsAsync(sqlConnection, plan.Proposals, tx, cancellationToken).ConfigureAwait(false);
                 }
 
                 tx?.Commit();
@@ -124,9 +91,56 @@ namespace SqlSchemaDef.SqlServer.Planning
             }
         }
 
+        private async Task ExecuteOperationsAsync(
+            SqlConnection sqlConnection,
+            IReadOnlyList<SqlOperation> operations,
+            SqlTransaction tx,
+            CancellationToken cancellationToken)
+        {
+            for (int i = 0; i < operations.Count; i++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var op = operations[i];
+                if (op == null)
+                {
+                    continue;
+                }
+
+                if (string.IsNullOrWhiteSpace(op.Sql))
+                {
+                    throw new InvalidOperationException("Operation.Sql is empty.");
+                }
+
+                _logger?.LogInformation("Applying: {Description}", op.Description ?? op.Kind.ToString());
+
+                using (var cmd = sqlConnection.CreateCommand())
+                {
+                    cmd.CommandType = CommandType.Text;
+                    cmd.CommandText = op.Sql;
+                    if (tx != null)
+                    {
+                        cmd.Transaction = tx;
+                    }
+
+                    try
+                    {
+                        await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        throw new ApplyFailedException(
+                            "Failed to apply operation: " + (op.Description ?? op.Kind.ToString()),
+                            op,
+                            ex);
+                    }
+                }
+            }
+        }
+
         private async Task ExecuteProposalsAsync(
             SqlConnection sqlConnection,
             IReadOnlyList<RebuildProposal> proposals,
+            SqlTransaction tx,
             CancellationToken cancellationToken)
         {
             for (int p = 0; p < proposals.Count; p++)
@@ -162,8 +176,11 @@ namespace SqlSchemaDef.SqlServer.Planning
                         {
                             cmd.CommandType = CommandType.Text;
                             cmd.CommandText = fragment;
+                            if (tx != null)
+                            {
+                                cmd.Transaction = tx;
+                            }
 
-                            // No transaction — auto-commit; sp_rename, SET IDENTITY_INSERT are session-scoped
                             try
                             {
                                 await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
@@ -180,6 +197,88 @@ namespace SqlSchemaDef.SqlServer.Planning
                         }
                     }
                 }
+            }
+        }
+
+        private IReadOnlyList<SqlOperation> FilterOperationsCoveredByProposals(
+            IReadOnlyList<SqlOperation> operations,
+            IReadOnlyList<RebuildProposal> proposals)
+        {
+            var proposalTargetKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            for (var i = 0; i < proposals.Count; i++)
+            {
+                var target = proposals[i].Target;
+                if (target == null || target.Type != SqlObjectType.Table)
+                {
+                    continue;
+                }
+
+                proposalTargetKeys.Add(IdentifierHelper.BuildTableKey(target.Schema, target.Name));
+            }
+
+            if (proposalTargetKeys.Count == 0)
+            {
+                return operations;
+            }
+
+            var filtered = new List<SqlOperation>(operations.Count);
+            for (var i = 0; i < operations.Count; i++)
+            {
+                var operation = operations[i];
+                var tableKey = GetOperationTableKey(operation);
+                if (tableKey != null && proposalTargetKeys.Contains(tableKey))
+                {
+                    _logger?.LogInformation(
+                        "Skipping operation covered by rebuild proposal: {Description}",
+                        operation?.Description ?? operation?.Kind.ToString() ?? "(unknown)");
+                    continue;
+                }
+
+                filtered.Add(operation);
+            }
+
+            return filtered;
+        }
+
+        private static string GetOperationTableKey(SqlOperation operation)
+        {
+            var target = operation?.Target;
+            if (target == null)
+            {
+                return null;
+            }
+
+            switch (target.Type)
+            {
+                case SqlObjectType.Table:
+                    if (string.IsNullOrEmpty(target.Name))
+                    {
+                        return null;
+                    }
+
+                    return IdentifierHelper.BuildTableKey(target.Schema, target.Name);
+                case SqlObjectType.Column:
+                case SqlObjectType.Constraint:
+                case SqlObjectType.Index:
+                case SqlObjectType.ForeignKey:
+                    if (string.IsNullOrEmpty(target.ParentName))
+                    {
+                        return null;
+                    }
+
+                    return IdentifierHelper.BuildTableKey(target.Schema, target.ParentName);
+                case SqlObjectType.Description:
+                    var descriptionTable = string.IsNullOrEmpty(target.ParentName)
+                        ? target.Name
+                        : target.ParentName;
+                    if (string.IsNullOrEmpty(descriptionTable))
+                    {
+                        return null;
+                    }
+
+                    return IdentifierHelper.BuildTableKey(target.Schema, descriptionTable);
+                default:
+                    return null;
             }
         }
     }

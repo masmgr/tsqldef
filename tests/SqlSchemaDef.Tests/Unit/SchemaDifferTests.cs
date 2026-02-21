@@ -1018,6 +1018,30 @@ public sealed class SchemaDifferTests
     }
 
     [Fact]
+    public void Diff_WithEmitProposalsTrue_OperationsOnProposalTargetAreFilteredOut()
+    {
+        const string desiredSql = @"
+CREATE TABLE dbo.Users (
+    Id int NOT NULL,
+    Age bigint NULL,
+    CONSTRAINT CK_Users_Age CHECK (Age >= 0)
+)";
+        var desired = DesiredSchemaLoader.Load(desiredSql);
+        var current = new DatabaseModel();
+        var table = current.GetOrAddTable("dbo", "Users");
+        table.Columns[IdentifierHelper.NormalizeNameKey("Id")] = new ColumnModel { Name = "Id", SqlType = "INT", IsNullable = false };
+        table.Columns[IdentifierHelper.NormalizeNameKey("Age")] = new ColumnModel { Name = "Age", SqlType = "INT", IsNullable = true };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var options = new PlannerOptions { EmitProposals = true };
+        var plan = SchemaDiffer.Diff(current, desired, metadata, options);
+
+        Assert.Single(plan.Proposals);
+        Assert.Contains(plan.Skipped, s => s.Reason == SkippedReason.AlterNotSupported && s.Target != null && s.Target.Name == "Age");
+        Assert.Empty(plan.Operations);
+    }
+
+    [Fact]
     public void Diff_WhenTableDescriptionMissing_EmitsAddDescription()
     {
         var desired = new DatabaseModel();

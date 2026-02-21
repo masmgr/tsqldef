@@ -335,6 +335,7 @@ namespace SqlSchemaDef.Cli
             {
                 HeaderMode = ScriptHeaderMode.DryRunStyle,
                 IncludeProposals = applySwap,
+                ProposalsWillBeApplied = applySwap,
             }));
 
             if (!plan.IsEmpty || (applySwap && plan.Proposals.Count > 0))

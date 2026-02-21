@@ -238,11 +238,11 @@ Goal: harden safety and enable machine-readable plans for CI/CD workflows.
 
 ---
 
-## 14. v0.4 Product milestone: rebuild proposal (swap SQL only)
+## 14. v0.4 Product milestone: rebuild proposal + optional swap apply
 
-Goal: for non-additive diffs, generate actionable “manual migration” SQL without executing it.
+Goal: for non-additive diffs, generate actionable rebuild SQL and optionally execute it with `apply --swap`.
 
 - [ ] Decide: proposal representation (`RebuildProposal` list in `MigrationPlan.Metadata` or a separate section)
 - [ ] Test: type change diff produces a proposal with shadow table + copy + swap steps
-- [ ] Implement: proposal generator (no apply support)
-- [ ] CLI: `plan --emit-swap-sql` prints proposals after the normal v1 plan output
+- [x] Implement: proposal generator + `apply --swap` execution path
+- [x] CLI: `plan --emit-swap-sql` prints proposals after the normal v1 plan output
