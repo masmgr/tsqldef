@@ -1377,4 +1377,110 @@ public sealed class SchemaDifferTests
         Assert.Empty(plan.Operations);
         Assert.Empty(plan.Skipped);
     }
+
+    [Fact]
+    public void Diff_WhenExistingIndexHasDifferentFilterPredicate_IsSkipped()
+    {
+        const string desiredSql =
+            "CREATE TABLE dbo.T (Id int NOT NULL)\nCREATE INDEX IX_T ON dbo.T (Id) WHERE Id > 0";
+        var desired = DesiredSchemaLoader.Load(desiredSql);
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "T");
+        currentTable.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+        currentTable.Indexes["IX_T"] = new IndexModel
+        {
+            Name = "IX_T",
+            IsUnique = false,
+            IsClustered = false,
+            KeyColumns = new List<IndexKeyColumn> { new IndexKeyColumn { Name = "Id" } },
+
+            // 現在のDBのフィルタ述語は desired と異なる
+            FilterPredicate = "Id > 100",
+        };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        Assert.Empty(plan.Operations);
+        var skip = Assert.Single(plan.Skipped);
+        Assert.Equal(SkippedReason.AlterNotSupported, skip.Reason);
+        Assert.Equal("IX_T", skip.Target.Name);
+    }
+
+    [Fact]
+    public void Diff_WhenExistingIndexHasSameFilterPredicate_IsNotSkipped()
+    {
+        const string desiredSql =
+            "CREATE TABLE dbo.T (Id int NOT NULL)\nCREATE INDEX IX_T ON dbo.T (Id) WHERE Id > 0";
+        var desired = DesiredSchemaLoader.Load(desiredSql);
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "T");
+        currentTable.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+        currentTable.Indexes["IX_T"] = new IndexModel
+        {
+            Name = "IX_T",
+            IsUnique = false,
+            IsClustered = false,
+            KeyColumns = new List<IndexKeyColumn> { new IndexKeyColumn { Name = "Id" } },
+            FilterPredicate = "Id > 0",
+        };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        Assert.Empty(plan.Operations);
+        Assert.Empty(plan.Skipped);
+    }
+
+    [Fact]
+    public void Diff_WhenExistingIndexHasDifferentFillFactor_IsSkipped()
+    {
+        const string desiredSql =
+            "CREATE TABLE dbo.T (Id int NOT NULL)\nCREATE INDEX IX_T ON dbo.T (Id) WITH (FILLFACTOR = 80)";
+        var desired = DesiredSchemaLoader.Load(desiredSql);
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "T");
+        currentTable.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+        currentTable.Indexes["IX_T"] = new IndexModel
+        {
+            Name = "IX_T",
+            IsUnique = false,
+            IsClustered = false,
+            KeyColumns = new List<IndexKeyColumn> { new IndexKeyColumn { Name = "Id" } },
+            Options = new System.Collections.Generic.Dictionary<string, string>
+            {
+                { "FILLFACTOR", "90" },
+            },
+        };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        Assert.Empty(plan.Operations);
+        var skip = Assert.Single(plan.Skipped);
+        Assert.Equal(SkippedReason.AlterNotSupported, skip.Reason);
+        Assert.Equal("IX_T", skip.Target.Name);
+    }
+
+    [Fact]
+    public void Diff_WhenNewIndexHasMultipleOptions_EmitsAllOptionsInWithClause()
+    {
+        const string desiredSql =
+            "CREATE TABLE dbo.T (Id int NOT NULL)\nCREATE INDEX IX_T ON dbo.T (Id) WITH (FILLFACTOR = 90, PAD_INDEX = ON)";
+        var desired = DesiredSchemaLoader.Load(desiredSql);
+        var current = new DatabaseModel();
+        current.GetOrAddTable("dbo", "T").Columns["ID"] =
+            new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal(OperationKind.CreateIndex, op.Kind);
+        Assert.Contains("FILLFACTOR = 90", op.Sql);
+        Assert.Contains("PADINDEX = ON", op.Sql);
+    }
 }

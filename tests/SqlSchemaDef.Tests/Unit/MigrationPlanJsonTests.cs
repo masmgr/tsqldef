@@ -227,6 +227,51 @@ public sealed class MigrationPlanJsonTests
         Assert.Equal(original.Warning, roundTripped.Warning);
     }
 
+    [Fact]
+    public void RoundTrip_SkippedItemWithDetails_PreservesDetails()
+    {
+        var plan = new MigrationPlan(
+            new PlanMetadata { Schema = "dbo", PlanFormatVersion = 1 },
+            Array.Empty<SqlOperation>(),
+            new[]
+            {
+                new SkippedItem
+                {
+                    Reason = SkippedReason.AlterNotSupported,
+                    Message = "alter is not supported in v1",
+                    Target = new SqlObjectRef { Type = SqlObjectType.Column, Schema = "dbo", ParentName = "Users", Name = "Age" },
+                    Details = "desired=bigint current=int",
+                },
+            });
+
+        var json = MigrationPlanSerializer.ToJson(plan);
+        var deserialized = MigrationPlanSerializer.FromJson(json);
+
+        Assert.Equal("desired=bigint current=int", deserialized.Skipped[0].Details);
+    }
+
+    [Fact]
+    public void ToJson_SkippedItemWithNullDetails_OmitsDetailsKey()
+    {
+        var plan = new MigrationPlan(
+            new PlanMetadata { Schema = "dbo", PlanFormatVersion = 1 },
+            Array.Empty<SqlOperation>(),
+            new[]
+            {
+                new SkippedItem
+                {
+                    Reason = SkippedReason.DropNotSupported,
+                    Message = "drop is not supported",
+                    Details = null,
+                },
+            });
+
+        var json = MigrationPlanSerializer.ToJson(plan);
+
+        // null は出力されない (nulls ignored 設定)
+        Assert.DoesNotContain("\"details\"", json);
+    }
+
     private static MigrationPlan CreatePlanWithProposals()
     {
         return new MigrationPlan(
