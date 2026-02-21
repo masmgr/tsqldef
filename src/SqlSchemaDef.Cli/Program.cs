@@ -146,7 +146,11 @@ namespace SqlSchemaDef.Cli
                 return Array.Empty<string>();
             }
 
-            return value.Split(CsvSeparator, StringSplitOptions.RemoveEmptyEntries);
+            return value
+                .Split(CsvSeparator, StringSplitOptions.RemoveEmptyEntries)
+                .Select(part => part.Trim())
+                .Where(part => part.Length > 0)
+                .ToArray();
         }
 
         private static async Task<int> RunPlanAsync(List<string> args)

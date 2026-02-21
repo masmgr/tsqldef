@@ -228,21 +228,7 @@ namespace SqlSchemaDef.SqlServer.Planning
                     sb.Append(", ");
                 }
 
-                sb.Append(IdentifierHelper.Escape(column.Name))
-                    .Append(' ')
-                    .Append(column.SqlType);
-
-                if (column.IsIdentity)
-                {
-                    sb.Append(" IDENTITY");
-                }
-
-                if (!string.IsNullOrWhiteSpace(column.DefaultExpression))
-                {
-                    sb.Append(" DEFAULT ").Append(column.DefaultExpression);
-                }
-
-                sb.Append(' ').Append(column.IsNullable ? "NULL" : "NOT NULL");
+                sb.Append(SqlStatementBuilder.BuildColumnDefinitionSql(column));
             }
 
             sb.Append(')');
@@ -285,41 +271,7 @@ namespace SqlSchemaDef.SqlServer.Planning
                 return string.Empty;
             }
 
-            var unique = index.IsUnique ? "UNIQUE " : string.Empty;
-            var sql = "CREATE " + unique + "INDEX " + IdentifierHelper.Escape(index.Name) + " ON " +
-                      IdentifierHelper.Escape(table.Schema) + "." + IdentifierHelper.Escape(table.Name) + " (" + JoinIndexColumns(index.KeyColumns) + ")";
-
-            if (index.IncludeColumns?.Count > 0)
-            {
-                var include = index.IncludeColumns.Select(IdentifierHelper.Escape);
-                sql += " INCLUDE (" + string.Join(", ", include) + ")";
-            }
-
-            return sql;
-        }
-
-        private static string JoinIndexColumns(IReadOnlyList<IndexKeyColumn> columns)
-        {
-            if (columns == null || columns.Count == 0)
-            {
-                return string.Empty;
-            }
-
-            var parts = new string[columns.Count];
-            for (var i = 0; i < columns.Count; i++)
-            {
-                var column = columns[i];
-                if (column == null || string.IsNullOrWhiteSpace(column.Name))
-                {
-                    parts[i] = string.Empty;
-                    continue;
-                }
-
-                var name = IdentifierHelper.Escape(column.Name);
-                parts[i] = column.IsDescending ? name + " DESC" : name;
-            }
-
-            return string.Join(", ", parts);
+            return SqlStatementBuilder.BuildCreateIndexSql(table, index);
         }
 
         private static List<string> BuildDescriptionStatements(List<TableModel> tables)

@@ -178,7 +178,7 @@ public sealed class DesiredModelBuilderVisitorTests
         Assert.NotNull(index.Options);
         Assert.True(index.Options.TryGetValue("FILLFACTOR", out var ff));
         Assert.Equal("90", ff);
-        Assert.True(index.Options.TryGetValue("PADINDEX", out var pi));
+        Assert.True(index.Options.TryGetValue("PAD_INDEX", out var pi));
         Assert.Equal("ON", pi);
     }
 

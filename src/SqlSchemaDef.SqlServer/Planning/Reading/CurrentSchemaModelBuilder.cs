@@ -491,27 +491,27 @@ namespace SqlSchemaDef.SqlServer.Planning
 
             if (row.IsPadded)
             {
-                options["PADINDEX"] = "ON";
+                options["PAD_INDEX"] = "ON";
             }
 
             if (row.IgnoreDupKey)
             {
-                options["IGNOREDUPKEY"] = "ON";
+                options["IGNORE_DUP_KEY"] = "ON";
             }
 
             if (!row.AllowRowLocks)
             {
-                options["ALLOWROWLOCKS"] = "OFF";
+                options["ALLOW_ROW_LOCKS"] = "OFF";
             }
 
             if (!row.AllowPageLocks)
             {
-                options["ALLOWPAGELOCKS"] = "OFF";
+                options["ALLOW_PAGE_LOCKS"] = "OFF";
             }
 
             if (row.NoRecompute)
             {
-                options["STATISTICSNORECOMPUTE"] = "ON";
+                options["STATISTICS_NORECOMPUTE"] = "ON";
             }
 
             return options.Count == 0 ? null : options;

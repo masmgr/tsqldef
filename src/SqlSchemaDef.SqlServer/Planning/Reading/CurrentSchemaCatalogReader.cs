@@ -155,12 +155,15 @@ SELECT
   i.ignore_dup_key,
   i.allow_row_locks,
   i.allow_page_locks,
-  i.no_recompute
+  CAST(ISNULL(st.no_recompute, 0) AS bit) AS no_recompute
 FROM sys.tables AS t
 JOIN sys.schemas AS s
   ON s.schema_id = t.schema_id
 JOIN sys.indexes AS i
   ON i.object_id = t.object_id
+LEFT JOIN sys.stats AS st
+  ON st.object_id = i.object_id
+ AND st.stats_id = i.index_id
 JOIN sys.index_columns AS ic
   ON ic.object_id = i.object_id
  AND ic.index_id = i.index_id

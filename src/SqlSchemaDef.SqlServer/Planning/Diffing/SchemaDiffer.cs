@@ -701,6 +701,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             {
                 "ONLINE",
                 "SORTINTEMPDB",
+                "SORT_IN_TEMPDB",
             };
 
             foreach (var kv in desired)
@@ -785,7 +786,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             return new SqlOperation
             {
                 Kind = OperationKind.CreateTable,
-                Description = "Create table dbo." + table.Name,
+                Description = "Create table " + table.Schema + "." + table.Name,
                 Sql = sql,
                 Target = new SqlObjectRef
                 {

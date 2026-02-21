@@ -1481,6 +1481,6 @@ public sealed class SchemaDifferTests
         var op = Assert.Single(plan.Operations);
         Assert.Equal(OperationKind.CreateIndex, op.Kind);
         Assert.Contains("FILLFACTOR = 90", op.Sql);
-        Assert.Contains("PADINDEX = ON", op.Sql);
+        Assert.Contains("PAD_INDEX = ON", op.Sql);
     }
 }

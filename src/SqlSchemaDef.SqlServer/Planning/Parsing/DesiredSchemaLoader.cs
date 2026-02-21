@@ -209,7 +209,7 @@ namespace SqlSchemaDef.SqlServer.Planning
 
         private static void ParseIndexOption(IndexOption option, Dictionary<string, string> options)
         {
-            var name = option.OptionKind.ToString().ToUpperInvariant();
+            var name = NormalizeIndexOptionName(option.OptionKind.ToString());
             if (option is IndexExpressionOption exprOpt)
             {
                 options[name] = (exprOpt.Expression as Literal)?.Value ?? string.Empty;
@@ -221,6 +221,30 @@ namespace SqlSchemaDef.SqlServer.Planning
             else
             {
                 options[name] = GenerateScript(option).Trim();
+            }
+        }
+
+        private static string NormalizeIndexOptionName(string optionKind)
+        {
+            var raw = (optionKind ?? string.Empty).Trim().ToUpperInvariant();
+            switch (raw)
+            {
+                case "PADINDEX":
+                    return "PAD_INDEX";
+                case "IGNOREDUPKEY":
+                    return "IGNORE_DUP_KEY";
+                case "ALLOWROWLOCKS":
+                    return "ALLOW_ROW_LOCKS";
+                case "ALLOWPAGELOCKS":
+                    return "ALLOW_PAGE_LOCKS";
+                case "STATISTICSNORECOMPUTE":
+                    return "STATISTICS_NORECOMPUTE";
+                case "SORTINTEMPDB":
+                    return "SORT_IN_TEMPDB";
+                case "DROPEXISTING":
+                    return "DROP_EXISTING";
+                default:
+                    return raw;
             }
         }
 
