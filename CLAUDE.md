@@ -57,6 +57,25 @@ live DB → CurrentSchemaCatalogReader → CurrentSchemaModelBuilder → Databas
 - **`RebuildProposalBuilder`** ([RebuildProposalBuilder.cs](src/SqlSchemaDef.SqlServer/Planning/RebuildProposalBuilder.cs)) — Generates shadow-table rebuild steps for column alterations that can't be done additively.
 - **`MigrationPlanSerializer`** ([MigrationPlanSerializer.cs](src/SqlSchemaDef.Core/Planning/MigrationPlanSerializer.cs)) — JSON serialization (Newtonsoft.Json, camelCase, enums as strings, nulls ignored).
 
+### DDL Feature Coverage (as of v0.6)
+
+Supported:
+- Tables and columns (CREATE TABLE, ALTER TABLE ADD COLUMN)
+- Column options: data types, NULL/NOT NULL, IDENTITY, DEFAULT expression, COLLATE
+- Primary key, UNIQUE, CHECK, FOREIGN KEY constraints (with ON DELETE/UPDATE actions)
+- Indexes: CREATE [UNIQUE] [CLUSTERED|NONCLUSTERED] INDEX, INCLUDE columns, WHERE (filtered), WITH options (FILLFACTOR, PAD_INDEX, etc.)
+- MS_Description extended properties (tables and columns)
+- Strict mode, JSON plan output, scope filters
+
+Not supported (skipped or rejected):
+- ALTER TABLE MODIFY/DROP COLUMN (additive-only; column alterations generate rebuild proposals)
+- Computed columns
+- PARTITION schemes
+- Columnstore indexes
+- XML/spatial indexes
+- Row-level security, masked columns
+- Triggers, views, stored procedures, functions
+
 ## Conventions
 
 ### Development Workflow
@@ -80,3 +99,17 @@ Core and SqlServer projects target netstandard2.0 — no `record`, `required`, o
 - Private fields: `camelCase` (underscore prefix `_field` is allowed, SA1309 suppressed)
 - Test methods: `Method_Scenario_Expected` pattern (CA1707 suppressed in tests)
 - Dictionary keys: always normalized via `IdentifierHelper.NormalizeNameKey()` / `BuildTableKey()`
+
+### ScriptDom Notes (v170 / TSql160Parser)
+- `CreateIndexStatement.Clustered` is `bool?` (nullable) — use `node.Clustered == true`
+- `ColumnDefinitionBase.Collation` is `Identifier` type — use `.Value` for the string
+- Index option types: `IndexExpressionOption` (not `LiteralIndexOption`) and `IndexStateOption` (not `OnOffIndexOption`)
+- `IndexOptionKind.SortInTempDB` — note uppercase "DB"
+
+### Milestone History
+- v0.1: export/plan/apply for tables + columns + indexes
+- v0.2: constraints (PK, UNIQUE, CHECK) + foreign keys
+- v0.3: strict mode, JSON plan output, scope filters
+- v0.4: rebuild proposals / shadow-table swap SQL generation
+- v0.5: MS_Description extended properties (tables and columns)
+- v0.6: COLLATE on columns, filtered indexes (WHERE), clustered indexes, index options (WITH)
