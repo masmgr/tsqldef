@@ -377,6 +377,104 @@ public sealed class CliArgumentParsingTests
     }
 
     [Fact]
+    public async Task Export_SchemaFlag_IsRecognized()
+    {
+        var originalError = Console.Error;
+        try
+        {
+            using var stderr = new StringWriter();
+            Console.SetError(stderr);
+
+            var exitCode = await SqlSchemaDef.Cli.Program.Main(new[]
+            {
+                "export",
+                "--schema", "sales",
+                "--connection", "Server=(local);Database=master;Trusted_Connection=True;",
+            });
+
+            var output = stderr.ToString();
+            Assert.DoesNotContain("Unknown arg: --schema", output);
+            Assert.NotEqual(2, exitCode);
+        }
+        finally
+        {
+            Console.SetError(originalError);
+        }
+    }
+
+    [Fact]
+    public async Task Plan_SchemaFlag_IsRecognized()
+    {
+        var originalError = Console.Error;
+        try
+        {
+            using var stderr = new StringWriter();
+            Console.SetError(stderr);
+
+            var exitCode = await SqlSchemaDef.Cli.Program.Main(new[]
+            {
+                "plan",
+                "--schema", "sales",
+                "--connection", "Server=(local);Database=master;Trusted_Connection=True;",
+            });
+
+            var output = stderr.ToString();
+            Assert.DoesNotContain("Unknown arg: --schema", output);
+        }
+        finally
+        {
+            Console.SetError(originalError);
+        }
+    }
+
+    [Fact]
+    public async Task Apply_SchemaFlag_IsRecognized()
+    {
+        var originalError = Console.Error;
+        try
+        {
+            using var stderr = new StringWriter();
+            Console.SetError(stderr);
+
+            var exitCode = await SqlSchemaDef.Cli.Program.Main(new[]
+            {
+                "apply",
+                "--connection", "Server=(local);Database=master;Trusted_Connection=True;",
+                "--schema", "sales",
+                "--file", "nonexistent.sql",
+            });
+
+            var output = stderr.ToString();
+            Assert.DoesNotContain("Unknown arg: --schema", output);
+            Assert.NotEqual(2, exitCode);
+        }
+        finally
+        {
+            Console.SetError(originalError);
+        }
+    }
+
+    [Fact]
+    public async Task Help_MentionsSchemaOption()
+    {
+        var originalError = Console.Error;
+        try
+        {
+            using var stderr = new StringWriter();
+            Console.SetError(stderr);
+
+            await SqlSchemaDef.Cli.Program.Main(new[] { "--help" });
+
+            var output = stderr.ToString();
+            Assert.Contains("--schema", output);
+        }
+        finally
+        {
+            Console.SetError(originalError);
+        }
+    }
+
+    [Fact]
     public void ParseCsvArg_TrimsWhitespaceAndRemovesEmptyEntries()
     {
         var values = SqlSchemaDef.Cli.CliArgumentParser.ParseCsvArg(" Users, Orders ,, Logs ");

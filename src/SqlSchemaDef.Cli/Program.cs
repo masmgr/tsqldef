@@ -21,16 +21,17 @@ namespace SqlSchemaDef.Cli
         private static int PrintUsage(int exitCode)
         {
             Console.Error.WriteLine("Usage:");
-            Console.Error.WriteLine("  SqlSchemaDef.Cli export --connection <cs> [--out <desired.sql>]");
-            Console.Error.WriteLine("  SqlSchemaDef.Cli plan   --connection <cs> --file <desired.sql> [--format script|json] [--strict] [--emit-swap-sql] [--include <tables>] [--exclude <tables>]");
-            Console.Error.WriteLine("  SqlSchemaDef.Cli apply  --connection <cs> (--file <desired.sql> | --plan <plan.json>) [--include <tables>] [--exclude <tables>] [--swap]");
+            Console.Error.WriteLine("  SqlSchemaDef.Cli export --connection <cs> [--out <desired.sql>] [--schema <schema>]");
+            Console.Error.WriteLine("  SqlSchemaDef.Cli plan   --connection <cs> --file <desired.sql> [--schema <schema>] [--format script|json] [--strict] [--emit-swap-sql] [--include <tables>] [--exclude <tables>]");
+            Console.Error.WriteLine("  SqlSchemaDef.Cli apply  --connection <cs> (--file <desired.sql> | --plan <plan.json>) [--schema <schema>] [--include <tables>] [--exclude <tables>] [--swap]");
             Console.Error.WriteLine();
             Console.Error.WriteLine("Notes:");
             Console.Error.WriteLine("  - plan prints the review script (dry-run) or JSON plan.");
             Console.Error.WriteLine("  - --strict exits non-zero (30) if any skipped items exist.");
             Console.Error.WriteLine("  - --emit-swap-sql generates rebuild proposals for non-additive diffs.");
             Console.Error.WriteLine("  - --swap executes rebuild proposals for non-additive column changes (shadow-table swap).");
-            Console.Error.WriteLine("  - v1 is additive-only (dbo fixed by default).");
+            Console.Error.WriteLine("  - --schema defaults to 'dbo' when omitted.");
+            Console.Error.WriteLine("  - v1 is additive-only.");
             return exitCode;
         }
 
@@ -93,6 +94,7 @@ namespace SqlSchemaDef.Cli
         {
             string? connectionString = null;
             string? outPath = null;
+            string? schema = null;
 
             for (int i = 0; i < args.Count; i++)
             {
@@ -106,6 +108,10 @@ namespace SqlSchemaDef.Cli
                     case "--out":
                     case "-o":
                         outPath = GetArg(args, ref i);
+                        break;
+                    case "--schema":
+                    case "-s":
+                        schema = GetArg(args, ref i);
                         break;
                     case "--help":
                     case "-h":
@@ -124,7 +130,13 @@ namespace SqlSchemaDef.Cli
             await using var conn = new SqlConnection(connectionString);
             await conn.OpenAsync().ConfigureAwait(false);
 
-            var result = await SqlServerSchemaExporter.ExportAsync(conn, new ExportOptions()).ConfigureAwait(false);
+            var exportOptions = new ExportOptions();
+            if (schema != null)
+            {
+                exportOptions.Schema = schema;
+            }
+
+            var result = await SqlServerSchemaExporter.ExportAsync(conn, exportOptions).ConfigureAwait(false);
 
             if (string.IsNullOrWhiteSpace(outPath))
             {
@@ -142,6 +154,7 @@ namespace SqlSchemaDef.Cli
         {
             string? connectionString = null;
             string? filePath = null;
+            string? schema = null;
             var format = "script";
             var strict = false;
             var emitSwapSql = false;
@@ -160,6 +173,10 @@ namespace SqlSchemaDef.Cli
                     case "--file":
                     case "-f":
                         filePath = GetArg(args, ref i);
+                        break;
+                    case "--schema":
+                    case "-s":
+                        schema = GetArg(args, ref i);
                         break;
                     case "--format":
                         format = GetArg(args, ref i);
@@ -200,6 +217,11 @@ namespace SqlSchemaDef.Cli
             var desiredSql = await File.ReadAllTextAsync(filePath).ConfigureAwait(false);
 
             var plannerOptions = new PlannerOptions { EmitProposals = emitSwapSql };
+            if (schema != null)
+            {
+                plannerOptions.Schema = schema;
+            }
+
             if (includeArg != null)
             {
                 plannerOptions.IncludeTablePatterns = CliArgumentParser.ParseCsvArg(includeArg);
@@ -242,6 +264,7 @@ namespace SqlSchemaDef.Cli
             string? connectionString = null;
             string? filePath = null;
             string? planJsonPath = null;
+            string? schema = null;
             string? includeArg = null;
             string? excludeArg = null;
             var applySwap = false;
@@ -261,6 +284,10 @@ namespace SqlSchemaDef.Cli
                         break;
                     case "--plan":
                         planJsonPath = GetArg(args, ref i);
+                        break;
+                    case "--schema":
+                    case "-s":
+                        schema = GetArg(args, ref i);
                         break;
                     case "--include":
                         includeArg = GetArg(args, ref i);
@@ -308,6 +335,11 @@ namespace SqlSchemaDef.Cli
                 var desiredSql = await File.ReadAllTextAsync(filePath!).ConfigureAwait(false);
 
                 var plannerOptions = new PlannerOptions { EmitProposals = applySwap };
+                if (schema != null)
+                {
+                    plannerOptions.Schema = schema;
+                }
+
                 if (includeArg != null)
                 {
                     plannerOptions.IncludeTablePatterns = CliArgumentParser.ParseCsvArg(includeArg);
