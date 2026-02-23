@@ -144,7 +144,7 @@ namespace SqlSchemaDef.Cli
             }
             else
             {
-                await File.WriteAllTextAsync(outPath, result.Script).ConfigureAwait(false);
+                await WriteFileAsync(outPath, result.Script).ConfigureAwait(false);
             }
 
             return ExitOk;
@@ -214,7 +214,7 @@ namespace SqlSchemaDef.Cli
                 return PrintUsage(ExitUsage);
             }
 
-            var desiredSql = await File.ReadAllTextAsync(filePath).ConfigureAwait(false);
+            var desiredSql = await ReadFileAsync(filePath).ConfigureAwait(false);
 
             var plannerOptions = new PlannerOptions { EmitProposals = emitSwapSql };
             if (schema != null)
@@ -327,12 +327,12 @@ namespace SqlSchemaDef.Cli
 
             if (!string.IsNullOrWhiteSpace(planJsonPath))
             {
-                var json = await File.ReadAllTextAsync(planJsonPath).ConfigureAwait(false);
+                var json = await ReadFileAsync(planJsonPath).ConfigureAwait(false);
                 plan = MigrationPlanSerializer.FromJson(json);
             }
             else
             {
-                var desiredSql = await File.ReadAllTextAsync(filePath!).ConfigureAwait(false);
+                var desiredSql = await ReadFileAsync(filePath!).ConfigureAwait(false);
 
                 var plannerOptions = new PlannerOptions { EmitProposals = applySwap };
                 if (schema != null)
@@ -421,15 +421,67 @@ namespace SqlSchemaDef.Cli
                 case CliUsageException usage:
                     Console.Error.WriteLine(usage.Message);
                     return ExitUsage;
+                case CliFileException fileEx:
+                    Console.Error.WriteLine(fileEx.Message);
+                    return 1;
                 default:
                     Console.Error.WriteLine(ex.Message);
                     return 1;
             }
         }
 
+        private static async Task<string> ReadFileAsync(string path)
+        {
+            try
+            {
+                return await File.ReadAllTextAsync(path).ConfigureAwait(false);
+            }
+            catch (FileNotFoundException)
+            {
+                throw new CliFileException("File not found: " + path);
+            }
+            catch (DirectoryNotFoundException)
+            {
+                throw new CliFileException("Directory not found for file: " + path);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                throw new CliFileException("Access denied: " + path);
+            }
+            catch (IOException ex)
+            {
+                throw new CliFileException("Cannot read file '" + path + "': " + ex.Message);
+            }
+        }
+
+        private static async Task WriteFileAsync(string path, string content)
+        {
+            try
+            {
+                await File.WriteAllTextAsync(path, content).ConfigureAwait(false);
+            }
+            catch (DirectoryNotFoundException)
+            {
+                throw new CliFileException("Directory not found for file: " + path);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                throw new CliFileException("Access denied: " + path);
+            }
+            catch (IOException ex)
+            {
+                throw new CliFileException("Cannot write file '" + path + "': " + ex.Message);
+            }
+        }
+
         private sealed class CliUsageException : Exception
         {
             public CliUsageException(string message) : base(message) { }
+        }
+
+        private sealed class CliFileException : Exception
+        {
+            public CliFileException(string message) : base(message) { }
         }
     }
 }

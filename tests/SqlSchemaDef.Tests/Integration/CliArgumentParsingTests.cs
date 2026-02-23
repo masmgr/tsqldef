@@ -504,6 +504,56 @@ public sealed class CliArgumentParsingTests
     }
 
     [Fact]
+    public async Task Plan_NonexistentFile_PrintsFileNotFound()
+    {
+        var originalError = Console.Error;
+        try
+        {
+            using var stderr = new StringWriter();
+            Console.SetError(stderr);
+
+            var exitCode = await SqlSchemaDef.Cli.Program.Main(new[]
+            {
+                "plan",
+                "--connection", "Server=(local);Database=master;Trusted_Connection=True;",
+                "--file", "nonexistent_file_that_does_not_exist.sql",
+            });
+
+            Assert.Equal(1, exitCode);
+            Assert.Contains("File not found", stderr.ToString());
+        }
+        finally
+        {
+            Console.SetError(originalError);
+        }
+    }
+
+    [Fact]
+    public async Task Apply_NonexistentPlanFile_PrintsFileNotFound()
+    {
+        var originalError = Console.Error;
+        try
+        {
+            using var stderr = new StringWriter();
+            Console.SetError(stderr);
+
+            var exitCode = await SqlSchemaDef.Cli.Program.Main(new[]
+            {
+                "apply",
+                "--connection", "Server=(local);Database=master;Trusted_Connection=True;",
+                "--plan", "nonexistent_plan_that_does_not_exist.json",
+            });
+
+            Assert.Equal(1, exitCode);
+            Assert.Contains("File not found", stderr.ToString());
+        }
+        finally
+        {
+            Console.SetError(originalError);
+        }
+    }
+
+    [Fact]
     public void ParseCsvArg_TrimsWhitespaceAndRemovesEmptyEntries()
     {
         var values = SqlSchemaDef.Cli.CliArgumentParser.ParseCsvArg(" Users, Orders ,, Logs ");
