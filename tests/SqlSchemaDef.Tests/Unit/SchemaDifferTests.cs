@@ -2607,4 +2607,210 @@ CREATE TABLE dbo.Users (
         Assert.DoesNotContain("CLUSTERED", op.Sql);
         Assert.DoesNotContain("NONCLUSTERED", op.Sql);
     }
+
+    // ── DROP TABLE tests ──────────────────────────────────────────
+    [Fact]
+    public void Diff_WhenTableOnlyInCurrent_WithAllowDrop_EmitsDropTable()
+    {
+        var desired = new DatabaseModel();
+        var current = new DatabaseModel();
+        current.GetOrAddTable("dbo", "OldTable");
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var options = new PlannerOptions { AllowDrop = true };
+        var plan = SchemaDiffer.Diff(current, desired, metadata, options);
+
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal(OperationKind.DropTable, op.Kind);
+        Assert.Equal("DROP TABLE [dbo].[OldTable]", op.Sql);
+        Assert.Equal("dbo.OldTable", op.Target.ToDisplayName());
+        Assert.Empty(plan.Skipped);
+    }
+
+    [Fact]
+    public void Diff_WhenTableOnlyInCurrent_WithoutAllowDrop_StillSkipped()
+    {
+        var desired = new DatabaseModel();
+        var current = new DatabaseModel();
+        current.GetOrAddTable("dbo", "OldTable");
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var options = new PlannerOptions { AllowDrop = false };
+        var plan = SchemaDiffer.Diff(current, desired, metadata, options);
+
+        Assert.Empty(plan.Operations);
+        var skipped = Assert.Single(plan.Skipped);
+        Assert.Equal(SkippedReason.DropNotSupported, skipped.Reason);
+        Assert.Contains("--allow-drop", skipped.Message);
+    }
+
+    [Fact]
+    public void Diff_DropTable_NonDboSchema_EmitsCorrectSql()
+    {
+        var desired = new DatabaseModel();
+        var current = new DatabaseModel();
+        current.GetOrAddTable("sales", "OldTable");
+
+        var metadata = new PlanMetadata { Schema = "sales" };
+        var options = new PlannerOptions { Schema = "sales", AllowDrop = true };
+        var plan = SchemaDiffer.Diff(current, desired, metadata, options);
+
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal("DROP TABLE [sales].[OldTable]", op.Sql);
+    }
+
+    [Fact]
+    public void Diff_DropTable_WithDependentFk_EmitsCascadeDropFk()
+    {
+        // Child keeps FK_Child_Parent in desired, but Parent is being dropped.
+        // The cascade logic must DROP the FK before dropping Parent.
+        var desired = new DatabaseModel();
+        var desiredChild = desired.GetOrAddTable("dbo", "Child");
+        desiredChild.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+        desiredChild.Columns["PARENTID"] = new ColumnModel { Name = "ParentId", SqlType = "int", IsNullable = false };
+        desiredChild.Constraints["FK_CHILD_PARENT"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.ForeignKey,
+            Name = "FK_Child_Parent",
+            Columns = new[] { "ParentId" },
+            ReferenceSchema = "dbo",
+            ReferenceTable = "Parent",
+            ReferenceColumns = new[] { "Id" },
+        };
+
+        var current = new DatabaseModel();
+        var currentParent = current.GetOrAddTable("dbo", "Parent");
+        currentParent.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+        currentParent.Constraints["PK_PARENT"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.PrimaryKey,
+            Name = "PK_Parent",
+            Columns = new[] { "Id" },
+        };
+        var currentChild = current.GetOrAddTable("dbo", "Child");
+        currentChild.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+        currentChild.Columns["PARENTID"] = new ColumnModel { Name = "ParentId", SqlType = "int", IsNullable = false };
+        currentChild.Constraints["FK_CHILD_PARENT"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.ForeignKey,
+            Name = "FK_Child_Parent",
+            Columns = new[] { "ParentId" },
+            ReferenceSchema = "dbo",
+            ReferenceTable = "Parent",
+            ReferenceColumns = new[] { "Id" },
+        };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var options = new PlannerOptions { AllowDrop = true };
+        var plan = SchemaDiffer.Diff(current, desired, metadata, options);
+
+        var kinds = plan.Operations.Select(op => op.Kind).ToArray();
+        Assert.Contains(OperationKind.DropForeignKey, kinds);
+        Assert.Contains(OperationKind.DropTable, kinds);
+
+        var fkIdx = Array.IndexOf(kinds, OperationKind.DropForeignKey);
+        var dtIdx = Array.IndexOf(kinds, OperationKind.DropTable);
+        Assert.True(fkIdx < dtIdx, "DropForeignKey should precede DropTable");
+    }
+
+    [Fact]
+    public void Diff_DropTable_BothTablesDropped_NoCascadeFkForDroppedReferencer()
+    {
+        var desired = new DatabaseModel();
+
+        var current = new DatabaseModel();
+        var currentParent = current.GetOrAddTable("dbo", "Parent");
+        currentParent.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+        currentParent.Constraints["PK_PARENT"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.PrimaryKey,
+            Name = "PK_Parent",
+            Columns = new[] { "Id" },
+        };
+        var currentChild = current.GetOrAddTable("dbo", "Child");
+        currentChild.Columns["PARENTID"] = new ColumnModel { Name = "ParentId", SqlType = "int", IsNullable = false };
+        currentChild.Constraints["FK_CHILD_PARENT"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.ForeignKey,
+            Name = "FK_Child_Parent",
+            Columns = new[] { "ParentId" },
+            ReferenceSchema = "dbo",
+            ReferenceTable = "Parent",
+            ReferenceColumns = new[] { "Id" },
+        };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var options = new PlannerOptions { AllowDrop = true };
+        var plan = SchemaDiffer.Diff(current, desired, metadata, options);
+
+        // Both tables dropped; FK from Child is auto-dropped when Child is dropped
+        Assert.All(plan.Operations, op => Assert.Equal(OperationKind.DropTable, op.Kind));
+        Assert.Equal(2, plan.Operations.Count);
+    }
+
+    [Fact]
+    public void Diff_DropTable_SuppressesRedundantDropColumnOps()
+    {
+        var desired = new DatabaseModel();
+        var desiredOther = desired.GetOrAddTable("dbo", "Other");
+        desiredOther.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+
+        var current = new DatabaseModel();
+        current.GetOrAddTable("dbo", "Other");
+        var currentTable = current.GetOrAddTable("dbo", "OldTable");
+        currentTable.Columns["COL1"] = new ColumnModel { Name = "Col1", SqlType = "int", IsNullable = false };
+        currentTable.Columns["COL2"] = new ColumnModel { Name = "Col2", SqlType = "int", IsNullable = true };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var options = new PlannerOptions { AllowDrop = true };
+        var plan = SchemaDiffer.Diff(current, desired, metadata, options);
+
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal(OperationKind.DropTable, op.Kind);
+        Assert.DoesNotContain(plan.Operations, o => o.Kind == OperationKind.DropColumn);
+    }
+
+    [Fact]
+    public void Diff_DropTable_WithExcludeFilter_ExcludedTableNotDropped()
+    {
+        var desired = new DatabaseModel();
+        var desiredKeep = desired.GetOrAddTable("dbo", "KeepMe");
+        desiredKeep.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+
+        var current = new DatabaseModel();
+        current.GetOrAddTable("dbo", "KeepMe").Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+        current.GetOrAddTable("dbo", "DropMe");
+        current.GetOrAddTable("dbo", "Excluded");
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var options = new PlannerOptions
+        {
+            AllowDrop = true,
+            ExcludeTablePatterns = new[] { "Excluded" },
+        };
+        var plan = SchemaDiffer.Diff(current, desired, metadata, options);
+
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal(OperationKind.DropTable, op.Kind);
+        Assert.Equal("DropMe", op.Target.Name);
+    }
+
+    [Fact]
+    public void Diff_DropTable_OperationsOrderPreserved()
+    {
+        var desired = new DatabaseModel();
+        var newTable = desired.GetOrAddTable("dbo", "NewTable");
+        newTable.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+
+        var current = new DatabaseModel();
+        current.GetOrAddTable("dbo", "OldTable");
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var options = new PlannerOptions { AllowDrop = true };
+        var plan = SchemaDiffer.Diff(current, desired, metadata, options);
+
+        Assert.Equal(2, plan.Operations.Count);
+        Assert.Equal(OperationKind.CreateTable, plan.Operations[0].Kind);
+        Assert.Equal(OperationKind.DropTable, plan.Operations[1].Kind);
+    }
 }

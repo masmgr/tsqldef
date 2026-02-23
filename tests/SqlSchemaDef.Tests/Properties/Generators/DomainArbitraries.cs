@@ -199,7 +199,8 @@ public static class DomainArbitraries
             OperationKind.DropForeignKey,
             OperationKind.DropIndex,
             OperationKind.DropConstraint,
-            OperationKind.DropColumn)
+            OperationKind.DropColumn,
+            OperationKind.DropTable)
         from name in GenSqlIdentifier()
         select new SqlOperation
         {

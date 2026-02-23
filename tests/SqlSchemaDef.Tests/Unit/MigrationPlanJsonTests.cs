@@ -123,13 +123,14 @@ public sealed class MigrationPlanJsonTests
                 new SqlOperation { Kind = OperationKind.DropIndex, Sql = "S13", Description = "D13" },
                 new SqlOperation { Kind = OperationKind.DropConstraint, Sql = "S14", Description = "D14" },
                 new SqlOperation { Kind = OperationKind.DropColumn, Sql = "S15", Description = "D15" },
+                new SqlOperation { Kind = OperationKind.DropTable, Sql = "S16", Description = "D16" },
             },
             Array.Empty<SkippedItem>());
 
         var json = MigrationPlanSerializer.ToJson(plan);
         var deserialized = MigrationPlanSerializer.FromJson(json);
 
-        Assert.Equal(16, deserialized.Operations.Count);
+        Assert.Equal(17, deserialized.Operations.Count);
         Assert.Equal(OperationKind.CreateTable, deserialized.Operations[0].Kind);
         Assert.Equal(OperationKind.AddColumn, deserialized.Operations[1].Kind);
         Assert.Equal(OperationKind.AlterColumn, deserialized.Operations[2].Kind);
@@ -146,6 +147,7 @@ public sealed class MigrationPlanJsonTests
         Assert.Equal(OperationKind.DropIndex, deserialized.Operations[13].Kind);
         Assert.Equal(OperationKind.DropConstraint, deserialized.Operations[14].Kind);
         Assert.Equal(OperationKind.DropColumn, deserialized.Operations[15].Kind);
+        Assert.Equal(OperationKind.DropTable, deserialized.Operations[16].Kind);
     }
 
     [Fact]

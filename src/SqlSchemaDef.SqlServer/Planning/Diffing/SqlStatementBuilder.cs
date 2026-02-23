@@ -202,6 +202,11 @@ namespace SqlSchemaDef.SqlServer.Planning
                    " DROP COLUMN " + IdentifierHelper.Escape(columnName);
         }
 
+        internal static string BuildDropTableSql(string schema, string tableName)
+        {
+            return "DROP TABLE " + IdentifierHelper.Escape(schema) + "." + IdentifierHelper.Escape(tableName);
+        }
+
         internal static string BuildDropDescriptionSql(string schema, string tableName, string columnName)
         {
             var sql = "EXEC sp_dropextendedproperty @name = N'MS_Description'" +

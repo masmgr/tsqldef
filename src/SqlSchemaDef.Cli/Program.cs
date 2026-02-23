@@ -22,16 +22,16 @@ namespace SqlSchemaDef.Cli
         {
             Console.Error.WriteLine("Usage:");
             Console.Error.WriteLine("  SqlSchemaDef.Cli export --connection <cs> [--out <desired.sql>] [--schema <schema>]");
-            Console.Error.WriteLine("  SqlSchemaDef.Cli plan   --connection <cs> --file <desired.sql> [--schema <schema>] [--format script|json] [--strict] [--emit-swap-sql] [--include <tables>] [--exclude <tables>]");
-            Console.Error.WriteLine("  SqlSchemaDef.Cli apply  --connection <cs> (--file <desired.sql> | --plan <plan.json>) [--schema <schema>] [--include <tables>] [--exclude <tables>] [--swap]");
+            Console.Error.WriteLine("  SqlSchemaDef.Cli plan   --connection <cs> --file <desired.sql> [--schema <schema>] [--format script|json] [--strict] [--emit-swap-sql] [--allow-drop] [--include <tables>] [--exclude <tables>]");
+            Console.Error.WriteLine("  SqlSchemaDef.Cli apply  --connection <cs> (--file <desired.sql> | --plan <plan.json>) [--schema <schema>] [--allow-drop] [--include <tables>] [--exclude <tables>] [--swap]");
             Console.Error.WriteLine();
             Console.Error.WriteLine("Notes:");
             Console.Error.WriteLine("  - plan prints the review script (dry-run) or JSON plan.");
             Console.Error.WriteLine("  - --strict exits non-zero (30) if any skipped items exist.");
             Console.Error.WriteLine("  - --emit-swap-sql generates rebuild proposals for non-additive diffs.");
             Console.Error.WriteLine("  - --swap executes rebuild proposals for non-additive column changes (shadow-table swap).");
+            Console.Error.WriteLine("  - --allow-drop enables DROP TABLE for tables not in the desired DDL.");
             Console.Error.WriteLine("  - --schema defaults to 'dbo' when omitted.");
-            Console.Error.WriteLine("  - v1 is additive-only.");
             return exitCode;
         }
 
@@ -158,6 +158,7 @@ namespace SqlSchemaDef.Cli
             var format = "script";
             var strict = false;
             var emitSwapSql = false;
+            var allowDrop = false;
             string? includeArg = null;
             string? excludeArg = null;
 
@@ -186,6 +187,9 @@ namespace SqlSchemaDef.Cli
                         break;
                     case "--emit-swap-sql":
                         emitSwapSql = true;
+                        break;
+                    case "--allow-drop":
+                        allowDrop = true;
                         break;
                     case "--include":
                         includeArg = GetArg(args, ref i);
@@ -216,7 +220,7 @@ namespace SqlSchemaDef.Cli
 
             var desiredSql = await ReadFileAsync(filePath).ConfigureAwait(false);
 
-            var plannerOptions = new PlannerOptions { EmitProposals = emitSwapSql };
+            var plannerOptions = new PlannerOptions { EmitProposals = emitSwapSql, AllowDrop = allowDrop };
             if (schema != null)
             {
                 plannerOptions.Schema = schema;
@@ -268,6 +272,7 @@ namespace SqlSchemaDef.Cli
             string? includeArg = null;
             string? excludeArg = null;
             var applySwap = false;
+            var allowDrop = false;
 
             for (int i = 0; i < args.Count; i++)
             {
@@ -297,6 +302,9 @@ namespace SqlSchemaDef.Cli
                         break;
                     case "--swap":
                         applySwap = true;
+                        break;
+                    case "--allow-drop":
+                        allowDrop = true;
                         break;
                     case "--help":
                     case "-h":
@@ -339,7 +347,7 @@ namespace SqlSchemaDef.Cli
             {
                 var desiredSql = await ReadFileAsync(filePath!).ConfigureAwait(false);
 
-                var plannerOptions = new PlannerOptions { EmitProposals = applySwap };
+                var plannerOptions = new PlannerOptions { EmitProposals = applySwap, AllowDrop = allowDrop };
                 if (schema != null)
                 {
                     plannerOptions.Schema = schema;

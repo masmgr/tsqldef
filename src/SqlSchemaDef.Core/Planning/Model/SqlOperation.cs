@@ -26,5 +26,6 @@ namespace SqlSchemaDef.Core.Planning
         DropIndex = 72,
         DropConstraint = 73,
         DropColumn = 74,
+        DropTable = 75,
     }
 }

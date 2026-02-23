@@ -22,6 +22,8 @@ namespace SqlSchemaDef.Core.Planning
         public IReadOnlyList<string> IncludeTablePatterns { get; set; }
 
         public IReadOnlyList<string> ExcludeTablePatterns { get; set; }
+
+        public bool AllowDrop { get; set; }
     }
 
     public enum PlanMode

@@ -23,6 +23,7 @@ namespace SqlSchemaDef.Core.Planning
             OperationKind.DropIndex,
             OperationKind.DropConstraint,
             OperationKind.DropColumn,
+            OperationKind.DropTable,
         };
 
         public static void ValidateForApply(MigrationPlan plan)

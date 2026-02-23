@@ -45,6 +45,8 @@ namespace SqlSchemaDef.SqlServer.Planning
             var dropIndexOps = new List<SqlOperation>();
             var dropConstraintOps = new List<SqlOperation>();
             var dropColumnOps = new List<SqlOperation>();
+            var dropTableOps = new List<SqlOperation>();
+            var tablesBeingDropped = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var skipped = new List<SkippedItem>();
             var fksCoveredByPkRecreate = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -95,17 +97,47 @@ namespace SqlSchemaDef.SqlServer.Planning
                     continue;
                 }
 
-                skipped.Add(new SkippedItem
+                if (options.AllowDrop)
                 {
-                    Reason = SkippedReason.DropNotSupported,
-                    Target = new SqlObjectRef
+                    var table = currentEntry.Value;
+                    tablesBeingDropped.Add(currentEntry.Key);
+
+                    // Cascade: drop FKs from other tables that reference this table
+                    var dependentFks = FindDependentForeignKeys(current, table.Schema, table.Name);
+                    foreach (var entry in dependentFks)
                     {
-                        Type = SqlObjectType.Table,
-                        Schema = currentEntry.Value.Schema,
-                        Name = currentEntry.Value.Name,
-                    },
-                    Message = "drop is not supported in v1",
-                });
+                        dropForeignKeyOps.Add(new SqlOperation
+                        {
+                            Kind = OperationKind.DropForeignKey,
+                            Description = "Drop foreign key " + entry.Table.Schema + "." + entry.Table.Name + "." + entry.Constraint.Name
+                                + " (cascade for table drop)",
+                            Sql = SqlStatementBuilder.BuildDropConstraintSql(entry.Table.Schema, entry.Table.Name, entry.Constraint.Name),
+                            Target = new SqlObjectRef
+                            {
+                                Type = SqlObjectType.ForeignKey,
+                                Schema = entry.Table.Schema,
+                                ParentName = entry.Table.Name,
+                                Name = entry.Constraint.Name,
+                            },
+                        });
+                    }
+
+                    dropTableOps.Add(DropTableOperation(table));
+                }
+                else
+                {
+                    skipped.Add(new SkippedItem
+                    {
+                        Reason = SkippedReason.DropNotSupported,
+                        Target = new SqlObjectRef
+                        {
+                            Type = SqlObjectType.Table,
+                            Schema = currentEntry.Value.Schema,
+                            Name = currentEntry.Value.Name,
+                        },
+                        Message = "table drop requires --allow-drop flag",
+                    });
+                }
             }
 
             if (fksCoveredByPkRecreate.Count > 0)
@@ -116,6 +148,21 @@ namespace SqlSchemaDef.SqlServer.Planning
                     IdentifierHelper.NormalizeNameKey(op.Target.Name)));
                 dropForeignKeyOps.RemoveAll(op => fksCoveredByPkRecreate.Contains(
                     IdentifierHelper.NormalizeNameKey(op.Target.Name)));
+            }
+
+            if (tablesBeingDropped.Count > 0)
+            {
+                // Suppress cascade FK drops where the referencing table is also being dropped
+                dropForeignKeyOps.RemoveAll(op =>
+                    op.Target?.ParentName != null &&
+                    tablesBeingDropped.Contains(
+                        IdentifierHelper.BuildTableKey(op.Target.Schema, op.Target.ParentName)));
+
+                // Suppress DropColumn/DropConstraint/DropIndex/DropDescription for tables being dropped
+                dropColumnOps.RemoveAll(op => IsOnDroppedTable(op, tablesBeingDropped));
+                dropConstraintOps.RemoveAll(op => IsOnDroppedTable(op, tablesBeingDropped));
+                dropIndexOps.RemoveAll(op => IsOnDroppedTable(op, tablesBeingDropped));
+                dropDescriptionOps.RemoveAll(op => IsOnDroppedTable(op, tablesBeingDropped));
             }
 
             var operations = new List<SqlOperation>();
@@ -134,6 +181,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             operations.AddRange(dropIndexOps);
             operations.AddRange(dropConstraintOps);
             operations.AddRange(dropColumnOps);
+            operations.AddRange(dropTableOps);
 
             IReadOnlyList<RebuildProposal> proposals = Array.Empty<RebuildProposal>();
             if (options.EmitProposals)
@@ -1237,6 +1285,36 @@ namespace SqlSchemaDef.SqlServer.Planning
                     Name = table.Name,
                 },
             };
+        }
+
+        private static SqlOperation DropTableOperation(TableModel table)
+        {
+            return new SqlOperation
+            {
+                Kind = OperationKind.DropTable,
+                Description = "Drop table " + table.Schema + "." + table.Name,
+                Sql = SqlStatementBuilder.BuildDropTableSql(table.Schema, table.Name),
+                Target = new SqlObjectRef
+                {
+                    Type = SqlObjectType.Table,
+                    Schema = table.Schema,
+                    Name = table.Name,
+                },
+            };
+        }
+
+        private static bool IsOnDroppedTable(SqlOperation op, HashSet<string> tablesBeingDropped)
+        {
+            if (op.Target == null)
+            {
+                return false;
+            }
+
+            // DropColumn/DropConstraint/DropIndex: Target.ParentName = tableName
+            // DropDescription (table-level): Target.ParentName = null, Target.Name = tableName
+            var tableName = op.Target.ParentName ?? op.Target.Name;
+            return tablesBeingDropped.Contains(
+                IdentifierHelper.BuildTableKey(op.Target.Schema, tableName));
         }
 
         private static SqlOperation AddColumnOperation(TableModel table, ColumnModel column)

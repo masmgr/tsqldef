@@ -74,6 +74,7 @@ Supported:
 - Strict mode, JSON plan output, scope filters
 - Non-dbo schemas via `--schema` option (schema-less DDL falls back to target schema; cross-schema mismatch raises `UnsupportedSchemaException`)
 - All SQL identifiers unconditionally bracket-escaped in generated DDL (`[schema].[table]` notation throughout)
+- **DROP TABLE** via `--allow-drop` flag: tables in the current database but absent from the desired DDL are dropped. Foreign keys from other tables referencing the dropped table are automatically cascade-dropped.
 
 Not supported (skipped or rejected):
 - Unsafe column alterations: type narrowing (bigint→int), IDENTITY changes, cross-family type changes (varchar→int) — these generate rebuild proposals via `--emit-swap-sql`
@@ -95,10 +96,11 @@ Not supported (skipped or rejected):
 ### CLI Usage
 ```
 SqlSchemaDef.Cli export --connection <cs> [--out <desired.sql>] [--schema <schema>]
-SqlSchemaDef.Cli plan   --connection <cs> --file <desired.sql> [--schema <schema>] [--format script|json] [--strict] [--emit-swap-sql] [--include <tables>] [--exclude <tables>]
-SqlSchemaDef.Cli apply  --connection <cs> (--file <desired.sql> | --plan <plan.json>) [--schema <schema>] [--include <tables>] [--exclude <tables>]
+SqlSchemaDef.Cli plan   --connection <cs> --file <desired.sql> [--schema <schema>] [--format script|json] [--strict] [--emit-swap-sql] [--allow-drop] [--include <tables>] [--exclude <tables>]
+SqlSchemaDef.Cli apply  --connection <cs> (--file <desired.sql> | --plan <plan.json>) [--schema <schema>] [--allow-drop] [--include <tables>] [--exclude <tables>]
 ```
 - `--schema` defaults to `dbo` when omitted
+- `--allow-drop` enables DROP TABLE for tables not in the desired DDL (without this flag, surplus tables are reported as skipped items)
 - `--strict` exits non-zero (30) if any skipped items exist
 - `--emit-swap-sql` generates rebuild proposals for non-additive diffs
 - `--format script|json` controls plan output format (default: `script`)
@@ -154,3 +156,4 @@ Core and SqlServer projects target netstandard2.0 — no `record`, `required`, o
 - v0.6: COLLATE on columns, filtered indexes (WHERE), clustered indexes, index options (WITH)
 - post-v0.6: non-dbo schema support (`--schema` option), unconditional bracket-escaping of all identifiers, index metadata/option normalization fixes
 - v0.7.1: ALTER TABLE ALTER COLUMN for safe column changes (type widening, nullability, collation)
+- v0.8: DROP TABLE via `--allow-drop` flag with automatic cascade FK drop

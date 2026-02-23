@@ -29,6 +29,7 @@ public sealed class PlanValidationTests
                 new SqlOperation { Kind = OperationKind.DropIndex, Sql = "DROP INDEX IX ON dbo.T" },
                 new SqlOperation { Kind = OperationKind.DropConstraint, Sql = "ALTER TABLE dbo.T DROP CONSTRAINT UQ" },
                 new SqlOperation { Kind = OperationKind.DropColumn, Sql = "ALTER TABLE dbo.T DROP COLUMN Col" },
+                new SqlOperation { Kind = OperationKind.DropTable, Sql = "DROP TABLE [dbo].[T]" },
             },
             Array.Empty<SkippedItem>());
 
