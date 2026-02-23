@@ -142,27 +142,22 @@ namespace SqlSchemaDef.SqlServer.Planning
 
             if (fksCoveredByPkRecreate.Count > 0)
             {
-                recreateForeignKeyOps.RemoveAll(op => fksCoveredByPkRecreate.Contains(
-                    IdentifierHelper.NormalizeNameKey(op.Target.Name)));
-                addForeignKeyOps.RemoveAll(op => fksCoveredByPkRecreate.Contains(
-                    IdentifierHelper.NormalizeNameKey(op.Target.Name)));
-                dropForeignKeyOps.RemoveAll(op => fksCoveredByPkRecreate.Contains(
-                    IdentifierHelper.NormalizeNameKey(op.Target.Name)));
+                RemoveForeignKeysCoveredByPrimaryKeyRecreate(
+                    fksCoveredByPkRecreate,
+                    recreateForeignKeyOps,
+                    addForeignKeyOps,
+                    dropForeignKeyOps);
             }
 
             if (tablesBeingDropped.Count > 0)
             {
-                // Suppress cascade FK drops where the referencing table is also being dropped
-                dropForeignKeyOps.RemoveAll(op =>
-                    op.Target?.ParentName != null &&
-                    tablesBeingDropped.Contains(
-                        IdentifierHelper.BuildTableKey(op.Target.Schema, op.Target.ParentName)));
-
-                // Suppress DropColumn/DropConstraint/DropIndex/DropDescription for tables being dropped
-                dropColumnOps.RemoveAll(op => IsOnDroppedTable(op, tablesBeingDropped));
-                dropConstraintOps.RemoveAll(op => IsOnDroppedTable(op, tablesBeingDropped));
-                dropIndexOps.RemoveAll(op => IsOnDroppedTable(op, tablesBeingDropped));
-                dropDescriptionOps.RemoveAll(op => IsOnDroppedTable(op, tablesBeingDropped));
+                SuppressOperationsForDroppedTables(
+                    tablesBeingDropped,
+                    dropForeignKeyOps,
+                    dropColumnOps,
+                    dropConstraintOps,
+                    dropIndexOps,
+                    dropDescriptionOps);
             }
 
             var operations = new List<SqlOperation>();
@@ -231,6 +226,60 @@ namespace SqlSchemaDef.SqlServer.Planning
             }
 
             return filtered;
+        }
+
+        private static void RemoveForeignKeysCoveredByPrimaryKeyRecreate(
+            HashSet<string> coveredForeignKeyNames,
+            List<SqlOperation> recreateForeignKeyOps,
+            List<SqlOperation> addForeignKeyOps,
+            List<SqlOperation> dropForeignKeyOps)
+        {
+            RemoveForeignKeyOperationsByName(recreateForeignKeyOps, coveredForeignKeyNames);
+            RemoveForeignKeyOperationsByName(addForeignKeyOps, coveredForeignKeyNames);
+            RemoveForeignKeyOperationsByName(dropForeignKeyOps, coveredForeignKeyNames);
+        }
+
+        private static void RemoveForeignKeyOperationsByName(
+            List<SqlOperation> operations,
+            HashSet<string> foreignKeyNames)
+        {
+            operations.RemoveAll(op =>
+                op.Target != null &&
+                foreignKeyNames.Contains(IdentifierHelper.NormalizeNameKey(op.Target.Name ?? string.Empty)));
+        }
+
+        private static void SuppressOperationsForDroppedTables(
+            HashSet<string> tablesBeingDropped,
+            List<SqlOperation> dropForeignKeyOps,
+            List<SqlOperation> dropColumnOps,
+            List<SqlOperation> dropConstraintOps,
+            List<SqlOperation> dropIndexOps,
+            List<SqlOperation> dropDescriptionOps)
+        {
+            // Suppress cascade FK drops where the referencing table is also being dropped.
+            dropForeignKeyOps.RemoveAll(op => IsOperationOnDroppedReferencingTable(op, tablesBeingDropped));
+
+            // Suppress DropColumn/DropConstraint/DropIndex/DropDescription for tables being dropped.
+            RemoveOperationsOnDroppedTables(dropColumnOps, tablesBeingDropped);
+            RemoveOperationsOnDroppedTables(dropConstraintOps, tablesBeingDropped);
+            RemoveOperationsOnDroppedTables(dropIndexOps, tablesBeingDropped);
+            RemoveOperationsOnDroppedTables(dropDescriptionOps, tablesBeingDropped);
+        }
+
+        private static bool IsOperationOnDroppedReferencingTable(
+            SqlOperation operation,
+            HashSet<string> tablesBeingDropped)
+        {
+            return operation.Target?.ParentName != null &&
+                tablesBeingDropped.Contains(
+                    IdentifierHelper.BuildTableKey(operation.Target.Schema, operation.Target.ParentName));
+        }
+
+        private static void RemoveOperationsOnDroppedTables(
+            List<SqlOperation> operations,
+            HashSet<string> tablesBeingDropped)
+        {
+            operations.RemoveAll(op => IsOnDroppedTable(op, tablesBeingDropped));
         }
 
         private static void DiffColumns(
@@ -328,25 +377,8 @@ namespace SqlSchemaDef.SqlServer.Planning
                 && currentTable.ColumnOrder.Count > 0
                 && desiredTable.ColumnOrder.Count > 0)
             {
-                var currentOrder = new List<string>();
-                for (var i = 0; i < currentTable.ColumnOrder.Count; i++)
-                {
-                    var key = currentTable.ColumnOrder[i];
-                    if (desiredTable.Columns.ContainsKey(key))
-                    {
-                        currentOrder.Add(key);
-                    }
-                }
-
-                var desiredOrder = new List<string>();
-                for (var i = 0; i < desiredTable.ColumnOrder.Count; i++)
-                {
-                    var key = desiredTable.ColumnOrder[i];
-                    if (currentTable.Columns.ContainsKey(key))
-                    {
-                        desiredOrder.Add(key);
-                    }
-                }
+                var currentOrder = BuildCommonColumnOrder(currentTable.ColumnOrder, desiredTable.Columns);
+                var desiredOrder = BuildCommonColumnOrder(desiredTable.ColumnOrder, currentTable.Columns);
 
                 if (!SequenceEqual(currentOrder, desiredOrder))
                 {
@@ -363,6 +395,23 @@ namespace SqlSchemaDef.SqlServer.Planning
                     });
                 }
             }
+        }
+
+        private static List<string> BuildCommonColumnOrder(
+            List<string> sourceOrder,
+            IDictionary<string, ColumnModel> otherColumns)
+        {
+            var commonOrder = new List<string>();
+            for (var i = 0; i < sourceOrder.Count; i++)
+            {
+                var key = sourceOrder[i];
+                if (otherColumns.ContainsKey(key))
+                {
+                    commonOrder.Add(key);
+                }
+            }
+
+            return commonOrder;
         }
 
         private static void DiffConstraints(
@@ -1144,28 +1193,37 @@ namespace SqlSchemaDef.SqlServer.Planning
 
         private static bool SequenceEqual(IReadOnlyList<string> left, IReadOnlyList<string> right)
         {
-            if (ReferenceEquals(left, right))
-            {
-                return true;
-            }
-
-            if (left == null || right == null || left.Count != right.Count)
-            {
-                return false;
-            }
-
-            for (var i = 0; i < left.Count; i++)
-            {
-                if (!string.Equals(left[i], right[i], StringComparison.OrdinalIgnoreCase))
-                {
-                    return false;
-                }
-            }
-
-            return true;
+            return SequenceEqual(
+                left,
+                right,
+                (leftItem, rightItem) => string.Equals(leftItem, rightItem, StringComparison.OrdinalIgnoreCase));
         }
 
         private static bool SequenceEqual(IReadOnlyList<IndexKeyColumn> left, IReadOnlyList<IndexKeyColumn> right)
+        {
+            return SequenceEqual(
+                left,
+                right,
+                (leftItem, rightItem) =>
+                {
+                    if (leftItem == null || rightItem == null)
+                    {
+                        return false;
+                    }
+
+                    if (!string.Equals(leftItem.Name, rightItem.Name, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return false;
+                    }
+
+                    return leftItem.IsDescending == rightItem.IsDescending;
+                });
+        }
+
+        private static bool SequenceEqual<T>(
+            IReadOnlyList<T> left,
+            IReadOnlyList<T> right,
+            Func<T, T, bool> areEqual)
         {
             if (ReferenceEquals(left, right))
             {
@@ -1179,19 +1237,7 @@ namespace SqlSchemaDef.SqlServer.Planning
 
             for (var i = 0; i < left.Count; i++)
             {
-                var leftItem = left[i];
-                var rightItem = right[i];
-                if (leftItem == null || rightItem == null)
-                {
-                    return false;
-                }
-
-                if (!string.Equals(leftItem.Name, rightItem.Name, StringComparison.OrdinalIgnoreCase))
-                {
-                    return false;
-                }
-
-                if (leftItem.IsDescending != rightItem.IsDescending)
+                if (!areEqual(left[i], right[i]))
                 {
                     return false;
                 }

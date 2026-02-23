@@ -91,16 +91,8 @@ namespace SqlSchemaDef.SqlServer.Planning
         {
             foreach (var entry in groups)
             {
-                if (!tableMap.TryGetValue(entry.Key.ObjectId, out var table))
-                {
-                    throw new InvalidOperationException("Key constraint references an unknown table.");
-                }
-
-                var constraintName = entry.Key.ConstraintName;
-                if (string.IsNullOrWhiteSpace(constraintName))
-                {
-                    throw new InvalidOperationException("Key constraint name is required.");
-                }
+                var table = GetRequiredTable(tableMap, entry.Key.ObjectId, "Key constraint");
+                var constraintName = GetRequiredName(entry.Key.ConstraintName, "Key constraint");
 
                 var rows = entry.Value;
                 rows.Sort((left, right) => left.KeyOrdinal.CompareTo(right.KeyOrdinal));
@@ -121,7 +113,7 @@ namespace SqlSchemaDef.SqlServer.Planning
                     IsClusteredSpecified = true,
                 };
 
-                table.Constraints[IdentifierHelper.NormalizeNameKey(constraint.Name)] = constraint;
+                AddOrReplaceConstraint(table, constraint);
             }
         }
 
@@ -131,16 +123,8 @@ namespace SqlSchemaDef.SqlServer.Planning
         {
             foreach (var entry in groups)
             {
-                if (!tableMap.TryGetValue(entry.Key.ObjectId, out var table))
-                {
-                    throw new InvalidOperationException("Check constraint references an unknown table.");
-                }
-
-                var constraintName = entry.Key.ConstraintName;
-                if (string.IsNullOrWhiteSpace(constraintName))
-                {
-                    throw new InvalidOperationException("Check constraint name is required.");
-                }
+                var table = GetRequiredTable(tableMap, entry.Key.ObjectId, "Check constraint");
+                var constraintName = GetRequiredName(entry.Key.ConstraintName, "Check constraint");
 
                 var row = entry.Value[0];
                 var constraint = new ConstraintModel
@@ -150,7 +134,7 @@ namespace SqlSchemaDef.SqlServer.Planning
                     Definition = CheckDefinitionNormalizer.Normalize(row.Definition),
                 };
 
-                table.Constraints[IdentifierHelper.NormalizeNameKey(constraint.Name)] = constraint;
+                AddOrReplaceConstraint(table, constraint);
             }
         }
 
@@ -160,16 +144,8 @@ namespace SqlSchemaDef.SqlServer.Planning
         {
             foreach (var entry in groups)
             {
-                if (!tableMap.TryGetValue(entry.Key.ParentObjectId, out var table))
-                {
-                    throw new InvalidOperationException("Foreign key references an unknown table.");
-                }
-
-                var constraintName = entry.Key.ConstraintName;
-                if (string.IsNullOrWhiteSpace(constraintName))
-                {
-                    throw new InvalidOperationException("Foreign key name is required.");
-                }
+                var table = GetRequiredTable(tableMap, entry.Key.ParentObjectId, "Foreign key");
+                var constraintName = GetRequiredName(entry.Key.ConstraintName, "Foreign key");
 
                 var rows = entry.Value;
                 rows.Sort((left, right) => left.Ordinal.CompareTo(right.Ordinal));
@@ -201,7 +177,7 @@ namespace SqlSchemaDef.SqlServer.Planning
                     constraint.UnsupportedFeature = "ForeignKeyReferenceSchema";
                 }
 
-                table.Constraints[IdentifierHelper.NormalizeNameKey(constraint.Name)] = constraint;
+                AddOrReplaceConstraint(table, constraint);
             }
         }
 
@@ -233,7 +209,7 @@ namespace SqlSchemaDef.SqlServer.Planning
                     DefaultColumnName = item.ColumnName,
                 };
 
-                table.Constraints[IdentifierHelper.NormalizeNameKey(constraint.Name)] = constraint;
+                AddOrReplaceConstraint(table, constraint);
             }
         }
 
@@ -275,16 +251,8 @@ namespace SqlSchemaDef.SqlServer.Planning
         {
             foreach (var entry in groups)
             {
-                if (!tableMap.TryGetValue(entry.Key.ObjectId, out var table))
-                {
-                    throw new InvalidOperationException("Index references an unknown table.");
-                }
-
-                var indexName = entry.Key.IndexName;
-                if (string.IsNullOrWhiteSpace(indexName))
-                {
-                    throw new InvalidOperationException("Index name is required.");
-                }
+                var table = GetRequiredTable(tableMap, entry.Key.ObjectId, "Index");
+                var indexName = GetRequiredName(entry.Key.IndexName, "Index");
 
                 var rows = entry.Value;
                 rows.Sort((left, right) => left.KeyOrdinal.CompareTo(right.KeyOrdinal));
@@ -326,8 +294,41 @@ namespace SqlSchemaDef.SqlServer.Planning
                     Options = CurrentSchemaModelBuilderHelpers.BuildIndexOptionsFromRow(firstRow),
                 };
 
-                table.Indexes[IdentifierHelper.NormalizeNameKey(index.Name)] = index;
+                AddOrReplaceIndex(table, index);
             }
+        }
+
+        private static TableModel GetRequiredTable(
+            Dictionary<int, TableModel> tableMap,
+            int objectId,
+            string objectType)
+        {
+            if (tableMap.TryGetValue(objectId, out var table))
+            {
+                return table;
+            }
+
+            throw new InvalidOperationException(objectType + " references an unknown table.");
+        }
+
+        private static string GetRequiredName(string name, string objectType)
+        {
+            if (!string.IsNullOrWhiteSpace(name))
+            {
+                return name;
+            }
+
+            throw new InvalidOperationException(objectType + " name is required.");
+        }
+
+        private static void AddOrReplaceConstraint(TableModel table, ConstraintModel constraint)
+        {
+            table.Constraints[IdentifierHelper.NormalizeNameKey(constraint.Name)] = constraint;
+        }
+
+        private static void AddOrReplaceIndex(TableModel table, IndexModel index)
+        {
+            table.Indexes[IdentifierHelper.NormalizeNameKey(index.Name)] = index;
         }
     }
 }
