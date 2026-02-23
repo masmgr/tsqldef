@@ -317,11 +317,14 @@ namespace SqlSchemaDef.SqlServer.Planning
         private void AddUniqueConstraint(TableModel table, UniqueConstraintDefinition unique, string statementType)
         {
             var columns = unique.Columns.Select(column => column.Column.MultiPartIdentifier.Identifiers.Last().Value).ToList();
+            var isClusteredSpecified = unique.Clustered.HasValue;
             var constraint = new ConstraintModel
             {
                 Kind = unique.IsPrimaryKey ? ConstraintKind.PrimaryKey : ConstraintKind.Unique,
                 Name = RequireIdentifier(unique.ConstraintIdentifier, unique, "ConstraintName", statementType),
                 Columns = columns,
+                IsClustered = unique.Clustered == true,
+                IsClusteredSpecified = isClusteredSpecified,
             };
 
             table.Constraints[IdentifierHelper.NormalizeNameKey(constraint.Name)] = constraint;

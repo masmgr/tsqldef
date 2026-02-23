@@ -9,6 +9,7 @@ using Xunit;
 namespace SqlSchemaDef.Tests;
 
 [Collection(CliSerialGroup.Name)]
+[Trait("Category", "Integration")]
 public sealed class CliSmokeTests
 {
     [Fact]
@@ -202,6 +203,106 @@ public sealed class CliSmokeTests
                 Assert.Equal(0, planExitCode);
                 Assert.Contains("Operations: 0", stdout.ToString());
             }
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Console.SetError(originalError);
+            try
+            { File.Delete(tempFile); }
+            catch { }
+        }
+    }
+
+    [Fact]
+    public async Task Plan_StrictWithSkippedItems_ReturnsExitCode30()
+    {
+        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
+        if (string.IsNullOrWhiteSpace(master))
+        {
+            return;
+        }
+
+        await using var db = await SqlServerTestDatabase.CreateAsync(master);
+        var cs = new SqlConnectionStringBuilder(master) { InitialCatalog = db.DatabaseName }.ConnectionString;
+
+        // Seed a table
+        await using (var conn = new SqlConnection(db.ConnectionString))
+        {
+            await conn.OpenAsync();
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = "CREATE TABLE dbo.Users (Id int NOT NULL)";
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        // Desired: add NOT NULL column without DEFAULT → skipped → strict fails
+        const string desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL, Age int NOT NULL)";
+        var tempFile = Path.Combine(Path.GetTempPath(), "SqlSchemaDef_" + Guid.NewGuid().ToString("N") + ".sql");
+        await File.WriteAllTextAsync(tempFile, desiredSql, Encoding.UTF8);
+
+        var originalOut = Console.Out;
+        var originalError = Console.Error;
+
+        try
+        {
+            using var stdout = new StringWriter();
+            using var stderr = new StringWriter();
+            Console.SetOut(stdout);
+            Console.SetError(stderr);
+
+            var exitCode = await SqlSchemaDef.Cli.Program.Main(new[]
+            {
+                "plan", "--connection", cs, "--file", tempFile, "--strict",
+            });
+
+            Assert.Equal(30, exitCode);
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Console.SetError(originalError);
+            try
+            { File.Delete(tempFile); }
+            catch { }
+        }
+    }
+
+    [Fact]
+    public async Task Plan_FormatJson_OutputsValidJson()
+    {
+        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
+        if (string.IsNullOrWhiteSpace(master))
+        {
+            return;
+        }
+
+        await using var db = await SqlServerTestDatabase.CreateAsync(master);
+        var cs = new SqlConnectionStringBuilder(master) { InitialCatalog = db.DatabaseName }.ConnectionString;
+
+        const string desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL)";
+        var tempFile = Path.Combine(Path.GetTempPath(), "SqlSchemaDef_" + Guid.NewGuid().ToString("N") + ".sql");
+        await File.WriteAllTextAsync(tempFile, desiredSql, Encoding.UTF8);
+
+        var originalOut = Console.Out;
+        var originalError = Console.Error;
+
+        try
+        {
+            using var stdout = new StringWriter();
+            using var stderr = new StringWriter();
+            Console.SetOut(stdout);
+            Console.SetError(stderr);
+
+            var exitCode = await SqlSchemaDef.Cli.Program.Main(new[]
+            {
+                "plan", "--connection", cs, "--file", tempFile, "--format", "json",
+            });
+
+            Assert.Equal(0, exitCode);
+            var json = stdout.ToString().Trim();
+            Assert.StartsWith("{", json);
+            Assert.Contains("\"operations\"", json);
+            Assert.Contains("\"metadata\"", json);
         }
         finally
         {

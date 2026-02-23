@@ -14,6 +14,8 @@ namespace SqlSchemaDef.SqlServer.Planning
         public string DeleteAction { get; set; }
         public string UpdateAction { get; set; }
         public string DefaultColumnName { get; set; }
+        public bool IsClustered { get; set; }
+        public bool IsClusteredSpecified { get; set; } = true;
         public string UnsupportedFeature { get; set; }
     }
 

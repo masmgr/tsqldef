@@ -22,7 +22,7 @@ namespace SqlSchemaDef.SqlServer.Planning
                 .ReadAsync(connection, schema, cancellationToken)
                 .ConfigureAwait(false);
 
-            return BuildModel(
+            return CurrentSchemaModelBuilder.Build(
                 readResult.Tables,
                 readResult.Columns,
                 readResult.Defaults,
@@ -30,7 +30,8 @@ namespace SqlSchemaDef.SqlServer.Planning
                 readResult.CheckConstraints,
                 readResult.ForeignKeys,
                 readResult.Indexes,
-                readResult.ExtendedProperties);
+                readResult.ExtendedProperties,
+                readResult.DatabaseCollation);
         }
 
         internal sealed class TableRow
@@ -71,6 +72,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             public string ConstraintType { get; set; }
             public int KeyOrdinal { get; set; }
             public string ColumnName { get; set; }
+            public bool IsClustered { get; set; }
         }
 
         internal sealed class CheckConstraintRow

@@ -106,6 +106,104 @@ public sealed class SchemaExportScriptBuilderTests
     }
 
     [Fact]
+    public void BuildScript_WhenConstraintsExist_EmitsConstraintStatements()
+    {
+        var model = new DatabaseModel();
+        var table = model.GetOrAddTable("dbo", "Users");
+        table.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+        table.Columns["EMAIL"] = new ColumnModel { Name = "Email", SqlType = "nvarchar(255)", IsNullable = false };
+        table.Columns["AGE"] = new ColumnModel { Name = "Age", SqlType = "int", IsNullable = true, DefaultExpression = "(0)" };
+        table.Constraints["PK_USERS"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.PrimaryKey,
+            Name = "PK_Users",
+            Columns = new[] { "Id" },
+            IsClustered = true,
+        };
+        table.Constraints["UQ_USERS_EMAIL"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.Unique,
+            Name = "UQ_Users_Email",
+            Columns = new[] { "Email" },
+        };
+        table.Constraints["CK_USERS_AGE"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.Check,
+            Name = "CK_Users_Age",
+            Definition = "([Age]>(0))",
+        };
+        table.Constraints["DF_USERS_AGE"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.Default,
+            Name = "DF_Users_Age",
+            Definition = "(0)",
+            DefaultColumnName = "Age",
+        };
+
+        var skipped = new List<SkippedItem>();
+        var script = SchemaExportScriptBuilder.BuildScript(
+            model,
+            new ExportOptions { NewLine = "\n" },
+            skipped);
+
+        Assert.Contains("PRIMARY KEY CLUSTERED", script);
+        Assert.Contains("UNIQUE NONCLUSTERED", script);
+        Assert.Contains("CHECK", script);
+        Assert.Contains("DEFAULT (0) FOR [Age]", script);
+        Assert.Empty(skipped);
+    }
+
+    [Fact]
+    public void BuildScript_WhenForeignKeysExist_EmitsForeignKeyAfterAllTables()
+    {
+        var model = new DatabaseModel();
+        var teams = model.GetOrAddTable("dbo", "Teams");
+        teams.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+        teams.Constraints["PK_TEAMS"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.PrimaryKey,
+            Name = "PK_Teams",
+            Columns = new[] { "Id" },
+            IsClustered = true,
+        };
+
+        var users = model.GetOrAddTable("dbo", "Users");
+        users.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+        users.Columns["TEAMID"] = new ColumnModel { Name = "TeamId", SqlType = "int", IsNullable = false };
+        users.Constraints["PK_USERS"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.PrimaryKey,
+            Name = "PK_Users",
+            Columns = new[] { "Id" },
+            IsClustered = true,
+        };
+        users.Constraints["FK_USERS_TEAMS"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.ForeignKey,
+            Name = "FK_Users_Teams",
+            Columns = new[] { "TeamId" },
+            ReferenceSchema = "dbo",
+            ReferenceTable = "Teams",
+            ReferenceColumns = new[] { "Id" },
+        };
+
+        var skipped = new List<SkippedItem>();
+        var script = SchemaExportScriptBuilder.BuildScript(
+            model,
+            new ExportOptions { NewLine = "\n" },
+            skipped);
+
+        Assert.Contains("FOREIGN KEY", script);
+
+        // FK should appear after all CREATE TABLE statements
+        var lastCreateTable = Math.Max(
+            script.IndexOf("CREATE TABLE [dbo].[Teams]", StringComparison.Ordinal),
+            script.IndexOf("CREATE TABLE [dbo].[Users]", StringComparison.Ordinal));
+        var fkPos = script.IndexOf("FOREIGN KEY", StringComparison.Ordinal);
+        Assert.True(fkPos > lastCreateTable);
+    }
+
+    [Fact]
     public void BuildScript_OrdersTablesAndIndexesDeterministically()
     {
         var model = new DatabaseModel();

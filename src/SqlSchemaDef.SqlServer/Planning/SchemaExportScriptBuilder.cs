@@ -55,6 +55,9 @@ namespace SqlSchemaDef.SqlServer.Planning
                 }
             }
 
+            AppendConstraintStatements(sb, tables, skipped, newLine, isForeignKey: false);
+            AppendConstraintStatements(sb, tables, skipped, newLine, isForeignKey: true);
+
             var indexes = tables
                 .SelectMany(table => table.Indexes.Values.Select(index => (Table: table, Index: index)))
                 .OrderBy(entry => IdentifierHelper.NormalizeNameKey(entry.Table.Name), StringComparer.OrdinalIgnoreCase)
@@ -222,6 +225,74 @@ namespace SqlSchemaDef.SqlServer.Planning
             }
 
             return SqlStatementBuilder.BuildCreateIndexSql(table, index);
+        }
+
+        private static void AppendConstraintStatements(
+            StringBuilder sb,
+            List<TableModel> tables,
+            List<SkippedItem> skipped,
+            string newLine,
+            bool isForeignKey)
+        {
+            var constraints = new List<(TableModel Table, ConstraintModel Constraint)>();
+
+            foreach (var table in tables)
+            {
+                foreach (var constraint in table.Constraints.Values
+                    .OrderBy(c => IdentifierHelper.NormalizeNameKey(c.Name), StringComparer.OrdinalIgnoreCase))
+                {
+                    var isFK = constraint.Kind == ConstraintKind.ForeignKey;
+
+                    if (!string.IsNullOrEmpty(constraint.UnsupportedFeature))
+                    {
+                        if (isFK == isForeignKey)
+                        {
+                            skipped.Add(new SkippedItem
+                            {
+                                Reason = SkippedReason.UnsupportedFeatureInCurrent,
+                                Target = new SqlObjectRef
+                                {
+                                    Type = isFK ? SqlObjectType.ForeignKey : SqlObjectType.Constraint,
+                                    Schema = table.Schema,
+                                    ParentName = table.Name,
+                                    Name = constraint.Name,
+                                },
+                                Message = "unsupported constraint feature: " + constraint.UnsupportedFeature,
+                            });
+                        }
+
+                        continue;
+                    }
+                    if (isFK == isForeignKey)
+                    {
+                        constraints.Add((table, constraint));
+                    }
+                }
+            }
+
+            if (constraints.Count == 0)
+            {
+                return;
+            }
+
+            if (sb.Length > 0)
+            {
+                sb.Append(newLine);
+            }
+
+            for (var i = 0; i < constraints.Count; i++)
+            {
+                var entry = constraints[i];
+                sb.Append(SqlStatementBuilder.BuildAddConstraintSql(entry.Table, entry.Constraint));
+                if (i + 1 < constraints.Count)
+                {
+                    sb.Append(newLine).Append(newLine);
+                }
+                else
+                {
+                    sb.Append(newLine);
+                }
+            }
         }
 
         private static List<string> BuildDescriptionStatements(List<TableModel> tables)

@@ -89,7 +89,8 @@ SELECT
   kc.type AS constraint_type,
   i.name AS index_name,
   ic.key_ordinal,
-  c.name AS column_name
+  c.name AS column_name,
+  i.type_desc
 FROM sys.tables AS t
 JOIN sys.schemas AS s
   ON s.schema_id = t.schema_id
@@ -231,7 +232,11 @@ WHERE s.name = @schema
   AND ep.class = 1
 ORDER BY ep.major_id, ep.minor_id;";
 
-        private const string ReadAllSql = TablesSql + "\n" +
+        private const string DatabaseCollationSql =
+            "SELECT CAST(DATABASEPROPERTYEX(DB_NAME(), 'Collation') AS nvarchar(128));";
+
+        private const string ReadAllSql = DatabaseCollationSql + "\n" +
+                                          TablesSql + "\n" +
                                           ColumnsSql + "\n" +
                                           DefaultsSql + "\n" +
                                           KeyConstraintsSql + "\n" +
@@ -245,6 +250,7 @@ ORDER BY ep.major_id, ep.minor_id;";
             string schema,
             CancellationToken cancellationToken)
         {
+            string databaseCollation;
             List<CurrentSchemaReader.TableRow> tables;
             List<CurrentSchemaReader.ColumnRow> columns;
             List<CurrentSchemaReader.DefaultRow> defaults;
@@ -257,6 +263,13 @@ ORDER BY ep.major_id, ep.minor_id;";
             using (var command = CreateCommand(connection, ReadAllSql, schema))
             using (var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
             {
+                databaseCollation = null;
+                if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    databaseCollation = reader.IsDBNull(0) ? null : reader.GetString(0);
+                }
+
+                await MoveToNextResultSetAsync(reader, "tables", cancellationToken).ConfigureAwait(false);
                 tables = await ReadTablesResultSetAsync(reader, cancellationToken).ConfigureAwait(false);
 
                 await MoveToNextResultSetAsync(reader, "columns", cancellationToken).ConfigureAwait(false);
@@ -282,6 +295,7 @@ ORDER BY ep.major_id, ep.minor_id;";
             }
 
             return new Result(
+                databaseCollation,
                 tables,
                 columns,
                 defaults,
@@ -375,6 +389,7 @@ ORDER BY ep.major_id, ep.minor_id;";
                     ConstraintType = reader.GetString(4),
                     KeyOrdinal = GetInt32(reader, 6),
                     ColumnName = reader.GetString(7),
+                    IsClustered = string.Equals(reader.GetString(8), "CLUSTERED", StringComparison.OrdinalIgnoreCase),
                 });
             }
 
@@ -494,6 +509,7 @@ ORDER BY ep.major_id, ep.minor_id;";
         internal sealed class Result
         {
             public Result(
+                string databaseCollation,
                 List<CurrentSchemaReader.TableRow> tables,
                 List<CurrentSchemaReader.ColumnRow> columns,
                 List<CurrentSchemaReader.DefaultRow> defaults,
@@ -503,6 +519,7 @@ ORDER BY ep.major_id, ep.minor_id;";
                 List<CurrentSchemaReader.IndexRow> indexes,
                 List<CurrentSchemaReader.ExtendedPropertyRow> extendedProperties)
             {
+                DatabaseCollation = databaseCollation;
                 Tables = tables;
                 Columns = columns;
                 Defaults = defaults;
@@ -513,6 +530,7 @@ ORDER BY ep.major_id, ep.minor_id;";
                 ExtendedProperties = extendedProperties;
             }
 
+            public string DatabaseCollation { get; }
             public List<CurrentSchemaReader.TableRow> Tables { get; }
             public List<CurrentSchemaReader.ColumnRow> Columns { get; }
             public List<CurrentSchemaReader.DefaultRow> Defaults { get; }

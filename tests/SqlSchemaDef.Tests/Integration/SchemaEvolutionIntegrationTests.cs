@@ -9,6 +9,7 @@ using Xunit;
 
 namespace SqlSchemaDef.Tests;
 
+[Trait("Category", "Integration")]
 public sealed class SchemaEvolutionIntegrationTests
 {
     [Fact]
@@ -344,25 +345,15 @@ CREATE INDEX IX_Products_Name ON dbo.Products (Name);
         await using var conn2 = new SqlConnection(db.ConnectionString);
         await conn2.OpenAsync();
 
-        // Export (does not include constraints)
+        // Export now includes constraints
         var export = await SqlServerSchemaExporter.ExportAsync(conn2, new ExportOptions());
 
-        // Plan against export = empty (no operations, just skipped items for surplus constraints)
+        // Plan against export = truly empty (no operations, no skipped items)
         var planner = new SqlServerSchemaPlanner();
         var plan = await planner.PlanAsync(conn2, export.Script, new PlannerOptions());
 
         Assert.True(plan.IsEmpty);
-
-        // Constraints in DB but not in export -> DropNotSupported skipped items
-        Assert.Contains(plan.Skipped, s =>
-            s.Reason == SkippedReason.DropNotSupported
-            && s.Target.Name == "PK_Products");
-        Assert.Contains(plan.Skipped, s =>
-            s.Reason == SkippedReason.DropNotSupported
-            && s.Target.Name == "UQ_Products_Name");
-        Assert.Contains(plan.Skipped, s =>
-            s.Reason == SkippedReason.DropNotSupported
-            && s.Target.Name == "CK_Products_Price");
+        Assert.Empty(plan.Skipped);
     }
 
     [Fact]
@@ -777,6 +768,132 @@ CREATE TABLE dbo.Users (
         cmd.CommandText = sql;
         var result = await cmd.ExecuteScalarAsync();
         return result ?? DBNull.Value;
+    }
+
+    [Fact]
+    public async Task PlanApply_NotNullColumnWithDefault_SucceedsAndIsIdempotent()
+    {
+        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
+        if (string.IsNullOrWhiteSpace(master))
+        {
+            return;
+        }
+
+        await using var db = await SqlServerTestDatabase.CreateAsync(master);
+
+        // Seed existing table with data
+        await using (var conn = new SqlConnection(db.ConnectionString))
+        {
+            await conn.OpenAsync();
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = @"
+CREATE TABLE dbo.Users (Id int NOT NULL);
+INSERT INTO dbo.Users (Id) VALUES (1), (2);
+";
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        const string desiredSql = @"
+CREATE TABLE dbo.Users (Id int NOT NULL, Active bit DEFAULT (1) NOT NULL)
+";
+
+        await using var conn2 = new SqlConnection(db.ConnectionString);
+        await conn2.OpenAsync();
+
+        var planner = new SqlServerSchemaPlanner();
+        var applier = new SqlServerSchemaApplier();
+
+        var plan1 = await planner.PlanAsync(conn2, desiredSql, new PlannerOptions());
+        Assert.False(plan1.IsEmpty);
+        Assert.Contains(plan1.Operations, op => op.Kind == OperationKind.AddColumn);
+
+        await applier.ApplyAsync(conn2, plan1, new ApplyOptions());
+
+        // Verify column exists and existing rows got default value
+        Assert.Equal(1, await CountColumnsAsync(conn2, "Users", "Active"));
+        var activeVal = await GetScalarAsync(conn2, "SELECT Active FROM dbo.Users WHERE Id = 1");
+        Assert.True(Convert.ToBoolean(activeVal, CultureInfo.InvariantCulture));
+
+        // Idempotent
+        var plan2 = await planner.PlanAsync(conn2, desiredSql, new PlannerOptions());
+        Assert.True(plan2.IsEmpty);
+    }
+
+    [Fact]
+    public async Task ExportThenPlan_PkClusteredRoundTrip_ProducesEmptyPlan()
+    {
+        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
+        if (string.IsNullOrWhiteSpace(master))
+        {
+            return;
+        }
+
+        await using var db = await SqlServerTestDatabase.CreateAsync(master);
+
+        // Seed table with PK CLUSTERED (default) and UNIQUE NONCLUSTERED
+        await using (var conn = new SqlConnection(db.ConnectionString))
+        {
+            await conn.OpenAsync();
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = @"
+CREATE TABLE dbo.Items (
+    Id int NOT NULL,
+    Code nvarchar(50) NOT NULL,
+    CONSTRAINT PK_Items PRIMARY KEY CLUSTERED (Id),
+    CONSTRAINT UQ_Items_Code UNIQUE NONCLUSTERED (Code)
+);
+";
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        await using var conn2 = new SqlConnection(db.ConnectionString);
+        await conn2.OpenAsync();
+
+        // Export includes CLUSTERED/NONCLUSTERED
+        var export = await SqlServerSchemaExporter.ExportAsync(conn2, new ExportOptions());
+        Assert.Contains("PRIMARY KEY CLUSTERED", export.Script);
+        Assert.Contains("UNIQUE NONCLUSTERED", export.Script);
+
+        // Plan against export = empty (no false diff)
+        var planner = new SqlServerSchemaPlanner();
+        var plan = await planner.PlanAsync(conn2, export.Script, new PlannerOptions());
+        Assert.True(plan.IsEmpty);
+        Assert.Empty(plan.Skipped);
+    }
+
+    [Fact]
+    public async Task Plan_StrictModeWithSkippedItems_ReturnsNonEmpty()
+    {
+        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
+        if (string.IsNullOrWhiteSpace(master))
+        {
+            return;
+        }
+
+        await using var db = await SqlServerTestDatabase.CreateAsync(master);
+
+        // Seed with a table
+        await using (var conn = new SqlConnection(db.ConnectionString))
+        {
+            await conn.OpenAsync();
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = "CREATE TABLE dbo.Users (Id int NOT NULL)";
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        // Desired: add NOT NULL column without DEFAULT → should be skipped
+        const string desiredSql = @"
+CREATE TABLE dbo.Users (Id int NOT NULL, Age int NOT NULL)
+";
+
+        await using var conn2 = new SqlConnection(db.ConnectionString);
+        await conn2.OpenAsync();
+
+        var planner = new SqlServerSchemaPlanner();
+        var plan = await planner.PlanAsync(conn2, desiredSql, new PlannerOptions());
+
+        Assert.NotEmpty(plan.Skipped);
+        Assert.Contains(plan.Skipped, s => s.Reason == SkippedReason.NotNullAddNotSupported);
     }
 
     private static async Task<bool> ForeignKeyExistsAsync(SqlConnection conn, string fkName)

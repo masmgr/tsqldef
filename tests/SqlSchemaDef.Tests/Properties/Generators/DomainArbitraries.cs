@@ -88,6 +88,24 @@ public static class DomainArbitraries
             IsIdentity = isIdentity,
         };
 
+    public static Gen<ConstraintModel> GenConstraintModel(IReadOnlyList<string> columnNames) =>
+        from kind in Gen.Elements(ConstraintKind.PrimaryKey, ConstraintKind.Unique, ConstraintKind.Check)
+        from name in GenSqlIdentifier()
+        from isClustered in Arb.Generate<bool>()
+        select BuildConstraint(kind, name, columnNames, isClustered);
+
+    public static Gen<IndexModel> GenIndexModel(IReadOnlyList<string> columnNames) =>
+        from name in GenSqlIdentifier()
+        from isUnique in Arb.Generate<bool>()
+        from isClustered in Arb.Generate<bool>()
+        select new IndexModel
+        {
+            Name = name,
+            IsUnique = isUnique,
+            IsClustered = isClustered,
+            KeyColumns = new List<IndexKeyColumn> { new IndexKeyColumn { Name = columnNames[0] } },
+        };
+
     public static Gen<TableModel> GenTableModel() =>
         from tableName in GenSqlIdentifier()
         from columnCount in Gen.Choose(1, 5)
@@ -102,7 +120,15 @@ public static class DomainArbitraries
                 IsNullable = col.IsNullable,
                 IsIdentity = col.IsIdentity,
             }))
-        select BuildTable("dbo", tableName, columns.ToList());
+        from hasConstraint in Arb.Generate<bool>()
+        from constraint in hasConstraint && columnNames.Length > 0
+            ? GenConstraintModel(columnNames).Select(c => (ConstraintModel?)c)
+            : Gen.Constant((ConstraintModel?)null)
+        from hasIndex in Arb.Generate<bool>()
+        from index in hasIndex && columnNames.Length > 0
+            ? GenIndexModel(columnNames).Select(ix => (IndexModel?)ix)
+            : Gen.Constant((IndexModel?)null)
+        select BuildTable("dbo", tableName, columns.ToList(), constraint, index);
 
     public static Gen<DatabaseModel> GenDatabaseModel() =>
         from tableCount in Gen.Choose(0, 4)
@@ -202,12 +228,51 @@ public static class DomainArbitraries
             },
         };
 
-    private static TableModel BuildTable(string schema, string tableName, List<ColumnModel> columns)
+    private static ConstraintModel BuildConstraint(
+        ConstraintKind kind, string name, IReadOnlyList<string> columnNames, bool isClustered)
+    {
+        var constraint = new ConstraintModel
+        {
+            Kind = kind,
+            Name = name,
+        };
+
+        switch (kind)
+        {
+            case ConstraintKind.PrimaryKey:
+            case ConstraintKind.Unique:
+                constraint.Columns = new[] { columnNames[0] };
+                constraint.IsClustered = isClustered;
+                break;
+            case ConstraintKind.Check:
+                constraint.Definition = "(" + columnNames[0] + " IS NOT NULL)";
+                break;
+        }
+
+        return constraint;
+    }
+
+    private static TableModel BuildTable(
+        string schema,
+        string tableName,
+        List<ColumnModel> columns,
+        ConstraintModel? constraint = null,
+        IndexModel? index = null)
     {
         var table = new TableModel(schema, tableName);
         foreach (var col in columns)
         {
             table.Columns[IdentifierHelper.NormalizeNameKey(col.Name)] = col;
+        }
+
+        if (constraint != null)
+        {
+            table.Constraints[IdentifierHelper.NormalizeNameKey(constraint.Name)] = constraint;
+        }
+
+        if (index != null)
+        {
+            table.Indexes[IdentifierHelper.NormalizeNameKey(index.Name)] = index;
         }
 
         return table;

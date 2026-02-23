@@ -212,7 +212,8 @@ namespace SqlSchemaDef.SqlServer.Planning
                     continue;
                 }
 
-                if (!desiredColumn.IsNullable && options.NotNullColumnAddBehavior == NotNullColumnAddBehavior.Skip)
+                var hasDefault = !string.IsNullOrEmpty(desiredColumn.DefaultExpression);
+                if (!desiredColumn.IsNullable && !hasDefault && options.NotNullColumnAddBehavior == NotNullColumnAddBehavior.Skip)
                 {
                     skipped.Add(new SkippedItem
                     {
@@ -255,7 +256,20 @@ namespace SqlSchemaDef.SqlServer.Planning
         {
             foreach (var constraintEntry in desiredTable.Constraints.OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase))
             {
-                if (hasCurrentTable && currentTable.Constraints.TryGetValue(constraintEntry.Key, out var currentConstraint))
+                var currentConstraint = (ConstraintModel)null;
+                var foundCurrent = hasCurrentTable && currentTable.Constraints.TryGetValue(constraintEntry.Key, out currentConstraint);
+
+                // DEFAULT constraints: SQL Server may auto-generate names (DF__Table__Col__XXXX)
+                // that differ from the desired name (DF_Table_Col). Fall back to column-name matching.
+                if (!foundCurrent && hasCurrentTable
+                    && constraintEntry.Value.Kind == ConstraintKind.Default
+                    && !string.IsNullOrEmpty(constraintEntry.Value.DefaultColumnName))
+                {
+                    currentConstraint = FindDefaultConstraintByColumn(currentTable, constraintEntry.Value.DefaultColumnName);
+                    foundCurrent = currentConstraint != null;
+                }
+
+                if (foundCurrent)
                 {
                     if (!string.IsNullOrEmpty(currentConstraint.UnsupportedFeature))
                     {
@@ -313,11 +327,26 @@ namespace SqlSchemaDef.SqlServer.Planning
 
                 var constraint = constraintEntry.Value;
 
-                // Default constraints are included inline in CREATE TABLE column definitions,
-                // so skip separate AddConstraint for new tables.
-                if (constraint.Kind == ConstraintKind.Default && !hasCurrentTable)
+                // Default constraints are included inline in column definitions (both CREATE TABLE
+                // and ALTER TABLE ADD), so skip separate AddConstraint when the column definition
+                // already carries the DEFAULT clause.
+                if (constraint.Kind == ConstraintKind.Default)
                 {
-                    continue;
+                    if (!hasCurrentTable)
+                    {
+                        // New table: DEFAULT is in CREATE TABLE column definition.
+                        continue;
+                    }
+
+                    if (!string.IsNullOrEmpty(constraint.DefaultColumnName))
+                    {
+                        var colKey = IdentifierHelper.NormalizeNameKey(constraint.DefaultColumnName);
+                        if (!currentTable.Columns.ContainsKey(colKey))
+                        {
+                            // Existing table, new column: DEFAULT is in ALTER TABLE ADD column definition.
+                            continue;
+                        }
+                    }
                 }
 
                 var operation = AddConstraintOperation(desiredTable, constraint);
@@ -507,6 +536,15 @@ namespace SqlSchemaDef.SqlServer.Planning
                 }
 
                 var constraint = currentConstraintEntry.Value;
+
+                // DEFAULT constraints with auto-generated names (DF__Table__Col__XXXX) won't
+                // match by key. Check if the desired table has a DEFAULT on the same column.
+                if (constraint.Kind == ConstraintKind.Default
+                    && !string.IsNullOrEmpty(constraint.DefaultColumnName)
+                    && FindDefaultConstraintByColumn(desiredTable, constraint.DefaultColumnName) != null)
+                {
+                    continue;
+                }
                 var isFk = constraint.Kind == ConstraintKind.ForeignKey;
                 var sql = SqlStatementBuilder.BuildDropConstraintSql(desiredTable.Schema, desiredTable.Name, constraint.Name);
                 var op = new SqlOperation
@@ -644,7 +682,10 @@ namespace SqlSchemaDef.SqlServer.Planning
 
         private static bool IsColumnDifferent(ColumnModel current, ColumnModel desired)
         {
-            if (!string.Equals(current.SqlType, desired.SqlType, StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(
+                    NormalizeSqlType(current.SqlType),
+                    NormalizeSqlType(desired.SqlType),
+                    StringComparison.OrdinalIgnoreCase))
             {
                 return true;
             }
@@ -659,7 +700,10 @@ namespace SqlSchemaDef.SqlServer.Planning
                 return true;
             }
 
-            if (!string.Equals(current.DefaultExpression ?? string.Empty, desired.DefaultExpression ?? string.Empty, StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(
+                    NormalizeDefaultDefinition(current.DefaultExpression),
+                    NormalizeDefaultDefinition(desired.DefaultExpression),
+                    StringComparison.OrdinalIgnoreCase))
             {
                 return true;
             }
@@ -670,6 +714,19 @@ namespace SqlSchemaDef.SqlServer.Planning
             }
 
             return false;
+        }
+
+        private static string NormalizeSqlType(string sqlType)
+        {
+            if (string.IsNullOrEmpty(sqlType))
+            {
+                return string.Empty;
+            }
+
+            // ScriptDom may add spaces after commas in type parameters
+            // (e.g. "decimal(10, 2)" vs "decimal(10,2)").
+            // Remove all whitespace for comparison.
+            return sqlType.Replace(" ", string.Empty);
         }
 
         private static bool IsConstraintDifferent(ConstraintModel current, ConstraintModel desired)
@@ -683,9 +740,14 @@ namespace SqlSchemaDef.SqlServer.Planning
             {
                 case ConstraintKind.PrimaryKey:
                 case ConstraintKind.Unique:
+                    if (desired.IsClusteredSpecified && current.IsClustered != desired.IsClustered)
+                    {
+                        return true;
+                    }
+
                     return !SequenceEqual(current.Columns, desired.Columns);
                 case ConstraintKind.Check:
-                    return !string.Equals(current.Definition ?? string.Empty, desired.Definition ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+                    return !NormalizedCheckEquals(current.Definition, desired.Definition);
                 case ConstraintKind.ForeignKey:
                     return IsForeignKeyDifferent(current, desired);
                 case ConstraintKind.Default:
@@ -732,12 +794,77 @@ namespace SqlSchemaDef.SqlServer.Planning
 
         private static bool IsDefaultConstraintDifferent(ConstraintModel current, ConstraintModel desired)
         {
-            if (!string.Equals(current.Definition ?? string.Empty, desired.Definition ?? string.Empty, StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(
+                    NormalizeDefaultDefinition(current.Definition),
+                    NormalizeDefaultDefinition(desired.Definition),
+                    StringComparison.OrdinalIgnoreCase))
             {
                 return true;
             }
 
             return !string.Equals(current.DefaultColumnName ?? string.Empty, desired.DefaultColumnName ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string NormalizeDefaultDefinition(string definition)
+        {
+            if (string.IsNullOrEmpty(definition))
+            {
+                return string.Empty;
+            }
+
+            // SQL Server wraps DEFAULT definitions in extra parentheses when stored in
+            // sys.default_constraints.definition (e.g. DEFAULT (1) becomes ((1))).
+            // Strip redundant outer parentheses to match the desired form.
+            var result = definition.Trim();
+            while (result.Length >= 2 && result[0] == '(' && result[result.Length - 1] == ')')
+            {
+                var inner = result.Substring(1, result.Length - 2);
+                if (AreParenthesesBalanced(inner))
+                {
+                    result = inner;
+                }
+                else
+                {
+                    break;
+                }
+            }
+
+            return result;
+        }
+
+        private static bool AreParenthesesBalanced(string text)
+        {
+            var depth = 0;
+            var inString = false;
+            for (var i = 0; i < text.Length; i++)
+            {
+                var ch = text[i];
+                if (ch == '\'')
+                {
+                    inString = !inString;
+                    continue;
+                }
+
+                if (inString)
+                {
+                    continue;
+                }
+
+                if (ch == '(')
+                {
+                    depth++;
+                }
+                else if (ch == ')')
+                {
+                    depth--;
+                    if (depth < 0)
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            return depth == 0;
         }
 
         private static bool IsIndexDifferent(IndexModel current, IndexModel desired)
@@ -862,6 +989,117 @@ namespace SqlSchemaDef.SqlServer.Planning
             }
 
             return true;
+        }
+
+        private static ConstraintModel FindDefaultConstraintByColumn(TableModel table, string columnName)
+        {
+            var colKey = IdentifierHelper.NormalizeNameKey(columnName);
+            foreach (var entry in table.Constraints)
+            {
+                if (entry.Value.Kind == ConstraintKind.Default
+                    && string.Equals(
+                        IdentifierHelper.NormalizeNameKey(entry.Value.DefaultColumnName ?? string.Empty),
+                        colKey,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    return entry.Value;
+                }
+            }
+
+            return null;
+        }
+
+        private static bool NormalizedCheckEquals(string left, string right)
+        {
+            var normalizedLeft = StripBrackets(CheckDefinitionNormalizer.Normalize(left) ?? string.Empty);
+            var normalizedRight = StripBrackets(CheckDefinitionNormalizer.Normalize(right) ?? string.Empty);
+            return string.Equals(normalizedLeft, normalizedRight, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string StripBrackets(string input)
+        {
+            if (string.IsNullOrEmpty(input))
+            {
+                return input;
+            }
+
+            // Remove bracket-quoting of identifiers to normalize [Age] and Age to the same form.
+            // Keep bracket characters that appear inside string literals (e.g. LIKE '[A-Z]').
+            var sb = new System.Text.StringBuilder(input.Length);
+            for (var i = 0; i < input.Length;)
+            {
+                var ch = input[i];
+
+                if (ch == '\'')
+                {
+                    sb.Append(ch);
+                    i++;
+                    while (i < input.Length)
+                    {
+                        var stringCh = input[i];
+                        sb.Append(stringCh);
+                        i++;
+
+                        if (stringCh != '\'')
+                        {
+                            continue;
+                        }
+
+                        // Escaped quote inside a string literal.
+                        if (i < input.Length && input[i] == '\'')
+                        {
+                            sb.Append(input[i]);
+                            i++;
+                            continue;
+                        }
+
+                        break;
+                    }
+
+                    continue;
+                }
+
+                if (ch == '[')
+                {
+                    var contentStart = sb.Length;
+                    i++;
+                    var closed = false;
+                    while (i < input.Length)
+                    {
+                        var identifierCh = input[i];
+                        if (identifierCh == ']')
+                        {
+                            // Handle escaped ]] (literal bracket inside identifier)
+                            if (i + 1 < input.Length && input[i + 1] == ']')
+                            {
+                                sb.Append(']');
+                                i += 2;
+                                continue;
+                            }
+
+                            i++;
+                            closed = true;
+                            break;
+                        }
+
+                        sb.Append(identifierCh);
+                        i++;
+                    }
+
+                    // Malformed input: keep the opening bracket.
+                    if (!closed)
+                    {
+                        sb.Insert(contentStart, '[');
+                    }
+
+                    continue;
+                }
+
+                sb.Append(ch);
+                i++;
+            }
+
+            return sb.ToString();
         }
 
         private static SqlOperation CreateTableOperation(TableModel table)

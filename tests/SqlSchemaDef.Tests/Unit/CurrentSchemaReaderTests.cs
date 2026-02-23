@@ -176,7 +176,7 @@ public sealed class CurrentSchemaReaderTests
 
         var check = users.Constraints["CK_USERS_NAME"];
         Assert.Equal(ConstraintKind.Check, check.Kind);
-        Assert.Equal("([Name] <> '')", check.Definition);
+        Assert.Equal("[Name] <> ''", check.Definition);
 
         var fk = users.Constraints["FK_USERS_TEAMS"];
         Assert.Equal(ConstraintKind.ForeignKey, fk.Kind);
@@ -193,6 +193,46 @@ public sealed class CurrentSchemaReaderTests
         var teams = model.Tables.Values.Single(table => table.Name == "Teams");
         var teamId = teams.Columns["TEAMID"];
         Assert.Equal("uniqueidentifier", teamId.SqlType);
+    }
+
+    [Fact]
+    public void BuildModel_WhenColumnCollationMatchesDatabaseDefault_PreservesCollation()
+    {
+        var tables = new[]
+        {
+            new CurrentSchemaReader.TableRow
+            {
+                SchemaName = "dbo",
+                TableName = "Users",
+                ObjectId = 1,
+            },
+        };
+
+        var columns = new[]
+        {
+            new CurrentSchemaReader.ColumnRow
+            {
+                ObjectId = 1,
+                ColumnId = 1,
+                ColumnName = "Name",
+                IsNullable = false,
+                TypeName = "nvarchar",
+                MaxLength = 200,
+                Precision = 0,
+                Scale = 0,
+                IsComputed = false,
+                IsIdentity = false,
+                Collation = "SQL_Latin1_General_CP1_CI_AS",
+            },
+        };
+
+        var model = CurrentSchemaModelBuilder.Build(
+            tables,
+            columns,
+            databaseCollation: "SQL_Latin1_General_CP1_CI_AS");
+
+        var column = model.Tables["DBO.USERS"].Columns["NAME"];
+        Assert.Equal("SQL_Latin1_General_CP1_CI_AS", column.Collation);
     }
 
     [Fact]

@@ -7,6 +7,7 @@ using Xunit;
 
 namespace SqlSchemaDef.Tests;
 
+[Trait("Category", "Integration")]
 public sealed class SqlServerPlannerApplierIntegrationTests
 {
     [Fact]

@@ -13,12 +13,14 @@ namespace SqlSchemaDef.SqlServer.Planning
             IEnumerable<CurrentSchemaReader.CheckConstraintRow> checkConstraints = null,
             IEnumerable<CurrentSchemaReader.ForeignKeyRow> foreignKeys = null,
             IEnumerable<CurrentSchemaReader.IndexRow> indexes = null,
-            IEnumerable<CurrentSchemaReader.ExtendedPropertyRow> extendedProperties = null)
+            IEnumerable<CurrentSchemaReader.ExtendedPropertyRow> extendedProperties = null,
+            string databaseCollation = null)
         {
             if (tables == null)
                 throw new ArgumentNullException(nameof(tables));
             if (columns == null)
                 throw new ArgumentNullException(nameof(columns));
+            _ = databaseCollation;
 
             var model = new DatabaseModel();
             var tableMap = new Dictionary<int, TableModel>();
@@ -110,6 +112,8 @@ namespace SqlSchemaDef.SqlServer.Planning
                     Kind = kind,
                     Name = constraintName,
                     Columns = columns,
+                    IsClustered = rows[0].IsClustered,
+                    IsClusteredSpecified = true,
                 };
 
                 table.Constraints[IdentifierHelper.NormalizeNameKey(constraint.Name)] = constraint;
@@ -138,7 +142,7 @@ namespace SqlSchemaDef.SqlServer.Planning
                 {
                     Kind = ConstraintKind.Check,
                     Name = constraintName,
-                    Definition = row.Definition,
+                    Definition = CheckDefinitionNormalizer.Normalize(row.Definition),
                 };
 
                 table.Constraints[IdentifierHelper.NormalizeNameKey(constraint.Name)] = constraint;

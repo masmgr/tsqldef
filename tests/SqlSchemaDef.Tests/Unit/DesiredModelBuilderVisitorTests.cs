@@ -226,6 +226,29 @@ public sealed class DesiredModelBuilderVisitorTests
     }
 
     [Fact]
+    public void Load_PrimaryKeyWithoutClusterOption_DoesNotSpecifyClustering()
+    {
+        var model = DesiredSchemaLoader.Load(
+            "CREATE TABLE dbo.Users (Id int NOT NULL, CONSTRAINT PK_Users PRIMARY KEY (Id))");
+
+        var pk = model.Tables["DBO.USERS"].Constraints["PK_USERS"];
+        Assert.Equal(ConstraintKind.PrimaryKey, pk.Kind);
+        Assert.False(pk.IsClusteredSpecified);
+    }
+
+    [Fact]
+    public void Load_PrimaryKeyNonClustered_SetsClusteredFlagAsSpecified()
+    {
+        var model = DesiredSchemaLoader.Load(
+            "CREATE TABLE dbo.Users (Id int NOT NULL, CONSTRAINT PK_Users PRIMARY KEY NONCLUSTERED (Id))");
+
+        var pk = model.Tables["DBO.USERS"].Constraints["PK_USERS"];
+        Assert.Equal(ConstraintKind.PrimaryKey, pk.Kind);
+        Assert.True(pk.IsClusteredSpecified);
+        Assert.False(pk.IsClustered);
+    }
+
+    [Fact]
     public void Load_ComputedColumn_Throws()
     {
         var ex = Assert.Throws<UnsupportedDesiredFeatureException>(() =>

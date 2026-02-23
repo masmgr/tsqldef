@@ -74,9 +74,20 @@ namespace SqlSchemaDef.SqlServer.Planning
             switch (constraint.Kind)
             {
                 case ConstraintKind.PrimaryKey:
-                    return prefix + "PRIMARY KEY (" + JoinColumns(constraint.Columns) + ")";
+                {
+                    var pkClustering = constraint.IsClusteredSpecified
+                        ? (constraint.IsClustered ? "CLUSTERED " : "NONCLUSTERED ")
+                        : string.Empty;
+                    return prefix + "PRIMARY KEY " + pkClustering + "(" + JoinColumns(constraint.Columns) + ")";
+                }
+
                 case ConstraintKind.Unique:
-                    return prefix + "UNIQUE (" + JoinColumns(constraint.Columns) + ")";
+                {
+                    var uqClustering = constraint.IsClusteredSpecified
+                        ? (constraint.IsClustered ? "CLUSTERED " : "NONCLUSTERED ")
+                        : string.Empty;
+                    return prefix + "UNIQUE " + uqClustering + "(" + JoinColumns(constraint.Columns) + ")";
+                }
                 case ConstraintKind.Check:
                     var definition = (constraint.Definition ?? string.Empty).Trim();
                     if (definition.Length == 0)

@@ -90,6 +90,52 @@ public sealed class SchemaDifferTests
     }
 
     [Fact]
+    public void Diff_WhenNotNullColumnWithDefault_IsAllowed()
+    {
+        const string desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL, Active bit DEFAULT (1) NOT NULL)";
+        var desired = DesiredSchemaLoader.Load(desiredSql);
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Columns["ID"] = new ColumnModel
+        {
+            Name = "Id",
+            SqlType = "int",
+            IsNullable = false,
+            IsIdentity = false,
+        };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        Assert.Contains(plan.Operations, op => op.Kind == OperationKind.AddColumn && op.Target.Name == "Active");
+        Assert.DoesNotContain(plan.Skipped, s => s.Reason == SkippedReason.NotNullAddNotSupported);
+    }
+
+    [Fact]
+    public void Diff_WhenNotNullColumnWithoutDefault_IsStillSkipped()
+    {
+        const string desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL, Age int NOT NULL)";
+        var desired = DesiredSchemaLoader.Load(desiredSql);
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Columns["ID"] = new ColumnModel
+        {
+            Name = "Id",
+            SqlType = "int",
+            IsNullable = false,
+            IsIdentity = false,
+        };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        Assert.Empty(plan.Operations);
+        Assert.Contains(plan.Skipped, s => s.Reason == SkippedReason.NotNullAddNotSupported);
+    }
+
+    [Fact]
     public void Diff_WhenConstraintsAndIndexesMissing_EmitsOperationsInOrder()
     {
         var desiredSql = string.Join("\n", new[]
@@ -201,11 +247,41 @@ public sealed class SchemaDifferTests
         var metadata = new PlanMetadata { Schema = "dbo" };
         var plan = SchemaDiffer.Diff(current, desired, metadata);
 
-        Assert.Equal(2, plan.Operations.Count);
-        Assert.Equal(OperationKind.AddColumn, plan.Operations[0].Kind);
-        Assert.Contains("DEFAULT (1)", plan.Operations[0].Sql);
-        Assert.Equal(OperationKind.AddConstraint, plan.Operations[1].Kind);
-        Assert.Contains("CONSTRAINT [DF_Users_Score] DEFAULT (1) FOR [Score]", plan.Operations[1].Sql);
+        // DEFAULT is emitted inline in the AddColumn SQL; no separate AddConstraint for new columns.
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal(OperationKind.AddColumn, op.Kind);
+        Assert.Contains("DEFAULT (1)", op.Sql);
+    }
+
+    [Fact]
+    public void Diff_WhenAddingDefaultToExistingColumn_EmitsAddConstraint()
+    {
+        const string desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL, Score int DEFAULT (1) NULL)";
+        var desired = DesiredSchemaLoader.Load(desiredSql);
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Columns["ID"] = new ColumnModel
+        {
+            Name = "Id",
+            SqlType = "int",
+            IsNullable = false,
+            IsIdentity = false,
+        };
+        currentTable.Columns["SCORE"] = new ColumnModel
+        {
+            Name = "Score",
+            SqlType = "int",
+            IsNullable = true,
+            IsIdentity = false,
+        };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal(OperationKind.AddConstraint, op.Kind);
+        Assert.Contains("CONSTRAINT [DF_Users_Score] DEFAULT (1) FOR [Score]", op.Sql);
     }
 
     [Fact]
@@ -284,6 +360,36 @@ public sealed class SchemaDifferTests
 
         var operation = Assert.Single(plan.Operations);
         Assert.Contains("CONSTRAINT [CK_Users_Age] CHECK (Age > 0)", operation.Sql);
+    }
+
+    [Fact]
+    public void Diff_WhenCheckConstraintPatternLiteralHasBrackets_PreservesLiteralDifference()
+    {
+        var desired = new DatabaseModel();
+        var desiredUsers = desired.GetOrAddTable("dbo", "Users");
+        desiredUsers.Columns["CODE"] = new ColumnModel { Name = "Code", SqlType = "nvarchar(10)", IsNullable = false };
+        desiredUsers.Constraints["CK_USERS_CODE"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.Check,
+            Name = "CK_Users_Code",
+            Definition = "[Code] LIKE 'A-Z'",
+        };
+
+        var current = new DatabaseModel();
+        var currentUsers = current.GetOrAddTable("dbo", "Users");
+        currentUsers.Columns["CODE"] = new ColumnModel { Name = "Code", SqlType = "nvarchar(10)", IsNullable = false };
+        currentUsers.Constraints["CK_USERS_CODE"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.Check,
+            Name = "CK_Users_Code",
+            Definition = "[Code] LIKE '[A-Z]'",
+        };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal(OperationKind.RecreateConstraint, op.Kind);
     }
 
     [Fact]
@@ -985,6 +1091,40 @@ public sealed class SchemaDifferTests
         Assert.Equal(OperationKind.RecreateConstraint, op.Kind);
         Assert.Contains("DROP CONSTRAINT", op.Sql);
         Assert.Contains("DEFAULT", op.Sql);
+        Assert.Empty(plan.Skipped);
+    }
+
+    [Fact]
+    public void Diff_DefaultConstraintSame_WhenDbHasExtraParens_NoOperation()
+    {
+        // SQL Server stores DEFAULT (1) as ((1)) in sys.default_constraints.definition.
+        // The normalizer should strip redundant outer parentheses.
+        var desired = new DatabaseModel();
+        var desiredUsers = desired.GetOrAddTable("dbo", "Users");
+        desiredUsers.Columns["ACTIVE"] = new ColumnModel { Name = "Active", SqlType = "bit", IsNullable = false, DefaultExpression = "(1)" };
+        desiredUsers.Constraints["DF_USERS_ACTIVE"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.Default,
+            Name = "DF_Users_Active",
+            Definition = "(1)",
+            DefaultColumnName = "Active",
+        };
+
+        var current = new DatabaseModel();
+        var currentUsers = current.GetOrAddTable("dbo", "Users");
+        currentUsers.Columns["ACTIVE"] = new ColumnModel { Name = "Active", SqlType = "bit", IsNullable = false, DefaultExpression = "(1)" };
+        currentUsers.Constraints["DF_USERS_ACTIVE"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.Default,
+            Name = "DF_Users_Active",
+            Definition = "((1))",
+            DefaultColumnName = "Active",
+        };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        Assert.Empty(plan.Operations);
         Assert.Empty(plan.Skipped);
     }
 
@@ -1932,5 +2072,177 @@ CREATE INDEX IX_Users_Id ON dbo.Users(Id)";
 
         // Drop operations on the same table as the rebuild proposal should be filtered out
         Assert.Empty(plan.Operations);
+    }
+
+    [Fact]
+    public void Diff_WhenPkClusteringDiffers_IsSkippedAsAlterNotSupported()
+    {
+        var desired = new DatabaseModel();
+        var desiredTable = desired.GetOrAddTable("dbo", "Users");
+        desiredTable.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+        desiredTable.Constraints["PK_USERS"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.PrimaryKey,
+            Name = "PK_Users",
+            Columns = new[] { "Id" },
+            IsClustered = false,
+        };
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+        currentTable.Constraints["PK_USERS"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.PrimaryKey,
+            Name = "PK_Users",
+            Columns = new[] { "Id" },
+            IsClustered = true,
+        };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        Assert.Empty(plan.Operations);
+        var skipped = Assert.Single(plan.Skipped);
+        Assert.Equal(SkippedReason.AlterNotSupported, skipped.Reason);
+    }
+
+    [Fact]
+    public void Diff_WhenUniqueClusteringDiffers_EmitsRecreateConstraint()
+    {
+        var desired = new DatabaseModel();
+        var desiredTable = desired.GetOrAddTable("dbo", "Users");
+        desiredTable.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+        desiredTable.Constraints["UQ_USERS_ID"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.Unique,
+            Name = "UQ_Users_Id",
+            Columns = new[] { "Id" },
+            IsClustered = true,
+        };
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+        currentTable.Constraints["UQ_USERS_ID"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.Unique,
+            Name = "UQ_Users_Id",
+            Columns = new[] { "Id" },
+            IsClustered = false,
+        };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal(OperationKind.RecreateConstraint, op.Kind);
+        Assert.Contains("CLUSTERED", op.Sql);
+    }
+
+    [Fact]
+    public void Diff_WhenPkSameClusteredState_NoOperation()
+    {
+        var desired = new DatabaseModel();
+        var desiredTable = desired.GetOrAddTable("dbo", "Users");
+        desiredTable.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+        desiredTable.Constraints["PK_USERS"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.PrimaryKey,
+            Name = "PK_Users",
+            Columns = new[] { "Id" },
+            IsClustered = true,
+        };
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+        currentTable.Constraints["PK_USERS"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.PrimaryKey,
+            Name = "PK_Users",
+            Columns = new[] { "Id" },
+            IsClustered = true,
+        };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        Assert.Empty(plan.Operations);
+        Assert.Empty(plan.Skipped);
+    }
+
+    [Fact]
+    public void Diff_WhenNewPkConstraint_EmitsClusteredKeyword()
+    {
+        const string desiredSql = @"
+CREATE TABLE dbo.Users (
+  Id int NOT NULL,
+  CONSTRAINT PK_Users PRIMARY KEY NONCLUSTERED (Id)
+)";
+        var desired = DesiredSchemaLoader.Load(desiredSql);
+
+        var current = new DatabaseModel();
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        var createOp = plan.Operations.First(op => op.Kind == OperationKind.CreateTable);
+        Assert.Contains("CREATE TABLE", createOp.Sql);
+
+        var constraintOp = plan.Operations.First(op => op.Kind == OperationKind.AddConstraint);
+        Assert.Contains("PRIMARY KEY NONCLUSTERED", constraintOp.Sql);
+    }
+
+    [Fact]
+    public void Diff_WhenDesiredPkClusteringIsUnspecified_DoesNotTreatCurrentAsDifferent()
+    {
+        const string desiredSql = @"
+CREATE TABLE dbo.Users (
+  Id int NOT NULL,
+  CONSTRAINT PK_Users PRIMARY KEY (Id)
+)";
+        var desired = DesiredSchemaLoader.Load(desiredSql);
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+        currentTable.Constraints["PK_USERS"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.PrimaryKey,
+            Name = "PK_Users",
+            Columns = new[] { "Id" },
+            IsClustered = false,
+            IsClusteredSpecified = true,
+        };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        Assert.Empty(plan.Operations);
+        Assert.Empty(plan.Skipped);
+    }
+
+    [Fact]
+    public void Diff_WhenAddingPkWithUnspecifiedClustering_OmitsClusteredKeyword()
+    {
+        const string desiredSql = @"
+CREATE TABLE dbo.Users (
+  Id int NOT NULL,
+  CONSTRAINT PK_Users PRIMARY KEY (Id)
+)";
+        var desired = DesiredSchemaLoader.Load(desiredSql);
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal(OperationKind.AddConstraint, op.Kind);
+        Assert.DoesNotContain("CLUSTERED", op.Sql);
+        Assert.DoesNotContain("NONCLUSTERED", op.Sql);
     }
 }
