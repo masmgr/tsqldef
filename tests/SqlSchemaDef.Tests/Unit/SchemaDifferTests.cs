@@ -526,7 +526,7 @@ public sealed class SchemaDifferTests
     }
 
     [Fact]
-    public void Diff_WhenConstraintDefinitionDiffers_IsSkipped()
+    public void Diff_WhenPkColumnsDiffer_EmitsRecreateConstraint()
     {
         var desired = new DatabaseModel();
         var desiredTable = desired.GetOrAddTable("dbo", "Users");
@@ -549,11 +549,126 @@ public sealed class SchemaDifferTests
         var metadata = new PlanMetadata { Schema = "dbo" };
         var plan = SchemaDiffer.Diff(current, desired, metadata);
 
-        Assert.Empty(plan.Operations);
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal(OperationKind.RecreateConstraint, op.Kind);
+        Assert.Contains("DROP CONSTRAINT", op.Sql);
+        Assert.Contains("PRIMARY KEY", op.Sql);
+        Assert.Empty(plan.Skipped);
+    }
 
-        var skipped = Assert.Single(plan.Skipped);
-        Assert.Equal(SkippedReason.AlterNotSupported, skipped.Reason);
-        Assert.Equal("dbo.Users.PK_Users", skipped.Target.ToDisplayName());
+    [Fact]
+    public void Diff_WhenPkChangedWithDependentFk_EmitsCompoundSql()
+    {
+        var desired = new DatabaseModel();
+        var desiredTeams = desired.GetOrAddTable("dbo", "Teams");
+        desiredTeams.Constraints["PK_TEAMS"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.PrimaryKey,
+            Name = "PK_Teams",
+            Columns = new[] { "Id", "Name" },
+        };
+        var desiredUsers = desired.GetOrAddTable("dbo", "Users");
+        desiredUsers.Constraints["FK_USERS_TEAMS"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.ForeignKey,
+            Name = "FK_Users_Teams",
+            Columns = new[] { "TeamId" },
+            ReferenceSchema = "dbo",
+            ReferenceTable = "Teams",
+            ReferenceColumns = new[] { "Id" },
+        };
+
+        var current = new DatabaseModel();
+        var currentTeams = current.GetOrAddTable("dbo", "Teams");
+        currentTeams.Constraints["PK_TEAMS"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.PrimaryKey,
+            Name = "PK_Teams",
+            Columns = new[] { "Id" },
+        };
+        var currentUsers = current.GetOrAddTable("dbo", "Users");
+        currentUsers.Constraints["FK_USERS_TEAMS"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.ForeignKey,
+            Name = "FK_Users_Teams",
+            Columns = new[] { "TeamId" },
+            ReferenceSchema = "dbo",
+            ReferenceTable = "Teams",
+            ReferenceColumns = new[] { "Id" },
+        };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal(OperationKind.RecreateConstraint, op.Kind);
+
+        // SQL should contain: FK DROP, PK DROP, PK ADD, FK ADD in that order
+        var sql = op.Sql;
+        var fkDropPos = sql.IndexOf("DROP CONSTRAINT [FK_Users_Teams]", StringComparison.Ordinal);
+        var pkDropPos = sql.IndexOf("DROP CONSTRAINT [PK_Teams]", StringComparison.Ordinal);
+        var pkAddPos = sql.IndexOf("PRIMARY KEY", StringComparison.Ordinal);
+        var fkAddPos = sql.IndexOf("FOREIGN KEY", StringComparison.Ordinal);
+        Assert.True(fkDropPos >= 0, "should contain FK DROP");
+        Assert.True(pkDropPos >= 0, "should contain PK DROP");
+        Assert.True(pkAddPos >= 0, "should contain PK ADD");
+        Assert.True(fkAddPos >= 0, "should contain FK ADD");
+        Assert.True(fkDropPos < pkDropPos, "FK DROP should precede PK DROP");
+        Assert.True(pkDropPos < pkAddPos, "PK DROP should precede PK ADD");
+        Assert.True(pkAddPos < fkAddPos, "PK ADD should precede FK ADD");
+    }
+
+    [Fact]
+    public void Diff_WhenPkChangedAndDependentFkAlsoChanged_NoDuplicateOps()
+    {
+        var desired = new DatabaseModel();
+        var desiredTeams = desired.GetOrAddTable("dbo", "Teams");
+        desiredTeams.Constraints["PK_TEAMS"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.PrimaryKey,
+            Name = "PK_Teams",
+            Columns = new[] { "Id", "Name" },
+        };
+        var desiredUsers = desired.GetOrAddTable("dbo", "Users");
+        desiredUsers.Constraints["FK_USERS_TEAMS"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.ForeignKey,
+            Name = "FK_Users_Teams",
+            Columns = new[] { "TeamId" },
+            ReferenceSchema = "dbo",
+            ReferenceTable = "Teams",
+            ReferenceColumns = new[] { "Id" },
+            DeleteAction = "CASCADE",
+        };
+
+        var current = new DatabaseModel();
+        var currentTeams = current.GetOrAddTable("dbo", "Teams");
+        currentTeams.Constraints["PK_TEAMS"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.PrimaryKey,
+            Name = "PK_Teams",
+            Columns = new[] { "Id" },
+        };
+        var currentUsers = current.GetOrAddTable("dbo", "Users");
+        currentUsers.Constraints["FK_USERS_TEAMS"] = new ConstraintModel
+        {
+            Kind = ConstraintKind.ForeignKey,
+            Name = "FK_Users_Teams",
+            Columns = new[] { "TeamId" },
+            ReferenceSchema = "dbo",
+            ReferenceTable = "Teams",
+            ReferenceColumns = new[] { "Id" },
+        };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        // PK recreate should include FK DROP/ADD. There should be no separate RecreateForeignKey operation.
+        var pkOp = plan.Operations.Single(op => op.Kind == OperationKind.RecreateConstraint);
+        Assert.Contains("PRIMARY KEY", pkOp.Sql);
+        Assert.Contains("FK_Users_Teams", pkOp.Sql);
+
+        Assert.DoesNotContain(plan.Operations, op => op.Kind == OperationKind.RecreateForeignKey);
     }
 
     [Fact]
@@ -1207,7 +1322,7 @@ CREATE TABLE dbo.Users (
     }
 
     [Fact]
-    public void Diff_WithEmitProposalsTrue_PrimaryKeyDiff_ProducesProposal()
+    public void Diff_WithEmitProposalsTrue_PrimaryKeyDiff_EmitsRecreateNotProposal()
     {
         var desired = new DatabaseModel();
         var desiredTable = desired.GetOrAddTable("dbo", "Users");
@@ -1235,9 +1350,11 @@ CREATE TABLE dbo.Users (
         var options = new PlannerOptions { EmitProposals = true };
         var plan = SchemaDiffer.Diff(current, desired, metadata, options);
 
-        var proposal = Assert.Single(plan.Proposals);
-        Assert.Equal("Users", proposal.Target.Name);
-        Assert.Contains("primary key change", proposal.Description);
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal(OperationKind.RecreateConstraint, op.Kind);
+        Assert.Contains("PRIMARY KEY", op.Sql);
+        Assert.Empty(plan.Proposals);
+        Assert.Empty(plan.Skipped);
     }
 
     [Fact]
@@ -2316,7 +2433,7 @@ CREATE INDEX IX_Users_Id ON dbo.Users(Id)";
     }
 
     [Fact]
-    public void Diff_WhenPkClusteringDiffers_IsSkippedAsAlterNotSupported()
+    public void Diff_WhenPkClusteringDiffers_EmitsRecreateConstraint()
     {
         var desired = new DatabaseModel();
         var desiredTable = desired.GetOrAddTable("dbo", "Users");
@@ -2327,6 +2444,7 @@ CREATE INDEX IX_Users_Id ON dbo.Users(Id)";
             Name = "PK_Users",
             Columns = new[] { "Id" },
             IsClustered = false,
+            IsClusteredSpecified = true,
         };
 
         var current = new DatabaseModel();
@@ -2338,14 +2456,17 @@ CREATE INDEX IX_Users_Id ON dbo.Users(Id)";
             Name = "PK_Users",
             Columns = new[] { "Id" },
             IsClustered = true,
+            IsClusteredSpecified = true,
         };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
         var plan = SchemaDiffer.Diff(current, desired, metadata);
 
-        Assert.Empty(plan.Operations);
-        var skipped = Assert.Single(plan.Skipped);
-        Assert.Equal(SkippedReason.AlterNotSupported, skipped.Reason);
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal(OperationKind.RecreateConstraint, op.Kind);
+        Assert.Contains("DROP CONSTRAINT", op.Sql);
+        Assert.Contains("PRIMARY KEY NONCLUSTERED", op.Sql);
+        Assert.Empty(plan.Skipped);
     }
 
     [Fact]

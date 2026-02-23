@@ -46,6 +46,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             var dropConstraintOps = new List<SqlOperation>();
             var dropColumnOps = new List<SqlOperation>();
             var skipped = new List<SkippedItem>();
+            var fksCoveredByPkRecreate = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             var includePatterns = options.IncludeTablePatterns;
             var excludePatterns = options.ExcludeTablePatterns;
@@ -72,7 +73,7 @@ namespace SqlSchemaDef.SqlServer.Planning
                     DiffColumns(currentTable, desiredTable, options, addColumnOps, alterColumnOps, dropColumnOps, skipped);
                 }
 
-                DiffConstraints(currentTable, desiredTable, hasCurrentTable, addConstraintOps, addForeignKeyOps, recreateConstraintOps, recreateForeignKeyOps, skipped);
+                DiffConstraints(current, currentTable, desiredTable, hasCurrentTable, addConstraintOps, addForeignKeyOps, recreateConstraintOps, recreateForeignKeyOps, fksCoveredByPkRecreate, skipped);
                 DiffIndexes(currentTable, desiredTable, hasCurrentTable, createIndexOps, recreateIndexOps, skipped);
                 DiffDescriptions(currentTable, desiredTable, hasCurrentTable, descriptionOps, dropDescriptionOps, skipped);
 
@@ -105,6 +106,16 @@ namespace SqlSchemaDef.SqlServer.Planning
                     },
                     Message = "drop is not supported in v1",
                 });
+            }
+
+            if (fksCoveredByPkRecreate.Count > 0)
+            {
+                recreateForeignKeyOps.RemoveAll(op => fksCoveredByPkRecreate.Contains(
+                    IdentifierHelper.NormalizeNameKey(op.Target.Name)));
+                addForeignKeyOps.RemoveAll(op => fksCoveredByPkRecreate.Contains(
+                    IdentifierHelper.NormalizeNameKey(op.Target.Name)));
+                dropForeignKeyOps.RemoveAll(op => fksCoveredByPkRecreate.Contains(
+                    IdentifierHelper.NormalizeNameKey(op.Target.Name)));
             }
 
             var operations = new List<SqlOperation>();
@@ -267,6 +278,7 @@ namespace SqlSchemaDef.SqlServer.Planning
         }
 
         private static void DiffConstraints(
+            DatabaseModel currentDb,
             TableModel currentTable,
             TableModel desiredTable,
             bool hasCurrentTable,
@@ -274,6 +286,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             List<SqlOperation> addForeignKeyOps,
             List<SqlOperation> recreateConstraintOps,
             List<SqlOperation> recreateForeignKeyOps,
+            HashSet<string> fksCoveredByPkRecreate,
             List<SkippedItem> skipped)
         {
             foreach (var constraintEntry in desiredTable.Constraints.OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase))
@@ -317,19 +330,9 @@ namespace SqlSchemaDef.SqlServer.Planning
                         var desiredConstraint = constraintEntry.Value;
                         if (desiredConstraint.Kind == ConstraintKind.PrimaryKey)
                         {
-                            // PK changes require rebuild (shadow table swap)
-                            skipped.Add(new SkippedItem
-                            {
-                                Reason = SkippedReason.AlterNotSupported,
-                                Target = new SqlObjectRef
-                                {
-                                    Type = SqlObjectType.Constraint,
-                                    Schema = desiredTable.Schema,
-                                    ParentName = desiredTable.Name,
-                                    Name = desiredConstraint.Name,
-                                },
-                                Message = "alter is not supported in v1",
-                            });
+                            var recreateOp = RecreatePrimaryKeyOperation(
+                                currentDb, desiredTable, currentConstraint, desiredConstraint, fksCoveredByPkRecreate);
+                            recreateConstraintOps.Add(recreateOp);
                         }
                         else
                         {
@@ -681,6 +684,79 @@ namespace SqlSchemaDef.SqlServer.Planning
                     Name = desired.Name,
                 },
             };
+        }
+
+        private static SqlOperation RecreatePrimaryKeyOperation(
+            DatabaseModel currentDb,
+            TableModel table,
+            ConstraintModel currentPk,
+            ConstraintModel desiredPk,
+            HashSet<string> fksCoveredByPkRecreate)
+        {
+            var dependentFks = FindDependentForeignKeys(currentDb, table.Schema, table.Name);
+            var parts = new List<string>();
+
+            foreach (var entry in dependentFks)
+            {
+                parts.Add(SqlStatementBuilder.BuildDropConstraintSql(entry.Table.Schema, entry.Table.Name, entry.Constraint.Name));
+                fksCoveredByPkRecreate.Add(IdentifierHelper.NormalizeNameKey(entry.Constraint.Name));
+            }
+
+            parts.Add(SqlStatementBuilder.BuildDropConstraintSql(table.Schema, table.Name, currentPk.Name));
+            parts.Add(SqlStatementBuilder.BuildAddConstraintSql(table, desiredPk));
+
+            foreach (var entry in dependentFks)
+            {
+                parts.Add(SqlStatementBuilder.BuildAddConstraintSql(entry.Table, entry.Constraint));
+            }
+
+            return new SqlOperation
+            {
+                Kind = OperationKind.RecreateConstraint,
+                Description = "Recreate primary key " + table.Schema + "." + table.Name + "." + desiredPk.Name,
+                Sql = string.Join(";\n", parts),
+                Target = new SqlObjectRef
+                {
+                    Type = SqlObjectType.Constraint,
+                    Schema = table.Schema,
+                    ParentName = table.Name,
+                    Name = desiredPk.Name,
+                },
+            };
+        }
+
+        private static List<(TableModel Table, ConstraintModel Constraint)> FindDependentForeignKeys(
+            DatabaseModel currentDb,
+            string schema,
+            string tableName)
+        {
+            var result = new List<(TableModel, ConstraintModel)>();
+            foreach (var tableEntry in currentDb.Tables.OrderBy(e => e.Key, StringComparer.OrdinalIgnoreCase))
+            {
+                var table = tableEntry.Value;
+                if (string.Equals(table.Schema, schema, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(table.Name, tableName, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                foreach (var constraintEntry in table.Constraints.OrderBy(e => e.Key, StringComparer.OrdinalIgnoreCase))
+                {
+                    var constraint = constraintEntry.Value;
+                    if (constraint.Kind != ConstraintKind.ForeignKey)
+                    {
+                        continue;
+                    }
+
+                    if (string.Equals(constraint.ReferenceTable, tableName, StringComparison.OrdinalIgnoreCase) &&
+                        string.Equals(constraint.ReferenceSchema ?? "dbo", schema, StringComparison.OrdinalIgnoreCase))
+                    {
+                        result.Add((table, constraint));
+                    }
+                }
+            }
+
+            return result;
         }
 
         private static SqlOperation RecreateIndexOperation(TableModel table, IndexModel current, IndexModel desired)

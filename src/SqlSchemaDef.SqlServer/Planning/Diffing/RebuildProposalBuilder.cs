@@ -32,20 +32,6 @@ namespace SqlSchemaDef.SqlServer.Planning
                 {
                     AddToRebuildSkipped(rebuildSkipped, item);
                 }
-                else if (item.Target.Type == SqlObjectType.Constraint)
-                {
-                    // Only PK triggers rebuild; other constraints are handled by RecreateConstraint
-                    var tableKey = IdentifierHelper.BuildTableKey(item.Target.Schema, item.Target.ParentName);
-                    if (desired.Tables.TryGetValue(tableKey, out var desiredTable))
-                    {
-                        var constraintKey = IdentifierHelper.NormalizeNameKey(item.Target.Name);
-                        if (desiredTable.Constraints.TryGetValue(constraintKey, out var constraint) &&
-                            constraint.Kind == ConstraintKind.PrimaryKey)
-                        {
-                            AddToRebuildSkipped(rebuildSkipped, item);
-                        }
-                    }
-                }
             }
 
             if (rebuildSkipped.Count == 0)
