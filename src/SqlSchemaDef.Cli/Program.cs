@@ -327,6 +327,11 @@ namespace SqlSchemaDef.Cli
 
             if (!string.IsNullOrWhiteSpace(planJsonPath))
             {
+                if (includeArg != null || excludeArg != null)
+                {
+                    Console.Error.WriteLine("Warning: --include/--exclude are ignored when using --plan (scope was applied during planning).");
+                }
+
                 var json = await ReadFileAsync(planJsonPath).ConfigureAwait(false);
                 plan = MigrationPlanSerializer.FromJson(json);
             }

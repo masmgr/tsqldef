@@ -504,6 +504,32 @@ public sealed class CliArgumentParsingTests
     }
 
     [Fact]
+    public async Task Apply_PlanWithScopeFilters_WarnsToStderr()
+    {
+        var originalError = Console.Error;
+        try
+        {
+            using var stderr = new StringWriter();
+            Console.SetError(stderr);
+
+            await SqlSchemaDef.Cli.Program.Main(new[]
+            {
+                "apply",
+                "--connection", "Server=(local);Database=master;Trusted_Connection=True;",
+                "--plan", "nonexistent_plan.json",
+                "--include", "Users",
+            });
+
+            var output = stderr.ToString();
+            Assert.Contains("--include/--exclude are ignored", output);
+        }
+        finally
+        {
+            Console.SetError(originalError);
+        }
+    }
+
+    [Fact]
     public async Task Plan_NonexistentFile_PrintsFileNotFound()
     {
         var originalError = Console.Error;
