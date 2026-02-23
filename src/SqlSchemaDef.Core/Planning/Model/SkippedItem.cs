@@ -15,5 +15,6 @@ namespace SqlSchemaDef.Core.Planning
         NotNullAddNotSupported = 3,
         UnsupportedFeatureInDesired = 4,
         UnsupportedFeatureInCurrent = 5,
+        ColumnReorderRequired = 6,
     }
 }

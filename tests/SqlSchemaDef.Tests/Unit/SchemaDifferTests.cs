@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using SqlSchemaDef.Core.Planning;
@@ -2812,5 +2813,156 @@ CREATE TABLE dbo.Users (
         Assert.Equal(2, plan.Operations.Count);
         Assert.Equal(OperationKind.CreateTable, plan.Operations[0].Kind);
         Assert.Equal(OperationKind.DropTable, plan.Operations[1].Kind);
+    }
+
+    [Fact]
+    public void Diff_ColumnOrderDiffers_WhenReorderDisabled_NoSkip()
+    {
+        var desired = new DatabaseModel();
+        var desiredTable = desired.GetOrAddTable("dbo", "Users");
+        AddColumnWithOrder(desiredTable, "ID", new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false });
+        AddColumnWithOrder(desiredTable, "NAME", new ColumnModel { Name = "Name", SqlType = "nvarchar(100)", IsNullable = true });
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        AddColumnWithOrder(currentTable, "NAME", new ColumnModel { Name = "Name", SqlType = "nvarchar(100)", IsNullable = true });
+        AddColumnWithOrder(currentTable, "ID", new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false });
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        Assert.Empty(plan.Operations);
+        Assert.Empty(plan.Skipped);
+    }
+
+    [Fact]
+    public void Diff_ColumnOrderDiffers_WhenReorderEnabled_EmitsSkipped()
+    {
+        var desired = new DatabaseModel();
+        var desiredTable = desired.GetOrAddTable("dbo", "Users");
+        AddColumnWithOrder(desiredTable, "ID", new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false });
+        AddColumnWithOrder(desiredTable, "NAME", new ColumnModel { Name = "Name", SqlType = "nvarchar(100)", IsNullable = true });
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        AddColumnWithOrder(currentTable, "NAME", new ColumnModel { Name = "Name", SqlType = "nvarchar(100)", IsNullable = true });
+        AddColumnWithOrder(currentTable, "ID", new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false });
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var options = new PlannerOptions { ReorderColumns = true };
+        var plan = SchemaDiffer.Diff(current, desired, metadata, options);
+
+        Assert.Empty(plan.Operations);
+        var skip = Assert.Single(plan.Skipped);
+        Assert.Equal(SkippedReason.ColumnReorderRequired, skip.Reason);
+        Assert.Equal(SqlObjectType.Table, skip.Target.Type);
+        Assert.Equal("Users", skip.Target.Name);
+    }
+
+    [Fact]
+    public void Diff_ColumnOrderSame_WhenReorderEnabled_NoSkip()
+    {
+        var desired = new DatabaseModel();
+        var desiredTable = desired.GetOrAddTable("dbo", "Users");
+        AddColumnWithOrder(desiredTable, "ID", new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false });
+        AddColumnWithOrder(desiredTable, "NAME", new ColumnModel { Name = "Name", SqlType = "nvarchar(100)", IsNullable = true });
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        AddColumnWithOrder(currentTable, "ID", new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false });
+        AddColumnWithOrder(currentTable, "NAME", new ColumnModel { Name = "Name", SqlType = "nvarchar(100)", IsNullable = true });
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var options = new PlannerOptions { ReorderColumns = true };
+        var plan = SchemaDiffer.Diff(current, desired, metadata, options);
+
+        Assert.Empty(plan.Operations);
+        Assert.Empty(plan.Skipped);
+    }
+
+    [Fact]
+    public void Diff_ColumnOrderDiffers_WithNewColumns_ComparesCommonOnly()
+    {
+        var desired = new DatabaseModel();
+        var desiredTable = desired.GetOrAddTable("dbo", "Users");
+        AddColumnWithOrder(desiredTable, "ID", new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false });
+        AddColumnWithOrder(desiredTable, "EMAIL", new ColumnModel { Name = "Email", SqlType = "nvarchar(200)", IsNullable = true });
+        AddColumnWithOrder(desiredTable, "NAME", new ColumnModel { Name = "Name", SqlType = "nvarchar(100)", IsNullable = true });
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        AddColumnWithOrder(currentTable, "ID", new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false });
+        AddColumnWithOrder(currentTable, "NAME", new ColumnModel { Name = "Name", SqlType = "nvarchar(100)", IsNullable = true });
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var options = new PlannerOptions { ReorderColumns = true };
+        var plan = SchemaDiffer.Diff(current, desired, metadata, options);
+
+        // Email is new (AddColumn), but common columns (Id, Name) are in the same relative order
+        Assert.DoesNotContain(plan.Skipped, s => s.Reason == SkippedReason.ColumnReorderRequired);
+    }
+
+    [Fact]
+    public void Diff_ColumnOrderDiffers_WithEmitProposals_GeneratesRebuildProposal()
+    {
+        var desired = new DatabaseModel();
+        var desiredTable = desired.GetOrAddTable("dbo", "Users");
+        AddColumnWithOrder(desiredTable, "NAME", new ColumnModel { Name = "Name", SqlType = "nvarchar(100)", IsNullable = true });
+        AddColumnWithOrder(desiredTable, "ID", new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false });
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        AddColumnWithOrder(currentTable, "ID", new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false });
+        AddColumnWithOrder(currentTable, "NAME", new ColumnModel { Name = "Name", SqlType = "nvarchar(100)", IsNullable = true });
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var options = new PlannerOptions { ReorderColumns = true, EmitProposals = true };
+        var plan = SchemaDiffer.Diff(current, desired, metadata, options);
+
+        var proposal = Assert.Single(plan.Proposals);
+        Assert.Equal("Users", proposal.Target.Name);
+        Assert.Contains("column reorder", proposal.Description);
+
+        // Shadow table CREATE should use desired order (Name before Id)
+        var createStep = proposal.Steps.First(s => s.Kind == RebuildStepKind.CreateShadowTable);
+        var nameIndex = createStep.Sql.IndexOf("[Name]", StringComparison.Ordinal);
+        var idIndex = createStep.Sql.IndexOf("[Id]", StringComparison.Ordinal);
+        Assert.True(nameIndex < idIndex, "Name should appear before Id in desired order");
+    }
+
+    [Fact]
+    public void BuildCreateTableSql_RespectsColumnOrder()
+    {
+        var table = new TableModel("dbo", "Test");
+        AddColumnWithOrder(table, "B", new ColumnModel { Name = "B", SqlType = "int", IsNullable = false });
+        AddColumnWithOrder(table, "A", new ColumnModel { Name = "A", SqlType = "int", IsNullable = true });
+
+        var sql = SqlStatementBuilder.BuildCreateTableSql(table);
+
+        // Column B should appear before A (follows ColumnOrder, not alphabetical)
+        var bIndex = sql.IndexOf("[B]", StringComparison.Ordinal);
+        var aIndex = sql.IndexOf("[A]", StringComparison.Ordinal);
+        Assert.True(bIndex < aIndex, "B should appear before A per ColumnOrder");
+    }
+
+    [Fact]
+    public void BuildCreateTableSql_FallsBackToAlphabetical_WhenNoColumnOrder()
+    {
+        var table = new TableModel("dbo", "Test");
+        table.Columns["B"] = new ColumnModel { Name = "B", SqlType = "int", IsNullable = false };
+        table.Columns["A"] = new ColumnModel { Name = "A", SqlType = "int", IsNullable = true };
+
+        var sql = SqlStatementBuilder.BuildCreateTableSql(table);
+
+        // Column A should appear before B (alphabetical fallback)
+        var aIndex = sql.IndexOf("[A]", StringComparison.Ordinal);
+        var bIndex = sql.IndexOf("[B]", StringComparison.Ordinal);
+        Assert.True(aIndex < bIndex, "A should appear before B alphabetically");
+    }
+
+    private static void AddColumnWithOrder(TableModel table, string key, ColumnModel column)
+    {
+        table.Columns[key] = column;
+        table.ColumnOrder.Add(key);
     }
 }

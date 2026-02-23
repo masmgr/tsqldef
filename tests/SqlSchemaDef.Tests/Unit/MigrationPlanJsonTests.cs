@@ -351,4 +351,28 @@ public sealed class MigrationPlanJsonTests
                 },
             });
     }
+
+    [Fact]
+    public void RoundTrip_ColumnReorderRequired_PreservesReason()
+    {
+        var plan = new MigrationPlan(
+            new PlanMetadata { Schema = "dbo", PlanFormatVersion = 1 },
+            Array.Empty<SqlOperation>(),
+            new[]
+            {
+                new SkippedItem
+                {
+                    Reason = SkippedReason.ColumnReorderRequired,
+                    Target = new SqlObjectRef { Type = SqlObjectType.Table, Schema = "dbo", Name = "Users" },
+                    Message = "column order differs; requires rebuild",
+                },
+            });
+
+        var json = MigrationPlanSerializer.ToJson(plan);
+        var restored = MigrationPlanSerializer.FromJson(json);
+
+        var skip = Assert.Single(restored.Skipped);
+        Assert.Equal(SkippedReason.ColumnReorderRequired, skip.Reason);
+        Assert.Contains("columnReorderRequired", json);
+    }
 }

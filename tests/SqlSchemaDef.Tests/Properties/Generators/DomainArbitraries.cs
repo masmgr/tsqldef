@@ -219,7 +219,8 @@ public static class DomainArbitraries
         from reason in Gen.Elements(
             SkippedReason.DropNotSupported,
             SkippedReason.AlterNotSupported,
-            SkippedReason.NotNullAddNotSupported)
+            SkippedReason.NotNullAddNotSupported,
+            SkippedReason.ColumnReorderRequired)
         from name in GenSqlIdentifier()
         select new SkippedItem
         {

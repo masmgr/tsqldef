@@ -266,7 +266,12 @@ namespace SqlSchemaDef.SqlServer.Planning
                 return;
             }
 
-            table.Columns[IdentifierHelper.NormalizeNameKey(columnModel.Name)] = columnModel;
+            var columnKey = IdentifierHelper.NormalizeNameKey(columnModel.Name);
+            table.Columns[columnKey] = columnModel;
+            if (!table.ColumnOrder.Contains(columnKey))
+            {
+                table.ColumnOrder.Add(columnKey);
+            }
 
             if (column.DefaultConstraint != null)
             {

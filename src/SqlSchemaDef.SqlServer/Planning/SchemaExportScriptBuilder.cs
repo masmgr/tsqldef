@@ -138,9 +138,7 @@ namespace SqlSchemaDef.SqlServer.Planning
 
         private static string BuildCreateTableSql(TableModel table, List<SkippedItem> skipped)
         {
-            var columns = table.Columns.Values
-                .OrderBy(column => IdentifierHelper.NormalizeNameKey(column.Name), StringComparer.OrdinalIgnoreCase)
-                .ToList();
+            var columns = SqlStatementBuilder.GetOrderedColumns(table);
 
             var exportable = new List<ColumnModel>();
             foreach (var column in columns)

@@ -12,11 +12,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             var sb = new StringBuilder();
             sb.Append("CREATE TABLE ").Append(IdentifierHelper.Escape(table.Schema)).Append('.').Append(IdentifierHelper.Escape(table.Name)).Append(" (");
 
-            var columns = new List<ColumnModel>(table.Columns.Values);
-            columns.Sort((a, b) => string.Compare(
-                IdentifierHelper.NormalizeNameKey(a.Name),
-                IdentifierHelper.NormalizeNameKey(b.Name),
-                StringComparison.OrdinalIgnoreCase));
+            var columns = GetOrderedColumns(table);
 
             for (var i = 0; i < columns.Count; i++)
             {
@@ -289,6 +285,30 @@ namespace SqlSchemaDef.SqlServer.Planning
             }
 
             return string.Join(", ", escaped);
+        }
+
+        internal static List<ColumnModel> GetOrderedColumns(TableModel table)
+        {
+            if (table.ColumnOrder != null && table.ColumnOrder.Count > 0)
+            {
+                var ordered = new List<ColumnModel>(table.ColumnOrder.Count);
+                for (var i = 0; i < table.ColumnOrder.Count; i++)
+                {
+                    if (table.Columns.TryGetValue(table.ColumnOrder[i], out var col))
+                    {
+                        ordered.Add(col);
+                    }
+                }
+
+                return ordered;
+            }
+
+            var columns = new List<ColumnModel>(table.Columns.Values);
+            columns.Sort((a, b) => string.Compare(
+                IdentifierHelper.NormalizeNameKey(a.Name),
+                IdentifierHelper.NormalizeNameKey(b.Name),
+                StringComparison.OrdinalIgnoreCase));
+            return columns;
         }
 
         internal static string JoinIndexColumns(IReadOnlyList<IndexKeyColumn> columns)

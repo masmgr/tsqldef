@@ -323,6 +323,46 @@ namespace SqlSchemaDef.SqlServer.Planning
 
                 dropColumnOps.Add(DropColumnOperation(desiredTable, currentColumnEntry.Value));
             }
+
+            if (options.ReorderColumns
+                && currentTable.ColumnOrder.Count > 0
+                && desiredTable.ColumnOrder.Count > 0)
+            {
+                var currentOrder = new List<string>();
+                for (var i = 0; i < currentTable.ColumnOrder.Count; i++)
+                {
+                    var key = currentTable.ColumnOrder[i];
+                    if (desiredTable.Columns.ContainsKey(key))
+                    {
+                        currentOrder.Add(key);
+                    }
+                }
+
+                var desiredOrder = new List<string>();
+                for (var i = 0; i < desiredTable.ColumnOrder.Count; i++)
+                {
+                    var key = desiredTable.ColumnOrder[i];
+                    if (currentTable.Columns.ContainsKey(key))
+                    {
+                        desiredOrder.Add(key);
+                    }
+                }
+
+                if (!SequenceEqual(currentOrder, desiredOrder))
+                {
+                    skipped.Add(new SkippedItem
+                    {
+                        Reason = SkippedReason.ColumnReorderRequired,
+                        Target = new SqlObjectRef
+                        {
+                            Type = SqlObjectType.Table,
+                            Schema = desiredTable.Schema,
+                            Name = desiredTable.Name,
+                        },
+                        Message = "column order differs; requires rebuild",
+                    });
+                }
+            }
         }
 
         private static void DiffConstraints(

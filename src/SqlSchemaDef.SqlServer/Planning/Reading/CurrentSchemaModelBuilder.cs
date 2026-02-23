@@ -66,7 +66,9 @@ namespace SqlSchemaDef.SqlServer.Planning
                     Collation = column.Collation,
                 };
 
-                table.Columns[IdentifierHelper.NormalizeNameKey(columnModel.Name)] = columnModel;
+                var columnKey = IdentifierHelper.NormalizeNameKey(columnModel.Name);
+                table.Columns[columnKey] = columnModel;
+                table.ColumnOrder.Add(columnKey);
                 columnIdMap[(column.ObjectId, column.ColumnId)] = columnModel;
             }
 

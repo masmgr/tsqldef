@@ -22,8 +22,8 @@ namespace SqlSchemaDef.Cli
         {
             Console.Error.WriteLine("Usage:");
             Console.Error.WriteLine("  SqlSchemaDef.Cli export --connection <cs> [--out <desired.sql>] [--schema <schema>]");
-            Console.Error.WriteLine("  SqlSchemaDef.Cli plan   --connection <cs> --file <desired.sql> [--schema <schema>] [--format script|json] [--strict] [--emit-swap-sql] [--allow-drop] [--include <tables>] [--exclude <tables>]");
-            Console.Error.WriteLine("  SqlSchemaDef.Cli apply  --connection <cs> (--file <desired.sql> | --plan <plan.json>) [--schema <schema>] [--allow-drop] [--include <tables>] [--exclude <tables>] [--swap]");
+            Console.Error.WriteLine("  SqlSchemaDef.Cli plan   --connection <cs> --file <desired.sql> [--schema <schema>] [--format script|json] [--strict] [--emit-swap-sql] [--allow-drop] [--reorder-columns] [--include <tables>] [--exclude <tables>]");
+            Console.Error.WriteLine("  SqlSchemaDef.Cli apply  --connection <cs> (--file <desired.sql> | --plan <plan.json>) [--schema <schema>] [--allow-drop] [--reorder-columns] [--include <tables>] [--exclude <tables>] [--swap]");
             Console.Error.WriteLine();
             Console.Error.WriteLine("Notes:");
             Console.Error.WriteLine("  - plan prints the review script (dry-run) or JSON plan.");
@@ -31,6 +31,7 @@ namespace SqlSchemaDef.Cli
             Console.Error.WriteLine("  - --emit-swap-sql generates rebuild proposals for non-additive diffs.");
             Console.Error.WriteLine("  - --swap executes rebuild proposals for non-additive column changes (shadow-table swap).");
             Console.Error.WriteLine("  - --allow-drop enables DROP TABLE for tables not in the desired DDL.");
+            Console.Error.WriteLine("  - --reorder-columns detects column order differences and triggers rebuild proposals.");
             Console.Error.WriteLine("  - --schema defaults to 'dbo' when omitted.");
             return exitCode;
         }
@@ -159,6 +160,7 @@ namespace SqlSchemaDef.Cli
             var strict = false;
             var emitSwapSql = false;
             var allowDrop = false;
+            var reorderColumns = false;
             string? includeArg = null;
             string? excludeArg = null;
 
@@ -191,6 +193,9 @@ namespace SqlSchemaDef.Cli
                     case "--allow-drop":
                         allowDrop = true;
                         break;
+                    case "--reorder-columns":
+                        reorderColumns = true;
+                        break;
                     case "--include":
                         includeArg = GetArg(args, ref i);
                         break;
@@ -220,7 +225,7 @@ namespace SqlSchemaDef.Cli
 
             var desiredSql = await ReadFileAsync(filePath).ConfigureAwait(false);
 
-            var plannerOptions = new PlannerOptions { EmitProposals = emitSwapSql, AllowDrop = allowDrop };
+            var plannerOptions = new PlannerOptions { EmitProposals = emitSwapSql, AllowDrop = allowDrop, ReorderColumns = reorderColumns };
             if (schema != null)
             {
                 plannerOptions.Schema = schema;
@@ -273,6 +278,7 @@ namespace SqlSchemaDef.Cli
             string? excludeArg = null;
             var applySwap = false;
             var allowDrop = false;
+            var reorderColumns = false;
 
             for (int i = 0; i < args.Count; i++)
             {
@@ -305,6 +311,9 @@ namespace SqlSchemaDef.Cli
                         break;
                     case "--allow-drop":
                         allowDrop = true;
+                        break;
+                    case "--reorder-columns":
+                        reorderColumns = true;
                         break;
                     case "--help":
                     case "-h":
@@ -347,7 +356,7 @@ namespace SqlSchemaDef.Cli
             {
                 var desiredSql = await ReadFileAsync(filePath!).ConfigureAwait(false);
 
-                var plannerOptions = new PlannerOptions { EmitProposals = applySwap, AllowDrop = allowDrop };
+                var plannerOptions = new PlannerOptions { EmitProposals = applySwap, AllowDrop = allowDrop, ReorderColumns = reorderColumns };
                 if (schema != null)
                 {
                     plannerOptions.Schema = schema;

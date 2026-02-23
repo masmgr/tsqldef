@@ -23,14 +23,25 @@ namespace SqlSchemaDef.SqlServer.Planning
             var rebuildSkipped = new Dictionary<string, List<SkippedItem>>(StringComparer.OrdinalIgnoreCase);
             foreach (var item in skipped)
             {
-                if (item.Reason != SkippedReason.AlterNotSupported || item.Target == null)
+                if (item.Target == null)
                 {
                     continue;
                 }
 
-                if (item.Target.Type == SqlObjectType.Column)
+                if (item.Reason == SkippedReason.AlterNotSupported && item.Target.Type == SqlObjectType.Column)
                 {
                     AddToRebuildSkipped(rebuildSkipped, item);
+                }
+                else if (item.Reason == SkippedReason.ColumnReorderRequired && item.Target.Type == SqlObjectType.Table)
+                {
+                    var tableKey = IdentifierHelper.BuildTableKey(item.Target.Schema, item.Target.Name);
+                    if (!rebuildSkipped.TryGetValue(tableKey, out var list))
+                    {
+                        list = new List<SkippedItem>();
+                        rebuildSkipped[tableKey] = list;
+                    }
+
+                    list.Add(item);
                 }
             }
 
@@ -84,6 +95,11 @@ namespace SqlSchemaDef.SqlServer.Planning
             foreach (var col in desiredTable.Columns)
             {
                 shadowTable.Columns[col.Key] = col.Value;
+            }
+
+            foreach (var key in desiredTable.ColumnOrder)
+            {
+                shadowTable.ColumnOrder.Add(key);
             }
 
             var createShadowSql = SqlStatementBuilder.BuildCreateTableSql(shadowTable);
@@ -212,10 +228,10 @@ namespace SqlSchemaDef.SqlServer.Planning
             TableModel currentTable,
             TableModel desiredTable)
         {
-            // Use intersection of current and desired columns
+            // Use intersection of current and desired columns, respecting desired order
             var commonColumns = new List<string>();
-            foreach (var desiredCol in desiredTable.Columns.Values
-                .OrderBy(c => IdentifierHelper.NormalizeNameKey(c.Name), StringComparer.OrdinalIgnoreCase))
+            var orderedDesiredColumns = SqlStatementBuilder.GetOrderedColumns(desiredTable);
+            foreach (var desiredCol in orderedDesiredColumns)
             {
                 var key = IdentifierHelper.NormalizeNameKey(desiredCol.Name);
                 if (currentTable.Columns.ContainsKey(key))
@@ -390,6 +406,11 @@ namespace SqlSchemaDef.SqlServer.Planning
             if (pkNames.Count > 0)
             {
                 parts.Add("primary key change: " + string.Join(", ", pkNames));
+            }
+
+            if (rebuildSkips.Any(s => s.Reason == SkippedReason.ColumnReorderRequired))
+            {
+                parts.Add("column reorder");
             }
 
             return "Rebuild " + schema + "." + tableName + " (" + string.Join("; ", parts) + ")";
