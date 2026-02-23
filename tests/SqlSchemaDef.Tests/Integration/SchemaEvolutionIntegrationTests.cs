@@ -526,20 +526,20 @@ EXEC sp_addextendedproperty @name = N'MS_Description', @value = N'Version 1', @l
 
         await using var db = await SqlServerTestDatabase.CreateAsync(master);
 
-        // Seed: Users with INT Age column and data
+        // Seed: Users with BIGINT Age column and data
         await using (var conn = new SqlConnection(db.ConnectionString))
         {
             await conn.OpenAsync();
             await using var cmd = conn.CreateCommand();
             cmd.CommandText = @"
-CREATE TABLE dbo.Users (Id int NOT NULL, Age int NULL);
+CREATE TABLE dbo.Users (Id int NOT NULL, Age bigint NULL);
 INSERT INTO dbo.Users (Id, Age) VALUES (1, 30);
 ";
             await cmd.ExecuteNonQueryAsync();
         }
 
-        // Desired: Age changed to BIGINT
-        const string desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL, Age bigint NULL)";
+        // Desired: Age changed to INT (narrowing = unsafe, requires rebuild)
+        const string desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL, Age int NULL)";
 
         await using var conn2 = new SqlConnection(db.ConnectionString);
         await conn2.OpenAsync();
@@ -556,13 +556,13 @@ INSERT INTO dbo.Users (Id, Age) VALUES (1, 30);
 
         await applier.ApplyAsync(conn2, plan, new ApplyOptions { ApplyProposals = true });
 
-        // Verify column type changed to bigint
+        // Verify column type changed to int
         var typeName = await GetColumnTypeNameAsync(conn2, "Users", "Age");
-        Assert.Equal("bigint", typeName);
+        Assert.Equal("int", typeName);
 
         // Verify data preserved
         var ageVal = await GetScalarAsync(conn2, "SELECT Age FROM dbo.Users WHERE Id = 1");
-        Assert.Equal(30L, Convert.ToInt64(ageVal, CultureInfo.InvariantCulture));
+        Assert.Equal(30, Convert.ToInt32(ageVal, CultureInfo.InvariantCulture));
 
         // Verify shadow and old tables are gone
         Assert.Equal(0, await CountTablesAsync(conn2, "__Users_rebuild"));
@@ -587,7 +587,7 @@ INSERT INTO dbo.Users (Id, Age) VALUES (1, 30);
             cmd.CommandText = @"
 CREATE TABLE dbo.Users (
     Id int NOT NULL CONSTRAINT PK_Users PRIMARY KEY,
-    Age int NULL
+    Age bigint NULL
 );
 INSERT INTO dbo.Users (Id, Age) VALUES (1, 30);
 ";
@@ -597,7 +597,7 @@ INSERT INTO dbo.Users (Id, Age) VALUES (1, 30);
         const string desiredSql = @"
 CREATE TABLE dbo.Users (
     Id int NOT NULL,
-    Age bigint NULL,
+    Age int NULL,
     CONSTRAINT PK_Users PRIMARY KEY (Id),
     CONSTRAINT CK_Users_Age CHECK (Age >= 0)
 )";
@@ -616,7 +616,7 @@ CREATE TABLE dbo.Users (
 
         await applier.ApplyAsync(conn2, plan, new ApplyOptions { ApplyProposals = true });
 
-        Assert.Equal("bigint", await GetColumnTypeNameAsync(conn2, "Users", "Age"));
+        Assert.Equal("int", await GetColumnTypeNameAsync(conn2, "Users", "Age"));
         Assert.Equal(1, await CountConstraintsAsync(conn2, "Users", "PK_Users"));
         Assert.Equal(1, await CountConstraintsAsync(conn2, "Users", "CK_Users_Age"));
         Assert.Equal(0, await CountTablesAsync(conn2, "__Users_rebuild"));

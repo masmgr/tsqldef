@@ -1630,6 +1630,67 @@ CREATE TABLE dbo.Users (
     }
 
     [Fact]
+    public void Diff_WhenDesiredCollationNullAndCurrentHasDbDefault_NoDiff()
+    {
+        var desired = new DatabaseModel();
+        var desiredTable = desired.GetOrAddTable("dbo", "T");
+        desiredTable.Columns["NAME"] = new ColumnModel
+        {
+            Name = "Name",
+            SqlType = "nvarchar(100)",
+            IsNullable = true,
+            Collation = null,
+        };
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "T");
+        currentTable.Columns["NAME"] = new ColumnModel
+        {
+            Name = "Name",
+            SqlType = "nvarchar(100)",
+            IsNullable = true,
+            Collation = "SQL_Latin1_General_CP1_CI_AS",
+        };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        Assert.True(plan.IsEmpty);
+        Assert.Empty(plan.Skipped);
+    }
+
+    [Fact]
+    public void Diff_WhenDesiredCollationExplicitAndDiffers_EmitsAlterColumn()
+    {
+        var desired = new DatabaseModel();
+        var desiredTable = desired.GetOrAddTable("dbo", "T");
+        desiredTable.Columns["NAME"] = new ColumnModel
+        {
+            Name = "Name",
+            SqlType = "nvarchar(100)",
+            IsNullable = true,
+            Collation = "Japanese_CI_AS",
+        };
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "T");
+        currentTable.Columns["NAME"] = new ColumnModel
+        {
+            Name = "Name",
+            SqlType = "nvarchar(100)",
+            IsNullable = true,
+            Collation = "SQL_Latin1_General_CP1_CI_AS",
+        };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal(OperationKind.AlterColumn, op.Kind);
+        Assert.Contains("COLLATE Japanese_CI_AS", op.Sql);
+    }
+
+    [Fact]
     public void Diff_WhenColumnTypeWidens_EmitsAlterColumn()
     {
         var desired = new DatabaseModel();

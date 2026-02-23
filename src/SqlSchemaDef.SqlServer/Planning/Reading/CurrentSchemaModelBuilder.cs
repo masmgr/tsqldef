@@ -20,6 +20,9 @@ namespace SqlSchemaDef.SqlServer.Planning
                 throw new ArgumentNullException(nameof(tables));
             if (columns == null)
                 throw new ArgumentNullException(nameof(columns));
+
+            // databaseCollation is available but unused; collation normalization is
+            // handled at the differ level (desired null = "use database default").
             _ = databaseCollation;
 
             var model = new DatabaseModel();

@@ -882,10 +882,11 @@ namespace SqlSchemaDef.SqlServer.Planning
                 NormalizeDefaultDefinition(desired.DefaultExpression),
                 StringComparison.OrdinalIgnoreCase);
 
-            var collationDiffers = !string.Equals(
-                current.Collation ?? string.Empty,
-                desired.Collation ?? string.Empty,
-                StringComparison.OrdinalIgnoreCase);
+            var collationDiffers = desired.Collation != null &&
+                !string.Equals(
+                    current.Collation ?? string.Empty,
+                    desired.Collation,
+                    StringComparison.OrdinalIgnoreCase);
 
             if (!typeDiffers && !nullDiffers && !identityDiffers && !defaultDiffers && !collationDiffers)
             {
