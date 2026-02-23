@@ -21,12 +21,13 @@ namespace SqlSchemaDef.Core.Planning
     public enum RebuildStepKind
     {
         CreateShadowTable = 1,
-        CopyData = 2,
-        DropConstraintsOnOriginal = 3,
-        RenameOriginalToOld = 4,
-        RenameShadowToOriginal = 5,
-        RecreateConstraints = 6,
-        RecreateIndexes = 7,
-        DropOldTable = 8,
+        DropConstraintsOnOriginal = 2,
+        DropIndexesOnOriginal = 3,
+        CopyData = 4,
+        RenameOriginalToOld = 5,
+        RenameShadowToOriginal = 6,
+        RecreateConstraints = 7,
+        RecreateIndexes = 8,
+        DropOldTable = 9,
     }
 }

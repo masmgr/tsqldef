@@ -433,6 +433,148 @@ public sealed class RebuildProposalBuilderTests
         Assert.Contains("[dbo].[Users_old]", dropOld.Sql);
     }
 
+    [Fact]
+    public void BuildProposals_DropIndexesOnOriginal_DropsCurrentIndexes()
+    {
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Columns[IdentifierHelper.NormalizeNameKey("Id")] = new ColumnModel { Name = "Id", SqlType = "INT", IsNullable = false };
+        currentTable.Columns[IdentifierHelper.NormalizeNameKey("Age")] = new ColumnModel { Name = "Age", SqlType = "INT", IsNullable = true };
+        currentTable.Indexes[IdentifierHelper.NormalizeNameKey("IX_Users_Age")] = new IndexModel
+        {
+            Name = "IX_Users_Age",
+            KeyColumns = new[] { new IndexKeyColumn { Name = "Age" } },
+        };
+
+        var desired = new DatabaseModel();
+        var desiredTable = desired.GetOrAddTable("dbo", "Users");
+        desiredTable.Columns[IdentifierHelper.NormalizeNameKey("Id")] = new ColumnModel { Name = "Id", SqlType = "INT", IsNullable = false };
+        desiredTable.Columns[IdentifierHelper.NormalizeNameKey("Age")] = new ColumnModel { Name = "Age", SqlType = "BIGINT", IsNullable = true };
+        desiredTable.Indexes[IdentifierHelper.NormalizeNameKey("IX_Users_Age")] = new IndexModel
+        {
+            Name = "IX_Users_Age",
+            KeyColumns = new[] { new IndexKeyColumn { Name = "Age" } },
+        };
+
+        var skipped = new[]
+        {
+            new SkippedItem
+            {
+                Reason = SkippedReason.AlterNotSupported,
+                Target = new SqlObjectRef { Type = SqlObjectType.Column, Schema = "dbo", ParentName = "Users", Name = "Age" },
+            },
+        };
+
+        var proposals = RebuildProposalBuilder.BuildProposals(current, desired, skipped);
+        var dropIndexesStep = proposals[0].Steps.First(s => s.Kind == RebuildStepKind.DropIndexesOnOriginal);
+
+        Assert.Contains("IX_Users_Age", dropIndexesStep.Sql);
+        Assert.Contains("DROP INDEX", dropIndexesStep.Sql);
+    }
+
+    [Fact]
+    public void BuildProposals_StepOrder_WithConstraintsAndIndexes()
+    {
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Columns[IdentifierHelper.NormalizeNameKey("Id")] = new ColumnModel { Name = "Id", SqlType = "INT", IsNullable = false };
+        currentTable.Columns[IdentifierHelper.NormalizeNameKey("Age")] = new ColumnModel { Name = "Age", SqlType = "INT", IsNullable = true };
+        currentTable.Constraints[IdentifierHelper.NormalizeNameKey("PK_Users")] = new ConstraintModel
+        {
+            Kind = ConstraintKind.PrimaryKey,
+            Name = "PK_Users",
+            Columns = new[] { "Id" },
+        };
+        currentTable.Indexes[IdentifierHelper.NormalizeNameKey("IX_Users_Age")] = new IndexModel
+        {
+            Name = "IX_Users_Age",
+            KeyColumns = new[] { new IndexKeyColumn { Name = "Age" } },
+        };
+
+        var desired = new DatabaseModel();
+        var desiredTable = desired.GetOrAddTable("dbo", "Users");
+        desiredTable.Columns[IdentifierHelper.NormalizeNameKey("Id")] = new ColumnModel { Name = "Id", SqlType = "INT", IsNullable = false };
+        desiredTable.Columns[IdentifierHelper.NormalizeNameKey("Age")] = new ColumnModel { Name = "Age", SqlType = "BIGINT", IsNullable = true };
+        desiredTable.Constraints[IdentifierHelper.NormalizeNameKey("PK_Users")] = new ConstraintModel
+        {
+            Kind = ConstraintKind.PrimaryKey,
+            Name = "PK_Users",
+            Columns = new[] { "Id" },
+        };
+        desiredTable.Indexes[IdentifierHelper.NormalizeNameKey("IX_Users_Age")] = new IndexModel
+        {
+            Name = "IX_Users_Age",
+            KeyColumns = new[] { new IndexKeyColumn { Name = "Age" } },
+        };
+
+        var skipped = new[]
+        {
+            new SkippedItem
+            {
+                Reason = SkippedReason.AlterNotSupported,
+                Target = new SqlObjectRef { Type = SqlObjectType.Column, Schema = "dbo", ParentName = "Users", Name = "Age" },
+            },
+        };
+
+        var proposals = RebuildProposalBuilder.BuildProposals(current, desired, skipped);
+        var steps = proposals[0].Steps;
+
+        Assert.Equal(9, steps.Count);
+        Assert.Equal(RebuildStepKind.CreateShadowTable, steps[0].Kind);
+        Assert.Equal(RebuildStepKind.DropConstraintsOnOriginal, steps[1].Kind);
+        Assert.Equal(RebuildStepKind.DropIndexesOnOriginal, steps[2].Kind);
+        Assert.Equal(RebuildStepKind.CopyData, steps[3].Kind);
+        Assert.Equal(RebuildStepKind.RenameOriginalToOld, steps[4].Kind);
+        Assert.Equal(RebuildStepKind.RenameShadowToOriginal, steps[5].Kind);
+        Assert.Equal(RebuildStepKind.RecreateConstraints, steps[6].Kind);
+        Assert.Equal(RebuildStepKind.RecreateIndexes, steps[7].Kind);
+        Assert.Equal(RebuildStepKind.DropOldTable, steps[8].Kind);
+    }
+
+    [Fact]
+    public void BuildProposals_DropConstraintsBeforeCopyData_WhenConstraintsExist()
+    {
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Columns[IdentifierHelper.NormalizeNameKey("Id")] = new ColumnModel { Name = "Id", SqlType = "INT", IsNullable = false };
+        currentTable.Columns[IdentifierHelper.NormalizeNameKey("Age")] = new ColumnModel { Name = "Age", SqlType = "INT", IsNullable = true };
+        currentTable.Constraints[IdentifierHelper.NormalizeNameKey("PK_Users")] = new ConstraintModel
+        {
+            Kind = ConstraintKind.PrimaryKey,
+            Name = "PK_Users",
+            Columns = new[] { "Id" },
+        };
+
+        var desired = new DatabaseModel();
+        var desiredTable = desired.GetOrAddTable("dbo", "Users");
+        desiredTable.Columns[IdentifierHelper.NormalizeNameKey("Id")] = new ColumnModel { Name = "Id", SqlType = "INT", IsNullable = false };
+        desiredTable.Columns[IdentifierHelper.NormalizeNameKey("Age")] = new ColumnModel { Name = "Age", SqlType = "BIGINT", IsNullable = true };
+        desiredTable.Constraints[IdentifierHelper.NormalizeNameKey("PK_Users")] = new ConstraintModel
+        {
+            Kind = ConstraintKind.PrimaryKey,
+            Name = "PK_Users",
+            Columns = new[] { "Id" },
+        };
+
+        var skipped = new[]
+        {
+            new SkippedItem
+            {
+                Reason = SkippedReason.AlterNotSupported,
+                Target = new SqlObjectRef { Type = SqlObjectType.Column, Schema = "dbo", ParentName = "Users", Name = "Age" },
+            },
+        };
+
+        var proposals = RebuildProposalBuilder.BuildProposals(current, desired, skipped);
+        var steps = proposals[0].Steps;
+
+        var dropConstraintsIndex = steps.ToList().FindIndex(s => s.Kind == RebuildStepKind.DropConstraintsOnOriginal);
+        var copyDataIndex = steps.ToList().FindIndex(s => s.Kind == RebuildStepKind.CopyData);
+
+        Assert.True(dropConstraintsIndex < copyDataIndex,
+            "DropConstraintsOnOriginal should come before CopyData");
+    }
+
     private static DatabaseModel BuildModel(string schema, string tableName, (string Name, string Type, bool Nullable)[] columns)
     {
         var model = new DatabaseModel();

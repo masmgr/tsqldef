@@ -95,17 +95,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             });
             scriptParts.Add(createShadowSql);
 
-            // Step 2: Copy data
-            var copySql = BuildCopyDataSql(schema, tableName, shadowName, currentTable, desiredTable);
-            steps.Add(new RebuildStep
-            {
-                Kind = RebuildStepKind.CopyData,
-                Description = "Copy data from original",
-                Sql = copySql,
-            });
-            scriptParts.Add(copySql);
-
-            // Step 3: Drop constraints on original
+            // Step 2: Drop constraints on original (before copy for reduced lock contention)
             var dropConstraintsSql = BuildDropConstraintsSql(schema, tableName, currentTable);
             if (!string.IsNullOrEmpty(dropConstraintsSql))
             {
@@ -118,7 +108,30 @@ namespace SqlSchemaDef.SqlServer.Planning
                 scriptParts.Add(dropConstraintsSql);
             }
 
-            // Step 4: Rename original to _old
+            // Step 3: Drop indexes on original (before copy for reduced lock contention)
+            var dropIndexesSql = BuildDropIndexesSql(schema, tableName, currentTable);
+            if (!string.IsNullOrEmpty(dropIndexesSql))
+            {
+                steps.Add(new RebuildStep
+                {
+                    Kind = RebuildStepKind.DropIndexesOnOriginal,
+                    Description = "Drop indexes on original",
+                    Sql = dropIndexesSql,
+                });
+                scriptParts.Add(dropIndexesSql);
+            }
+
+            // Step 4: Copy data
+            var copySql = BuildCopyDataSql(schema, tableName, shadowName, currentTable, desiredTable);
+            steps.Add(new RebuildStep
+            {
+                Kind = RebuildStepKind.CopyData,
+                Description = "Copy data from original",
+                Sql = copySql,
+            });
+            scriptParts.Add(copySql);
+
+            // Step 5: Rename original to _old
             var renameOldSql = "EXEC sp_rename '" + IdentifierHelper.Escape(schema) + "." + IdentifierHelper.Escape(tableName) + "', '" + oldName + "'";
             steps.Add(new RebuildStep
             {
@@ -128,7 +141,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             });
             scriptParts.Add(renameOldSql);
 
-            // Step 5: Rename shadow to original
+            // Step 6: Rename shadow to original
             var renameShadowSql = "EXEC sp_rename '" + IdentifierHelper.Escape(schema) + "." + IdentifierHelper.Escape(shadowName) + "', '" + tableName + "'";
             steps.Add(new RebuildStep
             {
@@ -138,7 +151,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             });
             scriptParts.Add(renameShadowSql);
 
-            // Step 6: Recreate constraints
+            // Step 7: Recreate constraints
             var recreateConstraintsSql = BuildRecreateConstraintsSql(desiredTable);
             if (!string.IsNullOrEmpty(recreateConstraintsSql))
             {
@@ -151,7 +164,7 @@ namespace SqlSchemaDef.SqlServer.Planning
                 scriptParts.Add(recreateConstraintsSql);
             }
 
-            // Step 7: Recreate indexes
+            // Step 8: Recreate indexes
             var recreateIndexesSql = BuildRecreateIndexesSql(desiredTable);
             if (!string.IsNullOrEmpty(recreateIndexesSql))
             {
@@ -164,7 +177,7 @@ namespace SqlSchemaDef.SqlServer.Planning
                 scriptParts.Add(recreateIndexesSql);
             }
 
-            // Step 8: Drop old table
+            // Step 9: Drop old table
             var dropOldSql = "DROP TABLE " + IdentifierHelper.Escape(schema) + "." + IdentifierHelper.Escape(oldName);
             steps.Add(new RebuildStep
             {
@@ -258,6 +271,19 @@ namespace SqlSchemaDef.SqlServer.Planning
                 var constraint = entry.Value;
                 parts.Add("ALTER TABLE " + IdentifierHelper.Escape(schema) + "." + IdentifierHelper.Escape(tableName) +
                           " DROP CONSTRAINT " + IdentifierHelper.Escape(constraint.Name));
+            }
+
+            return parts.Count > 0 ? string.Join(";\n", parts) : null;
+        }
+
+        private static string BuildDropIndexesSql(string schema, string tableName, TableModel currentTable)
+        {
+            var parts = new List<string>();
+
+            foreach (var entry in currentTable.Indexes.OrderBy(e => e.Key, StringComparer.OrdinalIgnoreCase))
+            {
+                var index = entry.Value;
+                parts.Add(SqlStatementBuilder.BuildDropIndexSql(schema, tableName, index.Name));
             }
 
             return parts.Count > 0 ? string.Join(";\n", parts) : null;

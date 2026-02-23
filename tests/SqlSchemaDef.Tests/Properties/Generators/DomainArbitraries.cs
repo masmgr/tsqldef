@@ -167,9 +167,13 @@ public static class DomainArbitraries
     private static Gen<RebuildStep> GenRebuildStep() =>
         from kind in Gen.Elements(
             RebuildStepKind.CreateShadowTable,
+            RebuildStepKind.DropConstraintsOnOriginal,
+            RebuildStepKind.DropIndexesOnOriginal,
             RebuildStepKind.CopyData,
             RebuildStepKind.RenameOriginalToOld,
             RebuildStepKind.RenameShadowToOriginal,
+            RebuildStepKind.RecreateConstraints,
+            RebuildStepKind.RecreateIndexes,
             RebuildStepKind.DropOldTable)
         from name in GenSqlIdentifier()
         select new RebuildStep
