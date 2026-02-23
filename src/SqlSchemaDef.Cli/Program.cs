@@ -39,7 +39,7 @@ namespace SqlSchemaDef.Cli
         {
             if (i + 1 >= args.Count)
             {
-                throw new ArgumentException("Missing value for " + args[i]);
+                throw new CliUsageException("Missing value for " + args[i]);
             }
 
             i++;
@@ -418,10 +418,18 @@ namespace SqlSchemaDef.Cli
                 case ApplyFailedException applyFailed:
                     Console.Error.WriteLine(applyFailed.Message);
                     return ExitApplyFailed;
+                case CliUsageException usage:
+                    Console.Error.WriteLine(usage.Message);
+                    return ExitUsage;
                 default:
                     Console.Error.WriteLine(ex.ToString());
                     return 1;
             }
+        }
+
+        private sealed class CliUsageException : Exception
+        {
+            public CliUsageException(string message) : base(message) { }
         }
     }
 }

@@ -139,7 +139,7 @@ public sealed class CliArgumentParsingTests
             Console.SetError(stderr);
 
             var exitCode = await SqlSchemaDef.Cli.Program.Main(new[] { "plan", "--file" });
-            Assert.Equal(1, exitCode);
+            Assert.Equal(2, exitCode);
             Assert.Contains("Missing value", stderr.ToString());
         }
         finally
