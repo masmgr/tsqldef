@@ -182,7 +182,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             var parts = new List<string>();
             foreach (var kv in options.OrderBy(k => k.Key, StringComparer.OrdinalIgnoreCase))
             {
-                parts.Add(NormalizeIndexOptionName(kv.Key) + " = " + kv.Value);
+                parts.Add(IdentifierHelper.NormalizeIndexOptionName(kv.Key) + " = " + kv.Value);
             }
 
             return " WITH (" + string.Join(", ", parts) + ")";
@@ -228,30 +228,6 @@ namespace SqlSchemaDef.SqlServer.Planning
             }
 
             return value.Replace("'", "''");
-        }
-
-        private static string NormalizeIndexOptionName(string name)
-        {
-            var raw = (name ?? string.Empty).Trim().ToUpperInvariant();
-            switch (raw)
-            {
-                case "PADINDEX":
-                    return "PAD_INDEX";
-                case "IGNOREDUPKEY":
-                    return "IGNORE_DUP_KEY";
-                case "ALLOWROWLOCKS":
-                    return "ALLOW_ROW_LOCKS";
-                case "ALLOWPAGELOCKS":
-                    return "ALLOW_PAGE_LOCKS";
-                case "STATISTICSNORECOMPUTE":
-                    return "STATISTICS_NORECOMPUTE";
-                case "SORTINTEMPDB":
-                    return "SORT_IN_TEMPDB";
-                case "DROPEXISTING":
-                    return "DROP_EXISTING";
-                default:
-                    return raw;
-            }
         }
 
         internal static string JoinColumns(IReadOnlyList<string> columns)

@@ -52,5 +52,29 @@ namespace SqlSchemaDef.SqlServer.Planning
             var tokens = parser.GetTokenStream(new StringReader(name), out errors);
             return IdentifierEscapingAnalyzer.RequiresEscaping(errors, tokens);
         }
+
+        internal static string NormalizeIndexOptionName(string name)
+        {
+            var raw = (name ?? string.Empty).Trim().ToUpperInvariant();
+            switch (raw)
+            {
+                case "PADINDEX":
+                    return "PAD_INDEX";
+                case "IGNOREDUPKEY":
+                    return "IGNORE_DUP_KEY";
+                case "ALLOWROWLOCKS":
+                    return "ALLOW_ROW_LOCKS";
+                case "ALLOWPAGELOCKS":
+                    return "ALLOW_PAGE_LOCKS";
+                case "STATISTICSNORECOMPUTE":
+                    return "STATISTICS_NORECOMPUTE";
+                case "SORTINTEMPDB":
+                    return "SORT_IN_TEMPDB";
+                case "DROPEXISTING":
+                    return "DROP_EXISTING";
+                default:
+                    return raw;
+            }
+        }
     }
 }
