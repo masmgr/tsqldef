@@ -15,6 +15,13 @@ namespace SqlSchemaDef.SqlServer.Planning
 
     internal sealed class SchemaDiffer
     {
+        private static readonly HashSet<string> ExecutionTimeIndexOptionKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "ONLINE",
+            "SORTINTEMPDB",
+            "SORT_IN_TEMPDB",
+        };
+
         public static MigrationPlan Diff(
             DatabaseModel current,
             DatabaseModel desired,
@@ -52,6 +59,7 @@ namespace SqlSchemaDef.SqlServer.Planning
 
             var includePatterns = options.IncludeTablePatterns;
             var excludePatterns = options.ExcludeTablePatterns;
+            Dictionary<string, List<(TableModel Table, ConstraintModel Constraint)>> dependentForeignKeyLookup = null;
 
             foreach (var desiredEntry in desired.Tables.OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase))
             {
@@ -75,7 +83,18 @@ namespace SqlSchemaDef.SqlServer.Planning
                     DiffColumns(currentTable, desiredTable, options, addColumnOps, alterColumnOps, dropColumnOps, skipped);
                 }
 
-                DiffConstraints(current, currentTable, desiredTable, hasCurrentTable, addConstraintOps, addForeignKeyOps, recreateConstraintOps, recreateForeignKeyOps, fksCoveredByPkRecreate, skipped);
+                DiffConstraints(
+                    current,
+                    currentTable,
+                    desiredTable,
+                    hasCurrentTable,
+                    ref dependentForeignKeyLookup,
+                    addConstraintOps,
+                    addForeignKeyOps,
+                    recreateConstraintOps,
+                    recreateForeignKeyOps,
+                    fksCoveredByPkRecreate,
+                    skipped);
                 DiffIndexes(currentTable, desiredTable, hasCurrentTable, createIndexOps, recreateIndexOps, skipped);
                 DiffDescriptions(currentTable, desiredTable, hasCurrentTable, descriptionOps, dropDescriptionOps, skipped);
 
@@ -103,7 +122,8 @@ namespace SqlSchemaDef.SqlServer.Planning
                     tablesBeingDropped.Add(currentEntry.Key);
 
                     // Cascade: drop FKs from other tables that reference this table
-                    var dependentFks = FindDependentForeignKeys(current, table.Schema, table.Name);
+                    var lookup = GetOrBuildDependentForeignKeyLookup(current, ref dependentForeignKeyLookup);
+                    var dependentFks = GetDependentForeignKeys(lookup, table.Schema, table.Name);
                     foreach (var entry in dependentFks)
                     {
                         dropForeignKeyOps.Add(new SqlOperation
@@ -419,6 +439,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             TableModel currentTable,
             TableModel desiredTable,
             bool hasCurrentTable,
+            ref Dictionary<string, List<(TableModel Table, ConstraintModel Constraint)>> dependentForeignKeyLookup,
             List<SqlOperation> addConstraintOps,
             List<SqlOperation> addForeignKeyOps,
             List<SqlOperation> recreateConstraintOps,
@@ -467,8 +488,13 @@ namespace SqlSchemaDef.SqlServer.Planning
                         var desiredConstraint = constraintEntry.Value;
                         if (desiredConstraint.Kind == ConstraintKind.PrimaryKey)
                         {
+                            var lookup = GetOrBuildDependentForeignKeyLookup(currentDb, ref dependentForeignKeyLookup);
                             var recreateOp = RecreatePrimaryKeyOperation(
-                                currentDb, desiredTable, currentConstraint, desiredConstraint, fksCoveredByPkRecreate);
+                                lookup,
+                                desiredTable,
+                                currentConstraint,
+                                desiredConstraint,
+                                fksCoveredByPkRecreate);
                             recreateConstraintOps.Add(recreateOp);
                         }
                         else
@@ -824,13 +850,13 @@ namespace SqlSchemaDef.SqlServer.Planning
         }
 
         private static SqlOperation RecreatePrimaryKeyOperation(
-            DatabaseModel currentDb,
+            Dictionary<string, List<(TableModel Table, ConstraintModel Constraint)>> dependentForeignKeyLookup,
             TableModel table,
             ConstraintModel currentPk,
             ConstraintModel desiredPk,
             HashSet<string> fksCoveredByPkRecreate)
         {
-            var dependentFks = FindDependentForeignKeys(currentDb, table.Schema, table.Name);
+            var dependentFks = GetDependentForeignKeys(dependentForeignKeyLookup, table.Schema, table.Name);
             var parts = new List<string>();
 
             foreach (var entry in dependentFks)
@@ -862,38 +888,90 @@ namespace SqlSchemaDef.SqlServer.Planning
             };
         }
 
-        private static List<(TableModel Table, ConstraintModel Constraint)> FindDependentForeignKeys(
-            DatabaseModel currentDb,
-            string schema,
-            string tableName)
+        private static Dictionary<string, List<(TableModel Table, ConstraintModel Constraint)>> BuildDependentForeignKeyLookup(
+            DatabaseModel currentDb)
         {
-            var result = new List<(TableModel, ConstraintModel)>();
+            var lookup = new Dictionary<string, List<(TableModel Table, ConstraintModel Constraint)>>(StringComparer.OrdinalIgnoreCase);
             foreach (var tableEntry in currentDb.Tables.OrderBy(e => e.Key, StringComparer.OrdinalIgnoreCase))
             {
                 var table = tableEntry.Value;
-                if (string.Equals(table.Schema, schema, StringComparison.OrdinalIgnoreCase) &&
-                    string.Equals(table.Name, tableName, StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
                 foreach (var constraintEntry in table.Constraints.OrderBy(e => e.Key, StringComparer.OrdinalIgnoreCase))
                 {
                     var constraint = constraintEntry.Value;
-                    if (constraint.Kind != ConstraintKind.ForeignKey)
+                    if (constraint.Kind != ConstraintKind.ForeignKey || string.IsNullOrEmpty(constraint.ReferenceTable))
                     {
                         continue;
                     }
 
-                    if (string.Equals(constraint.ReferenceTable, tableName, StringComparison.OrdinalIgnoreCase) &&
-                        string.Equals(constraint.ReferenceSchema ?? "dbo", schema, StringComparison.OrdinalIgnoreCase))
+                    var referencedTableKey = IdentifierHelper.BuildTableKey(constraint.ReferenceSchema ?? "dbo", constraint.ReferenceTable);
+                    if (!lookup.TryGetValue(referencedTableKey, out var dependents))
                     {
-                        result.Add((table, constraint));
+                        dependents = new List<(TableModel Table, ConstraintModel Constraint)>();
+                        lookup.Add(referencedTableKey, dependents);
                     }
+
+                    dependents.Add((table, constraint));
                 }
             }
 
-            return result;
+            return lookup;
+        }
+
+        private static Dictionary<string, List<(TableModel Table, ConstraintModel Constraint)>> GetOrBuildDependentForeignKeyLookup(
+            DatabaseModel currentDb,
+            ref Dictionary<string, List<(TableModel Table, ConstraintModel Constraint)>> dependentForeignKeyLookup)
+        {
+            if (dependentForeignKeyLookup != null)
+            {
+                return dependentForeignKeyLookup;
+            }
+
+            dependentForeignKeyLookup = BuildDependentForeignKeyLookup(currentDb);
+            return dependentForeignKeyLookup;
+        }
+
+        private static IReadOnlyList<(TableModel Table, ConstraintModel Constraint)> GetDependentForeignKeys(
+            Dictionary<string, List<(TableModel Table, ConstraintModel Constraint)>> dependentForeignKeyLookup,
+            string schema,
+            string tableName)
+        {
+            var tableKey = IdentifierHelper.BuildTableKey(schema, tableName);
+            if (!dependentForeignKeyLookup.TryGetValue(tableKey, out var dependents) || dependents.Count == 0)
+            {
+                return Array.Empty<(TableModel Table, ConstraintModel Constraint)>();
+            }
+
+            var hasSelfReference = false;
+            for (var i = 0; i < dependents.Count; i++)
+            {
+                var dependent = dependents[i];
+                if (string.Equals(dependent.Table.Schema, schema, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(dependent.Table.Name, tableName, StringComparison.OrdinalIgnoreCase))
+                {
+                    hasSelfReference = true;
+                    break;
+                }
+            }
+
+            if (!hasSelfReference)
+            {
+                return dependents;
+            }
+
+            var filtered = new List<(TableModel Table, ConstraintModel Constraint)>(dependents.Count);
+            for (var i = 0; i < dependents.Count; i++)
+            {
+                var dependent = dependents[i];
+                if (string.Equals(dependent.Table.Schema, schema, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(dependent.Table.Name, tableName, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                filtered.Add(dependent);
+            }
+
+            return filtered;
         }
 
         private static SqlOperation RecreateIndexOperation(TableModel table, IndexModel current, IndexModel desired)
@@ -1166,16 +1244,9 @@ namespace SqlSchemaDef.SqlServer.Planning
                 return false;
             }
 
-            var executionTimeKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-            {
-                "ONLINE",
-                "SORTINTEMPDB",
-                "SORT_IN_TEMPDB",
-            };
-
             foreach (var kv in desired)
             {
-                if (executionTimeKeys.Contains(kv.Key))
+                if (ExecutionTimeIndexOptionKeys.Contains(kv.Key))
                 {
                     continue;
                 }
