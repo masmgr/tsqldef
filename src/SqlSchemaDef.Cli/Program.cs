@@ -422,7 +422,7 @@ namespace SqlSchemaDef.Cli
                     Console.Error.WriteLine(usage.Message);
                     return ExitUsage;
                 default:
-                    Console.Error.WriteLine(ex.ToString());
+                    Console.Error.WriteLine(ex.Message);
                     return 1;
             }
         }

@@ -455,6 +455,35 @@ public sealed class CliArgumentParsingTests
     }
 
     [Fact]
+    public void UnhandledException_PrintsMessageOnly()
+    {
+        var originalError = Console.Error;
+        try
+        {
+            using var stderr = new StringWriter();
+            Console.SetError(stderr);
+
+            var handle = typeof(SqlSchemaDef.Cli.Program).GetMethod(
+                "HandleException",
+                BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(handle);
+
+            var ex = new InvalidOperationException("something went wrong");
+            var result = handle!.Invoke(null, new object[] { ex });
+            var exitCode = Assert.IsType<int>(result);
+
+            Assert.Equal(1, exitCode);
+            var output = stderr.ToString();
+            Assert.Contains("something went wrong", output);
+            Assert.DoesNotContain("at SqlSchemaDef", output);
+        }
+        finally
+        {
+            Console.SetError(originalError);
+        }
+    }
+
+    [Fact]
     public async Task Help_MentionsSchemaOption()
     {
         var originalError = Console.Error;
