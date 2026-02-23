@@ -1,7 +1,5 @@
 using System;
 using System.Globalization;
-using System.IO;
-using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Data.SqlClient;
 using Xunit;
@@ -10,144 +8,86 @@ namespace SqlSchemaDef.Tests;
 
 [Collection(CliSerialGroup.Name)]
 [Trait("Category", "Integration")]
-public sealed class CliSmokeTests
+public sealed class CliSmokeTests : IClassFixture<SqlServerDatabaseFixture>
 {
+    private readonly SqlServerDatabaseFixture _dbFixture;
+
+    public CliSmokeTests(SqlServerDatabaseFixture dbFixture)
+    {
+        _dbFixture = dbFixture;
+    }
+
     [Fact]
     public async Task Help_ReturnsZero()
     {
-        var originalOut = Console.Out;
-        var originalError = Console.Error;
-
-        try
-        {
-            using var stdout = new StringWriter();
-            using var stderr = new StringWriter();
-            Console.SetOut(stdout);
-            Console.SetError(stderr);
-
-            var exitCode = await SqlSchemaDef.Cli.Program.Main(new[] { "--help" });
-            Assert.Equal(0, exitCode);
-            Assert.Contains("Usage:", stderr.ToString());
-        }
-        finally
-        {
-            Console.SetOut(originalOut);
-            Console.SetError(originalError);
-        }
+        var result = await CliTestHelper.RunAsync("--help");
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("Usage:", result.StdErr);
     }
 
     [Fact]
     public async Task DryRun_PrintsPlanAndReturnsZero()
     {
-        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
-        if (string.IsNullOrWhiteSpace(master))
+        var connectionString = await _dbFixture.GetPreparedConnectionStringOrNullAsync();
+        if (connectionString == null)
         {
             return;
         }
 
-        await using var db = await SqlServerTestDatabase.CreateAsync(master);
         const string desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL)";
+        using var tempFile = await CliTestHelper.CreateTempSqlFileAsync(desiredSql);
 
-        var tempFile = Path.Combine(Path.GetTempPath(), "SqlSchemaDef_" + Guid.NewGuid().ToString("N") + ".sql");
-        await File.WriteAllTextAsync(tempFile, desiredSql, Encoding.UTF8);
+        var result = await CliTestHelper.RunAsync(
+            "plan",
+            "--connection",
+            connectionString,
+            "--file",
+            tempFile.Path);
 
-        var originalOut = Console.Out;
-        var originalError = Console.Error;
-
-        try
-        {
-            using var stdout = new StringWriter();
-            using var stderr = new StringWriter();
-            Console.SetOut(stdout);
-            Console.SetError(stderr);
-
-            var exitCode = await SqlSchemaDef.Cli.Program.Main(new[]
-            {
-                "plan",
-                "--connection", new SqlConnectionStringBuilder(master) { InitialCatalog = db.DatabaseName }.ConnectionString,
-                "--file", tempFile,
-            });
-
-            Assert.Equal(0, exitCode);
-            Assert.Contains("CREATE TABLE", stdout.ToString());
-        }
-        finally
-        {
-            Console.SetOut(originalOut);
-            Console.SetError(originalError);
-            try
-            { File.Delete(tempFile); }
-            catch { }
-        }
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("CREATE TABLE", result.StdOut);
     }
 
     [Fact]
     public async Task Apply_CreatesObjectsAndReturnsZero()
     {
-        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
-        if (string.IsNullOrWhiteSpace(master))
+        var connectionString = await _dbFixture.GetPreparedConnectionStringOrNullAsync();
+        if (connectionString == null)
         {
             return;
         }
 
-        await using var db = await SqlServerTestDatabase.CreateAsync(master);
         const string desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL)";
+        using var tempFile = await CliTestHelper.CreateTempSqlFileAsync(desiredSql);
 
-        var tempFile = Path.Combine(Path.GetTempPath(), "SqlSchemaDef_" + Guid.NewGuid().ToString("N") + ".sql");
-        await File.WriteAllTextAsync(tempFile, desiredSql, Encoding.UTF8);
+        var result = await CliTestHelper.RunAsync(
+            "apply",
+            "--connection",
+            connectionString,
+            "--file",
+            tempFile.Path);
 
-        var originalOut = Console.Out;
-        var originalError = Console.Error;
+        Assert.Equal(0, result.ExitCode);
 
-        try
-        {
-            using var stdout = new StringWriter();
-            using var stderr = new StringWriter();
-            Console.SetOut(stdout);
-            Console.SetError(stderr);
-
-            var exitCode = await SqlSchemaDef.Cli.Program.Main(new[]
-            {
-                "apply",
-                "--connection", new SqlConnectionStringBuilder(master) { InitialCatalog = db.DatabaseName }.ConnectionString,
-                "--file", tempFile,
-            });
-
-            Assert.Equal(0, exitCode);
-        }
-        finally
-        {
-            Console.SetOut(originalOut);
-            Console.SetError(originalError);
-            try
-            { File.Delete(tempFile); }
-            catch { }
-        }
-
-        await using var conn = new SqlConnection(db.ConnectionString);
+        await using var conn = new SqlConnection(connectionString);
         await conn.OpenAsync();
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT COUNT(*) FROM sys.tables WHERE name = N'Users' AND schema_id = SCHEMA_ID(N'dbo')";
-        var result = await cmd.ExecuteScalarAsync();
-        Assert.NotNull(result);
-        var count = Convert.ToInt32(result, CultureInfo.InvariantCulture);
+        var scalar = await cmd.ExecuteScalarAsync();
+        var count = Convert.ToInt32(scalar, CultureInfo.InvariantCulture);
         Assert.Equal(1, count);
     }
 
     [Fact]
     public async Task CliExportThenPlan_ProducesEmptyPlan()
     {
-        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
-        if (string.IsNullOrWhiteSpace(master))
+        var connectionString = await _dbFixture.GetPreparedConnectionStringOrNullAsync();
+        if (connectionString == null)
         {
             return;
         }
 
-        await using var db = await SqlServerTestDatabase.CreateAsync(master);
-        var cs = new SqlConnectionStringBuilder(master) { InitialCatalog = db.DatabaseName }.ConnectionString;
-
-        // Seed a table
-        await using (var conn = new SqlConnection(db.ConnectionString))
+        await using (var conn = new SqlConnection(connectionString))
         {
             await conn.OpenAsync();
             await using var cmd = conn.CreateCommand();
@@ -155,79 +95,27 @@ public sealed class CliSmokeTests
             await cmd.ExecuteNonQueryAsync();
         }
 
-        var tempFile = Path.Combine(Path.GetTempPath(), "SqlSchemaDef_" + Guid.NewGuid().ToString("N") + ".sql");
-        var originalOut = Console.Out;
-        var originalError = Console.Error;
+        var export = await CliTestHelper.RunAsync("export", "--connection", connectionString);
+        Assert.Equal(0, export.ExitCode);
+        Assert.Contains("CREATE TABLE", export.StdOut);
 
-        try
-        {
-            // Export
-            string exportOutput;
-            using (var stdout = new StringWriter())
-            using (var stderr = new StringWriter())
-            {
-                Console.SetOut(stdout);
-                Console.SetError(stderr);
+        using var tempFile = await CliTestHelper.CreateTempSqlFileAsync(export.StdOut);
+        var plan = await CliTestHelper.RunAsync("plan", "--connection", connectionString, "--file", tempFile.Path);
 
-                var exportExitCode = await SqlSchemaDef.Cli.Program.Main(new[]
-                {
-                    "export", "--connection", cs,
-                });
-
-                Console.SetOut(originalOut);
-                Console.SetError(originalError);
-
-                Assert.Equal(0, exportExitCode);
-                exportOutput = stdout.ToString();
-                Assert.Contains("CREATE TABLE", exportOutput);
-            }
-
-            // Write export output to temp file
-            await File.WriteAllTextAsync(tempFile, exportOutput, Encoding.UTF8);
-
-            // Plan against export = empty
-            using (var stdout = new StringWriter())
-            using (var stderr = new StringWriter())
-            {
-                Console.SetOut(stdout);
-                Console.SetError(stderr);
-
-                var planExitCode = await SqlSchemaDef.Cli.Program.Main(new[]
-                {
-                    "plan", "--connection", cs, "--file", tempFile,
-                });
-
-                Console.SetOut(originalOut);
-                Console.SetError(originalError);
-
-                Assert.Equal(0, planExitCode);
-                Assert.Contains("Operations: 0", stdout.ToString());
-            }
-        }
-        finally
-        {
-            Console.SetOut(originalOut);
-            Console.SetError(originalError);
-            try
-            { File.Delete(tempFile); }
-            catch { }
-        }
+        Assert.Equal(0, plan.ExitCode);
+        Assert.Contains("Operations: 0", plan.StdOut);
     }
 
     [Fact]
     public async Task Plan_StrictWithSkippedItems_ReturnsExitCode30()
     {
-        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
-        if (string.IsNullOrWhiteSpace(master))
+        var connectionString = await _dbFixture.GetPreparedConnectionStringOrNullAsync();
+        if (connectionString == null)
         {
             return;
         }
 
-        await using var db = await SqlServerTestDatabase.CreateAsync(master);
-        var cs = new SqlConnectionStringBuilder(master) { InitialCatalog = db.DatabaseName }.ConnectionString;
-
-        // Seed a table
-        await using (var conn = new SqlConnection(db.ConnectionString))
+        await using (var conn = new SqlConnection(connectionString))
         {
             await conn.OpenAsync();
             await using var cmd = conn.CreateCommand();
@@ -235,153 +123,73 @@ public sealed class CliSmokeTests
             await cmd.ExecuteNonQueryAsync();
         }
 
-        // Desired: add NOT NULL column without DEFAULT → skipped → strict fails
         const string desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL, Age int NOT NULL)";
-        var tempFile = Path.Combine(Path.GetTempPath(), "SqlSchemaDef_" + Guid.NewGuid().ToString("N") + ".sql");
-        await File.WriteAllTextAsync(tempFile, desiredSql, Encoding.UTF8);
+        using var tempFile = await CliTestHelper.CreateTempSqlFileAsync(desiredSql);
 
-        var originalOut = Console.Out;
-        var originalError = Console.Error;
+        var result = await CliTestHelper.RunAsync(
+            "plan",
+            "--connection",
+            connectionString,
+            "--file",
+            tempFile.Path,
+            "--strict");
 
-        try
-        {
-            using var stdout = new StringWriter();
-            using var stderr = new StringWriter();
-            Console.SetOut(stdout);
-            Console.SetError(stderr);
-
-            var exitCode = await SqlSchemaDef.Cli.Program.Main(new[]
-            {
-                "plan", "--connection", cs, "--file", tempFile, "--strict",
-            });
-
-            Assert.Equal(30, exitCode);
-        }
-        finally
-        {
-            Console.SetOut(originalOut);
-            Console.SetError(originalError);
-            try
-            { File.Delete(tempFile); }
-            catch { }
-        }
+        Assert.Equal(30, result.ExitCode);
     }
 
     [Fact]
     public async Task Plan_FormatJson_OutputsValidJson()
     {
-        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
-        if (string.IsNullOrWhiteSpace(master))
+        var connectionString = await _dbFixture.GetPreparedConnectionStringOrNullAsync();
+        if (connectionString == null)
         {
             return;
         }
 
-        await using var db = await SqlServerTestDatabase.CreateAsync(master);
-        var cs = new SqlConnectionStringBuilder(master) { InitialCatalog = db.DatabaseName }.ConnectionString;
-
         const string desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL)";
-        var tempFile = Path.Combine(Path.GetTempPath(), "SqlSchemaDef_" + Guid.NewGuid().ToString("N") + ".sql");
-        await File.WriteAllTextAsync(tempFile, desiredSql, Encoding.UTF8);
+        using var tempFile = await CliTestHelper.CreateTempSqlFileAsync(desiredSql);
 
-        var originalOut = Console.Out;
-        var originalError = Console.Error;
+        var result = await CliTestHelper.RunAsync(
+            "plan",
+            "--connection",
+            connectionString,
+            "--file",
+            tempFile.Path,
+            "--format",
+            "json");
 
-        try
-        {
-            using var stdout = new StringWriter();
-            using var stderr = new StringWriter();
-            Console.SetOut(stdout);
-            Console.SetError(stderr);
-
-            var exitCode = await SqlSchemaDef.Cli.Program.Main(new[]
-            {
-                "plan", "--connection", cs, "--file", tempFile, "--format", "json",
-            });
-
-            Assert.Equal(0, exitCode);
-            var json = stdout.ToString().Trim();
-            Assert.StartsWith("{", json);
-            Assert.Contains("\"operations\"", json);
-            Assert.Contains("\"metadata\"", json);
-        }
-        finally
-        {
-            Console.SetOut(originalOut);
-            Console.SetError(originalError);
-            try
-            { File.Delete(tempFile); }
-            catch { }
-        }
+        Assert.Equal(0, result.ExitCode);
+        var json = result.StdOut.Trim();
+        Assert.StartsWith("{", json);
+        Assert.Contains("\"operations\"", json);
+        Assert.Contains("\"metadata\"", json);
     }
 
     [Fact]
     public async Task CliApplyThenExport_SchemaReflected()
     {
-        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
-        if (string.IsNullOrWhiteSpace(master))
+        var connectionString = await _dbFixture.GetPreparedConnectionStringOrNullAsync();
+        if (connectionString == null)
         {
             return;
         }
 
-        await using var db = await SqlServerTestDatabase.CreateAsync(master);
-        var cs = new SqlConnectionStringBuilder(master) { InitialCatalog = db.DatabaseName }.ConnectionString;
         const string desiredSql = "CREATE TABLE dbo.Items (Id int NOT NULL, Name nvarchar(50) NULL)";
+        using var tempFile = await CliTestHelper.CreateTempSqlFileAsync(desiredSql);
 
-        var tempFile = Path.Combine(Path.GetTempPath(), "SqlSchemaDef_" + Guid.NewGuid().ToString("N") + ".sql");
-        await File.WriteAllTextAsync(tempFile, desiredSql, Encoding.UTF8);
+        var apply = await CliTestHelper.RunAsync(
+            "apply",
+            "--connection",
+            connectionString,
+            "--file",
+            tempFile.Path);
 
-        var originalOut = Console.Out;
-        var originalError = Console.Error;
+        Assert.Equal(0, apply.ExitCode);
 
-        try
-        {
-            // Apply
-            using (var stdout = new StringWriter())
-            using (var stderr = new StringWriter())
-            {
-                Console.SetOut(stdout);
-                Console.SetError(stderr);
-
-                var applyExitCode = await SqlSchemaDef.Cli.Program.Main(new[]
-                {
-                    "apply", "--connection", cs, "--file", tempFile,
-                });
-
-                Console.SetOut(originalOut);
-                Console.SetError(originalError);
-
-                Assert.Equal(0, applyExitCode);
-            }
-
-            // Export and verify
-            using (var stdout = new StringWriter())
-            using (var stderr = new StringWriter())
-            {
-                Console.SetOut(stdout);
-                Console.SetError(stderr);
-
-                var exportExitCode = await SqlSchemaDef.Cli.Program.Main(new[]
-                {
-                    "export", "--connection", cs,
-                });
-
-                Console.SetOut(originalOut);
-                Console.SetError(originalError);
-
-                Assert.Equal(0, exportExitCode);
-                var exportOutput = stdout.ToString();
-                Assert.Contains("Items", exportOutput);
-                Assert.Contains("Id", exportOutput);
-                Assert.Contains("Name", exportOutput);
-            }
-        }
-        finally
-        {
-            Console.SetOut(originalOut);
-            Console.SetError(originalError);
-            try
-            { File.Delete(tempFile); }
-            catch { }
-        }
+        var export = await CliTestHelper.RunAsync("export", "--connection", connectionString);
+        Assert.Equal(0, export.ExitCode);
+        Assert.Contains("Items", export.StdOut);
+        Assert.Contains("Id", export.StdOut);
+        Assert.Contains("Name", export.StdOut);
     }
 }

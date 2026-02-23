@@ -10,18 +10,23 @@ using Xunit;
 namespace SqlSchemaDef.Tests;
 
 [Trait("Category", "Integration")]
-public sealed class SchemaEvolutionIntegrationTests
+public sealed class SchemaEvolutionIntegrationTests : IClassFixture<SqlServerDatabaseFixture>
 {
+    private readonly SqlServerDatabaseFixture _dbFixture;
+
+    public SchemaEvolutionIntegrationTests(SqlServerDatabaseFixture dbFixture)
+    {
+        _dbFixture = dbFixture;
+    }
+
     [Fact]
     public async Task PlanApply_CreateTableWithConstraints_VerifyDbState()
     {
-        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
-        if (string.IsNullOrWhiteSpace(master))
+        var connectionString = await _dbFixture.GetPreparedConnectionStringOrNullAsync();
+        if (connectionString == null)
         {
             return;
         }
-
-        await using var db = await SqlServerTestDatabase.CreateAsync(master);
 
         const string desiredSql = @"
 CREATE TABLE dbo.Orders (
@@ -34,7 +39,7 @@ CREATE TABLE dbo.Orders (
 CREATE INDEX IX_Orders_Status ON dbo.Orders (Status)
 ";
 
-        await using var conn = new SqlConnection(db.ConnectionString);
+        await using var conn = new SqlConnection(connectionString);
         await conn.OpenAsync();
 
         var planner = new SqlServerSchemaPlanner();
@@ -62,16 +67,14 @@ CREATE INDEX IX_Orders_Status ON dbo.Orders (Status)
     [Fact]
     public async Task PlanApply_AddColumnToExistingTable_VerifyDbState()
     {
-        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
-        if (string.IsNullOrWhiteSpace(master))
+        var connectionString = await _dbFixture.GetPreparedConnectionStringOrNullAsync();
+        if (connectionString == null)
         {
             return;
         }
 
-        await using var db = await SqlServerTestDatabase.CreateAsync(master);
-
         // Seed existing table
-        await using (var conn = new SqlConnection(db.ConnectionString))
+        await using (var conn = new SqlConnection(connectionString))
         {
             await conn.OpenAsync();
             await using var cmd = conn.CreateCommand();
@@ -84,7 +87,7 @@ CREATE TABLE dbo.Users (Id int NOT NULL)
 ALTER TABLE dbo.Users ADD Email nvarchar(255) NULL
 ";
 
-        await using var conn2 = new SqlConnection(db.ConnectionString);
+        await using var conn2 = new SqlConnection(connectionString);
         await conn2.OpenAsync();
 
         var planner = new SqlServerSchemaPlanner();
@@ -107,16 +110,14 @@ ALTER TABLE dbo.Users ADD Email nvarchar(255) NULL
     [Fact]
     public async Task ExportPlanApply_RoundTrip_ColumnsAndIndexesConverge()
     {
-        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
-        if (string.IsNullOrWhiteSpace(master))
+        var connectionString = await _dbFixture.GetPreparedConnectionStringOrNullAsync();
+        if (connectionString == null)
         {
             return;
         }
 
-        await using var db = await SqlServerTestDatabase.CreateAsync(master);
-
         // Seed table with index
-        await using (var conn = new SqlConnection(db.ConnectionString))
+        await using (var conn = new SqlConnection(connectionString))
         {
             await conn.OpenAsync();
             await using var cmd = conn.CreateCommand();
@@ -127,7 +128,7 @@ CREATE INDEX IX_Users_Name ON dbo.Users (Name);
             await cmd.ExecuteNonQueryAsync();
         }
 
-        await using var conn2 = new SqlConnection(db.ConnectionString);
+        await using var conn2 = new SqlConnection(connectionString);
         await conn2.OpenAsync();
 
         // Export current schema
@@ -166,14 +167,12 @@ CREATE INDEX IX_Users_Active ON dbo.Users (Active)
     [Fact]
     public async Task SchemaEvolution_ThreeSteps_ConvergesCorrectly()
     {
-        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
-        if (string.IsNullOrWhiteSpace(master))
+        var connectionString = await _dbFixture.GetPreparedConnectionStringOrNullAsync();
+        if (connectionString == null)
         {
             return;
         }
-
-        await using var db = await SqlServerTestDatabase.CreateAsync(master);
-        await using var conn = new SqlConnection(db.ConnectionString);
+        await using var conn = new SqlConnection(connectionString);
         await conn.OpenAsync();
 
         var planner = new SqlServerSchemaPlanner();
@@ -233,13 +232,11 @@ ALTER TABLE dbo.Users ADD CONSTRAINT FK_Users_Teams FOREIGN KEY (TeamId) REFEREN
     [Fact]
     public async Task PlanApply_MultipleTablesWithForeignKeys_VerifyDbState()
     {
-        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
-        if (string.IsNullOrWhiteSpace(master))
+        var connectionString = await _dbFixture.GetPreparedConnectionStringOrNullAsync();
+        if (connectionString == null)
         {
             return;
         }
-
-        await using var db = await SqlServerTestDatabase.CreateAsync(master);
 
         const string desiredSql = @"
 CREATE TABLE dbo.Departments (
@@ -263,7 +260,7 @@ ALTER TABLE dbo.Employees ADD CONSTRAINT FK_Employees_Departments FOREIGN KEY (D
 ALTER TABLE dbo.Projects ADD CONSTRAINT FK_Projects_Employees FOREIGN KEY (LeadId) REFERENCES dbo.Employees (Id)
 ";
 
-        await using var conn = new SqlConnection(db.ConnectionString);
+        await using var conn = new SqlConnection(connectionString);
         await conn.OpenAsync();
 
         var planner = new SqlServerSchemaPlanner();
@@ -315,16 +312,14 @@ ALTER TABLE dbo.Projects ADD CONSTRAINT FK_Projects_Employees FOREIGN KEY (LeadI
     [Fact]
     public async Task ExportThenPlan_WithConstraints_ProducesEmptyPlan()
     {
-        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
-        if (string.IsNullOrWhiteSpace(master))
+        var connectionString = await _dbFixture.GetPreparedConnectionStringOrNullAsync();
+        if (connectionString == null)
         {
             return;
         }
 
-        await using var db = await SqlServerTestDatabase.CreateAsync(master);
-
         // Seed table with constraints
-        await using (var conn = new SqlConnection(db.ConnectionString))
+        await using (var conn = new SqlConnection(connectionString))
         {
             await conn.OpenAsync();
             await using var cmd = conn.CreateCommand();
@@ -342,7 +337,7 @@ CREATE INDEX IX_Products_Name ON dbo.Products (Name);
             await cmd.ExecuteNonQueryAsync();
         }
 
-        await using var conn2 = new SqlConnection(db.ConnectionString);
+        await using var conn2 = new SqlConnection(connectionString);
         await conn2.OpenAsync();
 
         // Export now includes constraints
@@ -359,13 +354,11 @@ CREATE INDEX IX_Products_Name ON dbo.Products (Name);
     [Fact]
     public async Task PlanApply_TableAndColumnDescriptions_VerifyDbState()
     {
-        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
-        if (string.IsNullOrWhiteSpace(master))
+        var connectionString = await _dbFixture.GetPreparedConnectionStringOrNullAsync();
+        if (connectionString == null)
         {
             return;
         }
-
-        await using var db = await SqlServerTestDatabase.CreateAsync(master);
 
         var desiredSql = string.Join("\n", new[]
         {
@@ -376,7 +369,7 @@ CREATE INDEX IX_Products_Name ON dbo.Products (Name);
             "EXEC sp_addextendedproperty @name = N'MS_Description', @value = N'Primary key', @level0type = N'SCHEMA', @level0name = N'dbo', @level1type = N'TABLE', @level1name = N'Users', @level2type = N'COLUMN', @level2name = N'Id'",
         });
 
-        await using var conn = new SqlConnection(db.ConnectionString);
+        await using var conn = new SqlConnection(connectionString);
         await conn.OpenAsync();
 
         var planner = new SqlServerSchemaPlanner();
@@ -400,16 +393,14 @@ CREATE INDEX IX_Products_Name ON dbo.Products (Name);
     [Fact]
     public async Task PlanApply_DescriptionUpdate_GeneratesUpdate()
     {
-        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
-        if (string.IsNullOrWhiteSpace(master))
+        var connectionString = await _dbFixture.GetPreparedConnectionStringOrNullAsync();
+        if (connectionString == null)
         {
             return;
         }
 
-        await using var db = await SqlServerTestDatabase.CreateAsync(master);
-
         // Seed with initial description
-        await using (var conn = new SqlConnection(db.ConnectionString))
+        await using (var conn = new SqlConnection(connectionString))
         {
             await conn.OpenAsync();
             await using var cmd = conn.CreateCommand();
@@ -427,7 +418,7 @@ EXEC sp_addextendedproperty @name = N'MS_Description', @value = N'Version 1', @l
             "EXEC sp_addextendedproperty @name = N'MS_Description', @value = N'Version 2', @level0type = N'SCHEMA', @level0name = N'dbo', @level1type = N'TABLE', @level1name = N'Users'",
         });
 
-        await using var conn2 = new SqlConnection(db.ConnectionString);
+        await using var conn2 = new SqlConnection(connectionString);
         await conn2.OpenAsync();
 
         var planner = new SqlServerSchemaPlanner();
@@ -518,16 +509,14 @@ EXEC sp_addextendedproperty @name = N'MS_Description', @value = N'Version 1', @l
     [Fact]
     public async Task ApplyWithSwap_ColumnTypeChange_RebuildsTableAndPreservesData()
     {
-        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
-        if (string.IsNullOrWhiteSpace(master))
+        var connectionString = await _dbFixture.GetPreparedConnectionStringOrNullAsync();
+        if (connectionString == null)
         {
             return;
         }
 
-        await using var db = await SqlServerTestDatabase.CreateAsync(master);
-
         // Seed: Users with BIGINT Age column and data
-        await using (var conn = new SqlConnection(db.ConnectionString))
+        await using (var conn = new SqlConnection(connectionString))
         {
             await conn.OpenAsync();
             await using var cmd = conn.CreateCommand();
@@ -541,7 +530,7 @@ INSERT INTO dbo.Users (Id, Age) VALUES (1, 30);
         // Desired: Age changed to INT (narrowing = unsafe, requires rebuild)
         const string desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL, Age int NULL)";
 
-        await using var conn2 = new SqlConnection(db.ConnectionString);
+        await using var conn2 = new SqlConnection(connectionString);
         await conn2.OpenAsync();
 
         var planner = new SqlServerSchemaPlanner();
@@ -572,15 +561,13 @@ INSERT INTO dbo.Users (Id, Age) VALUES (1, 30);
     [Fact]
     public async Task ApplyWithSwap_ColumnTypeChangeAndConstraintAdd_SucceedsWithoutConstraintConflict()
     {
-        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
-        if (string.IsNullOrWhiteSpace(master))
+        var connectionString = await _dbFixture.GetPreparedConnectionStringOrNullAsync();
+        if (connectionString == null)
         {
             return;
         }
 
-        await using var db = await SqlServerTestDatabase.CreateAsync(master);
-
-        await using (var conn = new SqlConnection(db.ConnectionString))
+        await using (var conn = new SqlConnection(connectionString))
         {
             await conn.OpenAsync();
             await using var cmd = conn.CreateCommand();
@@ -602,7 +589,7 @@ CREATE TABLE dbo.Users (
     CONSTRAINT CK_Users_Age CHECK (Age >= 0)
 )";
 
-        await using var conn2 = new SqlConnection(db.ConnectionString);
+        await using var conn2 = new SqlConnection(connectionString);
         await conn2.OpenAsync();
 
         var planner = new SqlServerSchemaPlanner();
@@ -626,13 +613,11 @@ CREATE TABLE dbo.Users (
     [Fact]
     public async Task ApplyWithSwap_ProposalFailure_RollsBackOperationsInSingleTransaction()
     {
-        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
-        if (string.IsNullOrWhiteSpace(master))
+        var connectionString = await _dbFixture.GetPreparedConnectionStringOrNullAsync();
+        if (connectionString == null)
         {
             return;
         }
-
-        await using var db = await SqlServerTestDatabase.CreateAsync(master);
 
         var proposal = new RebuildProposal
         {
@@ -670,7 +655,7 @@ CREATE TABLE dbo.Users (
             Array.Empty<SkippedItem>(),
             new[] { proposal });
 
-        await using var conn = new SqlConnection(db.ConnectionString);
+        await using var conn = new SqlConnection(connectionString);
         await conn.OpenAsync();
 
         var applier = new SqlServerSchemaApplier();
@@ -684,13 +669,11 @@ CREATE TABLE dbo.Users (
     [Fact]
     public async Task ApplyWithSwap_StepFails_ThrowsRebuildFailedException()
     {
-        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
-        if (string.IsNullOrWhiteSpace(master))
+        var connectionString = await _dbFixture.GetPreparedConnectionStringOrNullAsync();
+        if (connectionString == null)
         {
             return;
         }
-
-        await using var db = await SqlServerTestDatabase.CreateAsync(master);
 
         // Build a plan with a deliberately bad SQL step
         var proposal = new RebuildProposal
@@ -708,7 +691,7 @@ CREATE TABLE dbo.Users (
             Array.Empty<SkippedItem>(),
             new[] { proposal });
 
-        await using var conn = new SqlConnection(db.ConnectionString);
+        await using var conn = new SqlConnection(connectionString);
         await conn.OpenAsync();
 
         var applier = new SqlServerSchemaApplier();
@@ -724,17 +707,15 @@ CREATE TABLE dbo.Users (
     [Fact]
     public async Task ApplyWithSwap_NoProposals_SucceedsWithoutError()
     {
-        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
-        if (string.IsNullOrWhiteSpace(master))
+        var connectionString = await _dbFixture.GetPreparedConnectionStringOrNullAsync();
+        if (connectionString == null)
         {
             return;
         }
 
-        await using var db = await SqlServerTestDatabase.CreateAsync(master);
-
         const string desiredSql = "CREATE TABLE dbo.Items (Id int NOT NULL)";
 
-        await using var conn = new SqlConnection(db.ConnectionString);
+        await using var conn = new SqlConnection(connectionString);
         await conn.OpenAsync();
 
         var planner = new SqlServerSchemaPlanner();
@@ -773,16 +754,14 @@ CREATE TABLE dbo.Users (
     [Fact]
     public async Task PlanApply_NotNullColumnWithDefault_SucceedsAndIsIdempotent()
     {
-        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
-        if (string.IsNullOrWhiteSpace(master))
+        var connectionString = await _dbFixture.GetPreparedConnectionStringOrNullAsync();
+        if (connectionString == null)
         {
             return;
         }
 
-        await using var db = await SqlServerTestDatabase.CreateAsync(master);
-
         // Seed existing table with data
-        await using (var conn = new SqlConnection(db.ConnectionString))
+        await using (var conn = new SqlConnection(connectionString))
         {
             await conn.OpenAsync();
             await using var cmd = conn.CreateCommand();
@@ -797,7 +776,7 @@ INSERT INTO dbo.Users (Id) VALUES (1), (2);
 CREATE TABLE dbo.Users (Id int NOT NULL, Active bit DEFAULT (1) NOT NULL)
 ";
 
-        await using var conn2 = new SqlConnection(db.ConnectionString);
+        await using var conn2 = new SqlConnection(connectionString);
         await conn2.OpenAsync();
 
         var planner = new SqlServerSchemaPlanner();
@@ -822,16 +801,14 @@ CREATE TABLE dbo.Users (Id int NOT NULL, Active bit DEFAULT (1) NOT NULL)
     [Fact]
     public async Task ExportThenPlan_PkClusteredRoundTrip_ProducesEmptyPlan()
     {
-        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
-        if (string.IsNullOrWhiteSpace(master))
+        var connectionString = await _dbFixture.GetPreparedConnectionStringOrNullAsync();
+        if (connectionString == null)
         {
             return;
         }
 
-        await using var db = await SqlServerTestDatabase.CreateAsync(master);
-
         // Seed table with PK CLUSTERED (default) and UNIQUE NONCLUSTERED
-        await using (var conn = new SqlConnection(db.ConnectionString))
+        await using (var conn = new SqlConnection(connectionString))
         {
             await conn.OpenAsync();
             await using var cmd = conn.CreateCommand();
@@ -846,7 +823,7 @@ CREATE TABLE dbo.Items (
             await cmd.ExecuteNonQueryAsync();
         }
 
-        await using var conn2 = new SqlConnection(db.ConnectionString);
+        await using var conn2 = new SqlConnection(connectionString);
         await conn2.OpenAsync();
 
         // Export includes CLUSTERED/NONCLUSTERED
@@ -864,16 +841,14 @@ CREATE TABLE dbo.Items (
     [Fact]
     public async Task Plan_StrictModeWithSkippedItems_ReturnsNonEmpty()
     {
-        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
-        if (string.IsNullOrWhiteSpace(master))
+        var connectionString = await _dbFixture.GetPreparedConnectionStringOrNullAsync();
+        if (connectionString == null)
         {
             return;
         }
 
-        await using var db = await SqlServerTestDatabase.CreateAsync(master);
-
         // Seed with a table
-        await using (var conn = new SqlConnection(db.ConnectionString))
+        await using (var conn = new SqlConnection(connectionString))
         {
             await conn.OpenAsync();
             await using var cmd = conn.CreateCommand();
@@ -886,7 +861,7 @@ CREATE TABLE dbo.Items (
 CREATE TABLE dbo.Users (Id int NOT NULL, Age int NOT NULL)
 ";
 
-        await using var conn2 = new SqlConnection(db.ConnectionString);
+        await using var conn2 = new SqlConnection(connectionString);
         await conn2.OpenAsync();
 
         var planner = new SqlServerSchemaPlanner();

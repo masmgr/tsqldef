@@ -8,17 +8,23 @@ using Xunit;
 namespace SqlSchemaDef.Tests;
 
 [Trait("Category", "Integration")]
-public sealed class SqlServerPlannerApplierIntegrationTests
+public sealed class SqlServerPlannerApplierIntegrationTests : IClassFixture<SqlServerDatabaseFixture>
 {
+    private readonly SqlServerDatabaseFixture _dbFixture;
+
+    public SqlServerPlannerApplierIntegrationTests(SqlServerDatabaseFixture dbFixture)
+    {
+        _dbFixture = dbFixture;
+    }
+
     [Fact]
     public async Task PlanApplyPlan_IsIdempotent()
     {
-        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
-        if (string.IsNullOrWhiteSpace(master))
+        var connectionString = await _dbFixture.GetPreparedConnectionStringOrNullAsync();
+        if (connectionString == null)
         {
             return;
         }
-        await using var db = await SqlServerTestDatabase.CreateAsync(master);
 
         const string desiredSql = @"
 CREATE TABLE dbo.Users (
@@ -29,7 +35,7 @@ CREATE TABLE dbo.Users (
 CREATE INDEX IX_Users_Name ON dbo.Users (Name)
 ";
 
-        await using var conn = new SqlConnection(db.ConnectionString);
+        await using var conn = new SqlConnection(connectionString);
         await conn.OpenAsync();
 
         var planner = new SqlServerSchemaPlanner();
@@ -47,14 +53,13 @@ CREATE INDEX IX_Users_Name ON dbo.Users (Name)
     [Fact]
     public async Task ExistingRows_AddNotNullColumn_IsSkipped()
     {
-        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
-        if (string.IsNullOrWhiteSpace(master))
+        var connectionString = await _dbFixture.GetPreparedConnectionStringOrNullAsync();
+        if (connectionString == null)
         {
             return;
         }
-        await using var db = await SqlServerTestDatabase.CreateAsync(master);
 
-        await using (var conn = new SqlConnection(db.ConnectionString))
+        await using (var conn = new SqlConnection(connectionString))
         {
             await conn.OpenAsync();
             await using var cmd = conn.CreateCommand();
@@ -70,7 +75,7 @@ CREATE TABLE dbo.Users (Id int NOT NULL)
 ALTER TABLE dbo.Users ADD Age int NOT NULL
 ";
 
-        await using var conn2 = new SqlConnection(db.ConnectionString);
+        await using var conn2 = new SqlConnection(connectionString);
         await conn2.OpenAsync();
 
         var planner = new SqlServerSchemaPlanner();
@@ -83,15 +88,13 @@ ALTER TABLE dbo.Users ADD Age int NOT NULL
     [Fact]
     public async Task CurrentHasExtraObjects_NoDropOperations()
     {
-        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
-        if (string.IsNullOrWhiteSpace(master))
+        var connectionString = await _dbFixture.GetPreparedConnectionStringOrNullAsync();
+        if (connectionString == null)
         {
             return;
         }
 
-        await using var db = await SqlServerTestDatabase.CreateAsync(master);
-
-        await using (var conn = new SqlConnection(db.ConnectionString))
+        await using (var conn = new SqlConnection(connectionString))
         {
             await conn.OpenAsync();
             await using var cmd = conn.CreateCommand();
@@ -104,7 +107,7 @@ CREATE TABLE dbo.Users (Id int NOT NULL);
 
         const string desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL)";
 
-        await using var conn2 = new SqlConnection(db.ConnectionString);
+        await using var conn2 = new SqlConnection(connectionString);
         await conn2.OpenAsync();
 
         var planner = new SqlServerSchemaPlanner();
@@ -117,13 +120,11 @@ CREATE TABLE dbo.Users (Id int NOT NULL);
     [Fact]
     public async Task PlanApplyPlan_WithForeignKey_IsIdempotent()
     {
-        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
-        if (string.IsNullOrWhiteSpace(master))
+        var connectionString = await _dbFixture.GetPreparedConnectionStringOrNullAsync();
+        if (connectionString == null)
         {
             return;
         }
-
-        await using var db = await SqlServerTestDatabase.CreateAsync(master);
 
         const string desiredSql = @"
 CREATE TABLE dbo.Teams (Id int NOT NULL, CONSTRAINT PK_Teams PRIMARY KEY (Id))
@@ -131,7 +132,7 @@ CREATE TABLE dbo.Users (Id int NOT NULL, TeamId int NOT NULL, CONSTRAINT PK_User
 ALTER TABLE dbo.Users ADD CONSTRAINT FK_Users_Teams FOREIGN KEY (TeamId) REFERENCES dbo.Teams (Id)
 ";
 
-        await using var conn = new SqlConnection(db.ConnectionString);
+        await using var conn = new SqlConnection(connectionString);
         await conn.OpenAsync();
 
         var planner = new SqlServerSchemaPlanner();
@@ -149,20 +150,18 @@ ALTER TABLE dbo.Users ADD CONSTRAINT FK_Users_Teams FOREIGN KEY (TeamId) REFEREN
     [Fact]
     public async Task PlanApplyPlan_WithAlterAddNullableColumn_IsIdempotent()
     {
-        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
-        if (string.IsNullOrWhiteSpace(master))
+        var connectionString = await _dbFixture.GetPreparedConnectionStringOrNullAsync();
+        if (connectionString == null)
         {
             return;
         }
-
-        await using var db = await SqlServerTestDatabase.CreateAsync(master);
 
         const string desiredSql = @"
 CREATE TABLE dbo.Users (Id int NOT NULL)
 ALTER TABLE dbo.Users ADD Nickname nvarchar(50) NULL
 ";
 
-        await using var conn = new SqlConnection(db.ConnectionString);
+        await using var conn = new SqlConnection(connectionString);
         await conn.OpenAsync();
 
         var planner = new SqlServerSchemaPlanner();
@@ -180,13 +179,11 @@ ALTER TABLE dbo.Users ADD Nickname nvarchar(50) NULL
     [Fact]
     public async Task PlanApplyPlan_WithCheckConstraint_IsIdempotent()
     {
-        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
-        if (string.IsNullOrWhiteSpace(master))
+        var connectionString = await _dbFixture.GetPreparedConnectionStringOrNullAsync();
+        if (connectionString == null)
         {
             return;
         }
-
-        await using var db = await SqlServerTestDatabase.CreateAsync(master);
 
         const string desiredSql = @"
 CREATE TABLE dbo.Users (
@@ -196,7 +193,7 @@ CREATE TABLE dbo.Users (
 )
 ";
 
-        await using var conn = new SqlConnection(db.ConnectionString);
+        await using var conn = new SqlConnection(connectionString);
         await conn.OpenAsync();
 
         var planner = new SqlServerSchemaPlanner();
@@ -214,20 +211,18 @@ CREATE TABLE dbo.Users (
     [Fact]
     public async Task PlanApplyPlan_WithUniqueIndex_IsIdempotent()
     {
-        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
-        if (string.IsNullOrWhiteSpace(master))
+        var connectionString = await _dbFixture.GetPreparedConnectionStringOrNullAsync();
+        if (connectionString == null)
         {
             return;
         }
-
-        await using var db = await SqlServerTestDatabase.CreateAsync(master);
 
         const string desiredSql = @"
 CREATE TABLE dbo.Users (Id int NOT NULL, Email nvarchar(255) NOT NULL)
 CREATE UNIQUE INDEX IX_Users_Email ON dbo.Users (Email)
 ";
 
-        await using var conn = new SqlConnection(db.ConnectionString);
+        await using var conn = new SqlConnection(connectionString);
         await conn.OpenAsync();
 
         var planner = new SqlServerSchemaPlanner();
@@ -245,15 +240,13 @@ CREATE UNIQUE INDEX IX_Users_Email ON dbo.Users (Email)
     [Fact]
     public async Task MissingConstraintsAndForeignKeys_ConvergeAfterApply()
     {
-        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
-        if (string.IsNullOrWhiteSpace(master))
+        var connectionString = await _dbFixture.GetPreparedConnectionStringOrNullAsync();
+        if (connectionString == null)
         {
             return;
         }
 
-        await using var db = await SqlServerTestDatabase.CreateAsync(master);
-
-        await using (var conn = new SqlConnection(db.ConnectionString))
+        await using (var conn = new SqlConnection(connectionString))
         {
             await conn.OpenAsync();
             await using var cmd = conn.CreateCommand();
@@ -287,7 +280,7 @@ CREATE TABLE dbo.Users (
 ALTER TABLE dbo.Users ADD CONSTRAINT FK_Users_Teams FOREIGN KEY (TeamId) REFERENCES dbo.Teams (Id)
 ";
 
-        await using var conn2 = new SqlConnection(db.ConnectionString);
+        await using var conn2 = new SqlConnection(connectionString);
         await conn2.OpenAsync();
 
         var planner = new SqlServerSchemaPlanner();
@@ -305,14 +298,12 @@ ALTER TABLE dbo.Users ADD CONSTRAINT FK_Users_Teams FOREIGN KEY (TeamId) REFEREN
     [Fact]
     public async Task Apply_OnFailure_ThrowsApplyFailedExceptionWithOperation()
     {
-        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
-        if (string.IsNullOrWhiteSpace(master))
+        var connectionString = await _dbFixture.GetPreparedConnectionStringOrNullAsync();
+        if (connectionString == null)
         {
             return;
         }
-
-        await using var db = await SqlServerTestDatabase.CreateAsync(master);
-        await using var conn = new SqlConnection(db.ConnectionString);
+        await using var conn = new SqlConnection(connectionString);
         await conn.OpenAsync();
 
         var plan = new MigrationPlan(
@@ -340,14 +331,12 @@ ALTER TABLE dbo.Users ADD CONSTRAINT FK_Users_Teams FOREIGN KEY (TeamId) REFEREN
     [Fact]
     public async Task Apply_SingleTransaction_RollsBackOnFailure()
     {
-        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
-        if (string.IsNullOrWhiteSpace(master))
+        var connectionString = await _dbFixture.GetPreparedConnectionStringOrNullAsync();
+        if (connectionString == null)
         {
             return;
         }
-
-        await using var db = await SqlServerTestDatabase.CreateAsync(master);
-        await using var conn = new SqlConnection(db.ConnectionString);
+        await using var conn = new SqlConnection(connectionString);
         await conn.OpenAsync();
 
         var plan = new MigrationPlan(
@@ -384,15 +373,13 @@ ALTER TABLE dbo.Users ADD CONSTRAINT FK_Users_Teams FOREIGN KEY (TeamId) REFEREN
     [Fact]
     public async Task ExportThenPlan_IsEmpty()
     {
-        var master = SqlServerTestDatabase.GetMasterConnectionStringOrNull();
-        if (string.IsNullOrWhiteSpace(master))
+        var connectionString = await _dbFixture.GetPreparedConnectionStringOrNullAsync();
+        if (connectionString == null)
         {
             return;
         }
 
-        await using var db = await SqlServerTestDatabase.CreateAsync(master);
-
-        await using (var conn = new SqlConnection(db.ConnectionString))
+        await using (var conn = new SqlConnection(connectionString))
         {
             await conn.OpenAsync();
             await using var cmd = conn.CreateCommand();
@@ -403,7 +390,7 @@ CREATE INDEX IX_Users_Name ON dbo.Users (Name);
             await cmd.ExecuteNonQueryAsync();
         }
 
-        await using var conn2 = new SqlConnection(db.ConnectionString);
+        await using var conn2 = new SqlConnection(connectionString);
         await conn2.OpenAsync();
 
         var export = await SqlServerSchemaExporter.ExportAsync(conn2, new ExportOptions());
