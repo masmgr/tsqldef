@@ -9,6 +9,7 @@ namespace SqlSchemaDef.Core.Planning
         {
             OperationKind.CreateTable,
             OperationKind.AddColumn,
+            OperationKind.AlterColumn,
             OperationKind.RecreateConstraint,
             OperationKind.AddConstraint,
             OperationKind.RecreateIndex,

@@ -28,7 +28,7 @@ There is no separate lint command; Roslyn analyzers (Microsoft.CodeAnalysis.NetA
 
 ## Architecture
 
-**tsqldef** is a SQL Server schema migration tool that compares a desired DDL file against a live database and generates additive-only DDL scripts. v1 scope is strictly additive — no ALTER, DROP, or destructive changes.
+**tsqldef** is a SQL Server schema migration tool that compares a desired DDL file against a live database and generates DDL scripts. Safe column alterations (type widening, nullability, collation changes) generate `ALTER TABLE ALTER COLUMN`; unsafe changes (type narrowing, IDENTITY) are skipped with optional rebuild proposals.
 
 ### Projects
 
@@ -55,14 +55,19 @@ live DB → CurrentSchemaCatalogReader → CurrentSchemaModelBuilder → Databas
 - **`SchemaDiffer`** ([SchemaDiffer.cs](src/SqlSchemaDef.SqlServer/Planning/Diffing/SchemaDiffer.cs)) — Core diffing logic. `internal` class; tests access via `InternalsVisibleTo`.
 - **`SqlStatementBuilder`** ([SqlStatementBuilder.cs](src/SqlSchemaDef.SqlServer/Planning/Diffing/SqlStatementBuilder.cs)) — Shared SQL generation (`internal static`). All identifiers are bracket-escaped via `IdentifierHelper.Escape()`.
 - **`DesiredSchemaLoader`** ([DesiredSchemaLoader.cs](src/SqlSchemaDef.SqlServer/Planning/Parsing/DesiredSchemaLoader.cs)) — Public entry point for parsing desired SQL into `DatabaseModel`. Wraps `DesiredModelBuilderVisitor`.
-- **`RebuildProposalBuilder`** ([RebuildProposalBuilder.cs](src/SqlSchemaDef.SqlServer/Planning/Diffing/RebuildProposalBuilder.cs)) — Generates shadow-table rebuild steps for column alterations that can't be done additively.
+- **`SqlTypeWideningSafety`** ([SqlTypeWideningSafety.cs](src/SqlSchemaDef.SqlServer/Planning/Diffing/SqlTypeWideningSafety.cs)) — Determines whether a column type change is a safe widening conversion (e.g., `int`→`bigint`, `varchar(50)`→`varchar(100)`).
+- **`RebuildProposalBuilder`** ([RebuildProposalBuilder.cs](src/SqlSchemaDef.SqlServer/Planning/Diffing/RebuildProposalBuilder.cs)) — Generates shadow-table rebuild steps for column alterations that can't be done via ALTER COLUMN.
 - **`MigrationPlanSerializer`** ([MigrationPlanSerializer.cs](src/SqlSchemaDef.Core/Planning/MigrationPlanSerializer.cs)) — JSON serialization (Newtonsoft.Json, camelCase, enums as strings, nulls ignored).
 
-### DDL Feature Coverage (as of v0.6 + post-v0.6 enhancements)
+### DDL Feature Coverage
 
 Supported:
 - Tables and columns (CREATE TABLE, ALTER TABLE ADD COLUMN)
 - Column options: data types, NULL/NOT NULL, IDENTITY, DEFAULT expression, COLLATE
+- **ALTER TABLE ALTER COLUMN** for safe column changes:
+  - Type widening (int→bigint, varchar(50)→varchar(100), decimal precision increase, etc.)
+  - Nullability changes (NULL↔NOT NULL)
+  - Collation changes
 - Primary key, UNIQUE, CHECK, FOREIGN KEY constraints (with ON DELETE/UPDATE actions)
 - Indexes: CREATE [UNIQUE] [CLUSTERED|NONCLUSTERED] INDEX, INCLUDE columns, WHERE (filtered), WITH options (FILLFACTOR, PAD_INDEX, etc.)
 - MS_Description extended properties (tables and columns)
@@ -71,7 +76,7 @@ Supported:
 - All SQL identifiers unconditionally bracket-escaped in generated DDL (`[schema].[table]` notation throughout)
 
 Not supported (skipped or rejected):
-- ALTER TABLE MODIFY/DROP COLUMN (additive-only; column alterations generate rebuild proposals)
+- Unsafe column alterations: type narrowing (bigint→int), IDENTITY changes, cross-family type changes (varchar→int) — these generate rebuild proposals via `--emit-swap-sql`
 - Computed columns
 - PARTITION schemes
 - Columnstore indexes
@@ -130,6 +135,16 @@ Core and SqlServer projects target netstandard2.0 — no `record`, `required`, o
 - DDL without explicit schema (e.g., `CREATE TABLE T ...`) falls back to `options.Schema`
 - Cross-schema mismatch (DDL schema ≠ target schema) raises `UnsupportedSchemaException` (exit code 11)
 
+### Column Change Classification
+
+`SchemaDiffer.ClassifyColumnChange()` categorizes column differences into four kinds:
+- **`None`** — no difference
+- **`SafeAlter`** — can be done via `ALTER TABLE ALTER COLUMN` (type widening, nullability, collation)
+- **`UnsafeAlter`** — requires rebuild (IDENTITY change, type narrowing, cross-family type change)
+- **`DefaultOnly`** — only DEFAULT expression differs; delegated to constraint diff (`RecreateConstraint`)
+
+`SqlTypeWideningSafety.IsSafeTypeChange()` determines type safety across 8 type families: Integer, Money, Float, NonUnicodeString, UnicodeString, Binary, DateTime, Decimal.
+
 ### Milestone History
 - v0.1: export/plan/apply for tables + columns + indexes
 - v0.2: constraints (PK, UNIQUE, CHECK) + foreign keys
@@ -138,3 +153,4 @@ Core and SqlServer projects target netstandard2.0 — no `record`, `required`, o
 - v0.5: MS_Description extended properties (tables and columns)
 - v0.6: COLLATE on columns, filtered indexes (WHERE), clustered indexes, index options (WITH)
 - post-v0.6: non-dbo schema support (`--schema` option), unconditional bracket-escaping of all identifiers, index metadata/option normalization fixes
+- v0.7.1: ALTER TABLE ALTER COLUMN for safe column changes (type widening, nullability, collation)

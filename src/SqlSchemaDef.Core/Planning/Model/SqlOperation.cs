@@ -12,6 +12,7 @@ namespace SqlSchemaDef.Core.Planning
     {
         CreateTable = 10,
         AddColumn = 20,
+        AlterColumn = 22,
         RecreateConstraint = 25,
         AddConstraint = 30,
         RecreateIndex = 35,

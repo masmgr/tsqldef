@@ -66,6 +66,34 @@ namespace SqlSchemaDef.SqlServer.Planning
             return sb.ToString();
         }
 
+        internal static string BuildAlterColumnSql(string schema, string tableName, ColumnModel column)
+        {
+            if (column == null)
+            {
+                throw new ArgumentNullException(nameof(column));
+            }
+
+            var sb = new StringBuilder();
+            sb.Append("ALTER TABLE ")
+                .Append(IdentifierHelper.Escape(schema))
+                .Append('.')
+                .Append(IdentifierHelper.Escape(tableName))
+                .Append(" ALTER COLUMN ")
+                .Append(IdentifierHelper.Escape(column.Name))
+                .Append(' ')
+                .Append(column.SqlType);
+
+            if (!string.IsNullOrWhiteSpace(column.Collation))
+            {
+                sb.Append(" COLLATE ").Append(column.Collation.Trim());
+            }
+
+            sb.Append(' ')
+                .Append(column.IsNullable ? "NULL" : "NOT NULL");
+
+            return sb.ToString();
+        }
+
         internal static string BuildAddConstraintSql(TableModel table, ConstraintModel constraint)
         {
             var prefix = "ALTER TABLE " + IdentifierHelper.Escape(table.Schema) + "." + IdentifierHelper.Escape(table.Name) +

@@ -15,6 +15,7 @@ public sealed class PlanValidationTests
             {
                 new SqlOperation { Kind = OperationKind.CreateTable, Sql = "CREATE TABLE dbo.T (Id int NOT NULL)" },
                 new SqlOperation { Kind = OperationKind.AddColumn, Sql = "ALTER TABLE dbo.T ADD Col int NULL" },
+                new SqlOperation { Kind = OperationKind.AlterColumn, Sql = "ALTER TABLE dbo.T ALTER COLUMN Col bigint NULL" },
                 new SqlOperation { Kind = OperationKind.AddConstraint, Sql = "ALTER TABLE dbo.T ADD CONSTRAINT PK PRIMARY KEY (Id)" },
                 new SqlOperation { Kind = OperationKind.CreateIndex, Sql = "CREATE INDEX IX ON dbo.T (Col)" },
                 new SqlOperation { Kind = OperationKind.AddForeignKey, Sql = "ALTER TABLE dbo.T ADD CONSTRAINT FK FOREIGN KEY (Col) REFERENCES dbo.R (Id)" },

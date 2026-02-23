@@ -109,6 +109,7 @@ public sealed class MigrationPlanJsonTests
             {
                 new SqlOperation { Kind = OperationKind.CreateTable, Sql = "S1", Description = "D1" },
                 new SqlOperation { Kind = OperationKind.AddColumn, Sql = "S2", Description = "D2" },
+                new SqlOperation { Kind = OperationKind.AlterColumn, Sql = "S2b", Description = "D2b" },
                 new SqlOperation { Kind = OperationKind.AddConstraint, Sql = "S3", Description = "D3" },
                 new SqlOperation { Kind = OperationKind.CreateIndex, Sql = "S4", Description = "D4" },
                 new SqlOperation { Kind = OperationKind.AddForeignKey, Sql = "S5", Description = "D5" },
@@ -128,22 +129,23 @@ public sealed class MigrationPlanJsonTests
         var json = MigrationPlanSerializer.ToJson(plan);
         var deserialized = MigrationPlanSerializer.FromJson(json);
 
-        Assert.Equal(15, deserialized.Operations.Count);
+        Assert.Equal(16, deserialized.Operations.Count);
         Assert.Equal(OperationKind.CreateTable, deserialized.Operations[0].Kind);
         Assert.Equal(OperationKind.AddColumn, deserialized.Operations[1].Kind);
-        Assert.Equal(OperationKind.AddConstraint, deserialized.Operations[2].Kind);
-        Assert.Equal(OperationKind.CreateIndex, deserialized.Operations[3].Kind);
-        Assert.Equal(OperationKind.AddForeignKey, deserialized.Operations[4].Kind);
-        Assert.Equal(OperationKind.RecreateConstraint, deserialized.Operations[5].Kind);
-        Assert.Equal(OperationKind.RecreateIndex, deserialized.Operations[6].Kind);
-        Assert.Equal(OperationKind.RecreateForeignKey, deserialized.Operations[7].Kind);
-        Assert.Equal(OperationKind.AddDescription, deserialized.Operations[8].Kind);
-        Assert.Equal(OperationKind.UpdateDescription, deserialized.Operations[9].Kind);
-        Assert.Equal(OperationKind.DropDescription, deserialized.Operations[10].Kind);
-        Assert.Equal(OperationKind.DropForeignKey, deserialized.Operations[11].Kind);
-        Assert.Equal(OperationKind.DropIndex, deserialized.Operations[12].Kind);
-        Assert.Equal(OperationKind.DropConstraint, deserialized.Operations[13].Kind);
-        Assert.Equal(OperationKind.DropColumn, deserialized.Operations[14].Kind);
+        Assert.Equal(OperationKind.AlterColumn, deserialized.Operations[2].Kind);
+        Assert.Equal(OperationKind.AddConstraint, deserialized.Operations[3].Kind);
+        Assert.Equal(OperationKind.CreateIndex, deserialized.Operations[4].Kind);
+        Assert.Equal(OperationKind.AddForeignKey, deserialized.Operations[5].Kind);
+        Assert.Equal(OperationKind.RecreateConstraint, deserialized.Operations[6].Kind);
+        Assert.Equal(OperationKind.RecreateIndex, deserialized.Operations[7].Kind);
+        Assert.Equal(OperationKind.RecreateForeignKey, deserialized.Operations[8].Kind);
+        Assert.Equal(OperationKind.AddDescription, deserialized.Operations[9].Kind);
+        Assert.Equal(OperationKind.UpdateDescription, deserialized.Operations[10].Kind);
+        Assert.Equal(OperationKind.DropDescription, deserialized.Operations[11].Kind);
+        Assert.Equal(OperationKind.DropForeignKey, deserialized.Operations[12].Kind);
+        Assert.Equal(OperationKind.DropIndex, deserialized.Operations[13].Kind);
+        Assert.Equal(OperationKind.DropConstraint, deserialized.Operations[14].Kind);
+        Assert.Equal(OperationKind.DropColumn, deserialized.Operations[15].Kind);
     }
 
     [Fact]

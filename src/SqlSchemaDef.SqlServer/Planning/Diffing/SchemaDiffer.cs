@@ -5,6 +5,14 @@ using SqlSchemaDef.Core.Planning;
 
 namespace SqlSchemaDef.SqlServer.Planning
 {
+    internal enum ColumnChangeKind
+    {
+        None,
+        SafeAlter,
+        UnsafeAlter,
+        DefaultOnly,
+    }
+
     internal sealed class SchemaDiffer
     {
         public static MigrationPlan Diff(
@@ -24,6 +32,7 @@ namespace SqlSchemaDef.SqlServer.Planning
 
             var createTableOps = new List<SqlOperation>();
             var addColumnOps = new List<SqlOperation>();
+            var alterColumnOps = new List<SqlOperation>();
             var recreateConstraintOps = new List<SqlOperation>();
             var addConstraintOps = new List<SqlOperation>();
             var recreateIndexOps = new List<SqlOperation>();
@@ -60,7 +69,7 @@ namespace SqlSchemaDef.SqlServer.Planning
 
                 if (hasCurrentTable)
                 {
-                    DiffColumns(currentTable, desiredTable, options, addColumnOps, dropColumnOps, skipped);
+                    DiffColumns(currentTable, desiredTable, options, addColumnOps, alterColumnOps, dropColumnOps, skipped);
                 }
 
                 DiffConstraints(currentTable, desiredTable, hasCurrentTable, addConstraintOps, addForeignKeyOps, recreateConstraintOps, recreateForeignKeyOps, skipped);
@@ -101,6 +110,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             var operations = new List<SqlOperation>();
             operations.AddRange(createTableOps);
             operations.AddRange(addColumnOps);
+            operations.AddRange(alterColumnOps);
             operations.AddRange(recreateConstraintOps);
             operations.AddRange(addConstraintOps);
             operations.AddRange(recreateIndexOps);
@@ -169,6 +179,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             TableModel desiredTable,
             PlannerOptions options,
             List<SqlOperation> addColumnOps,
+            List<SqlOperation> alterColumnOps,
             List<SqlOperation> dropColumnOps,
             List<SkippedItem> skipped)
         {
@@ -194,20 +205,31 @@ namespace SqlSchemaDef.SqlServer.Planning
                         continue;
                     }
 
-                    if (IsColumnDifferent(currentColumn, desiredColumn))
+                    var changeKind = ClassifyColumnChange(currentColumn, desiredColumn);
+                    switch (changeKind)
                     {
-                        skipped.Add(new SkippedItem
-                        {
-                            Reason = SkippedReason.AlterNotSupported,
-                            Target = new SqlObjectRef
+                        case ColumnChangeKind.SafeAlter:
+                            alterColumnOps.Add(AlterColumnOperation(desiredTable, desiredColumn));
+                            break;
+
+                        case ColumnChangeKind.UnsafeAlter:
+                            skipped.Add(new SkippedItem
                             {
-                                Type = SqlObjectType.Column,
-                                Schema = desiredTable.Schema,
-                                ParentName = desiredTable.Name,
-                                Name = desiredColumn.Name,
-                            },
-                            Message = "alter is not supported in v1",
-                        });
+                                Reason = SkippedReason.AlterNotSupported,
+                                Target = new SqlObjectRef
+                                {
+                                    Type = SqlObjectType.Column,
+                                    Schema = desiredTable.Schema,
+                                    ParentName = desiredTable.Name,
+                                    Name = desiredColumn.Name,
+                                },
+                                Message = BuildUnsafeAlterMessage(currentColumn, desiredColumn),
+                            });
+                            break;
+
+                        case ColumnChangeKind.DefaultOnly:
+                        case ColumnChangeKind.None:
+                            break;
                     }
                     continue;
                 }
@@ -680,40 +702,62 @@ namespace SqlSchemaDef.SqlServer.Planning
             };
         }
 
-        private static bool IsColumnDifferent(ColumnModel current, ColumnModel desired)
+        internal static ColumnChangeKind ClassifyColumnChange(ColumnModel current, ColumnModel desired)
         {
-            if (!string.Equals(
-                    NormalizeSqlType(current.SqlType),
-                    NormalizeSqlType(desired.SqlType),
-                    StringComparison.OrdinalIgnoreCase))
+            var typeDiffers = !string.Equals(
+                NormalizeSqlType(current.SqlType),
+                NormalizeSqlType(desired.SqlType),
+                StringComparison.OrdinalIgnoreCase);
+
+            var nullDiffers = current.IsNullable != desired.IsNullable;
+
+            var identityDiffers = current.IsIdentity != desired.IsIdentity;
+
+            var defaultDiffers = !string.Equals(
+                NormalizeDefaultDefinition(current.DefaultExpression),
+                NormalizeDefaultDefinition(desired.DefaultExpression),
+                StringComparison.OrdinalIgnoreCase);
+
+            var collationDiffers = !string.Equals(
+                current.Collation ?? string.Empty,
+                desired.Collation ?? string.Empty,
+                StringComparison.OrdinalIgnoreCase);
+
+            if (!typeDiffers && !nullDiffers && !identityDiffers && !defaultDiffers && !collationDiffers)
             {
-                return true;
+                return ColumnChangeKind.None;
             }
 
-            if (current.IsNullable != desired.IsNullable)
+            if (defaultDiffers && !typeDiffers && !nullDiffers && !identityDiffers && !collationDiffers)
             {
-                return true;
+                return ColumnChangeKind.DefaultOnly;
             }
 
+            if (identityDiffers)
+            {
+                return ColumnChangeKind.UnsafeAlter;
+            }
+
+            if (typeDiffers)
+            {
+                if (!SqlTypeWideningSafety.IsSafeTypeChange(current.SqlType, desired.SqlType))
+                {
+                    return ColumnChangeKind.UnsafeAlter;
+                }
+            }
+
+            // Type is safe (or same) and no identity change — nullability, collation, or default alongside safe type
+            return ColumnChangeKind.SafeAlter;
+        }
+
+        private static string BuildUnsafeAlterMessage(ColumnModel current, ColumnModel desired)
+        {
             if (current.IsIdentity != desired.IsIdentity)
             {
-                return true;
+                return "IDENTITY change requires rebuild";
             }
 
-            if (!string.Equals(
-                    NormalizeDefaultDefinition(current.DefaultExpression),
-                    NormalizeDefaultDefinition(desired.DefaultExpression),
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-
-            if (!string.Equals(current.Collation ?? string.Empty, desired.Collation ?? string.Empty, StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-
-            return false;
+            return "type change from " + current.SqlType + " to " + desired.SqlType + " is not safe; requires rebuild";
         }
 
         private static string NormalizeSqlType(string sqlType)
@@ -1128,6 +1172,24 @@ namespace SqlSchemaDef.SqlServer.Planning
             {
                 Kind = OperationKind.AddColumn,
                 Description = "Add column " + table.Schema + "." + table.Name + "." + column.Name,
+                Sql = sql,
+                Target = new SqlObjectRef
+                {
+                    Type = SqlObjectType.Column,
+                    Schema = table.Schema,
+                    ParentName = table.Name,
+                    Name = column.Name,
+                },
+            };
+        }
+
+        private static SqlOperation AlterColumnOperation(TableModel table, ColumnModel column)
+        {
+            var sql = SqlStatementBuilder.BuildAlterColumnSql(table.Schema, table.Name, column);
+            return new SqlOperation
+            {
+                Kind = OperationKind.AlterColumn,
+                Description = "Alter column " + table.Schema + "." + table.Name + "." + column.Name,
                 Sql = sql,
                 Target = new SqlObjectRef
                 {

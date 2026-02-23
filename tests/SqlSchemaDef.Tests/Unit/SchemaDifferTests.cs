@@ -1131,12 +1131,12 @@ public sealed class SchemaDifferTests
     [Fact]
     public void Diff_WithEmitProposalsFalse_ProposalsIsEmpty()
     {
-        const string desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL, Age bigint NULL)";
+        const string desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL, Age int NULL)";
         var desired = DesiredSchemaLoader.Load(desiredSql);
         var current = new DatabaseModel();
         var table = current.GetOrAddTable("dbo", "Users");
         table.Columns[IdentifierHelper.NormalizeNameKey("Id")] = new ColumnModel { Name = "Id", SqlType = "INT", IsNullable = false };
-        table.Columns[IdentifierHelper.NormalizeNameKey("Age")] = new ColumnModel { Name = "Age", SqlType = "INT", IsNullable = true };
+        table.Columns[IdentifierHelper.NormalizeNameKey("Age")] = new ColumnModel { Name = "Age", SqlType = "BIGINT", IsNullable = true };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
         var plan = SchemaDiffer.Diff(current, desired, metadata);
@@ -1148,12 +1148,12 @@ public sealed class SchemaDifferTests
     [Fact]
     public void Diff_WithEmitProposalsTrue_ColumnTypeDiff_ProducesProposal()
     {
-        const string desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL, Age bigint NULL)";
+        const string desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL, Age int NULL)";
         var desired = DesiredSchemaLoader.Load(desiredSql);
         var current = new DatabaseModel();
         var table = current.GetOrAddTable("dbo", "Users");
         table.Columns[IdentifierHelper.NormalizeNameKey("Id")] = new ColumnModel { Name = "Id", SqlType = "INT", IsNullable = false };
-        table.Columns[IdentifierHelper.NormalizeNameKey("Age")] = new ColumnModel { Name = "Age", SqlType = "INT", IsNullable = true };
+        table.Columns[IdentifierHelper.NormalizeNameKey("Age")] = new ColumnModel { Name = "Age", SqlType = "BIGINT", IsNullable = true };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
         var options = new PlannerOptions { EmitProposals = true };
@@ -1167,12 +1167,12 @@ public sealed class SchemaDifferTests
     [Fact]
     public void Diff_WithEmitProposalsTrue_SkippedItemsStillPresent()
     {
-        const string desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL, Age bigint NULL)";
+        const string desiredSql = "CREATE TABLE dbo.Users (Id int NOT NULL, Age int NULL)";
         var desired = DesiredSchemaLoader.Load(desiredSql);
         var current = new DatabaseModel();
         var table = current.GetOrAddTable("dbo", "Users");
         table.Columns[IdentifierHelper.NormalizeNameKey("Id")] = new ColumnModel { Name = "Id", SqlType = "INT", IsNullable = false };
-        table.Columns[IdentifierHelper.NormalizeNameKey("Age")] = new ColumnModel { Name = "Age", SqlType = "INT", IsNullable = true };
+        table.Columns[IdentifierHelper.NormalizeNameKey("Age")] = new ColumnModel { Name = "Age", SqlType = "BIGINT", IsNullable = true };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
         var options = new PlannerOptions { EmitProposals = true };
@@ -1188,14 +1188,14 @@ public sealed class SchemaDifferTests
         const string desiredSql = @"
 CREATE TABLE dbo.Users (
     Id int NOT NULL,
-    Age bigint NULL,
+    Age int NULL,
     CONSTRAINT CK_Users_Age CHECK (Age >= 0)
 )";
         var desired = DesiredSchemaLoader.Load(desiredSql);
         var current = new DatabaseModel();
         var table = current.GetOrAddTable("dbo", "Users");
         table.Columns[IdentifierHelper.NormalizeNameKey("Id")] = new ColumnModel { Name = "Id", SqlType = "INT", IsNullable = false };
-        table.Columns[IdentifierHelper.NormalizeNameKey("Age")] = new ColumnModel { Name = "Age", SqlType = "INT", IsNullable = true };
+        table.Columns[IdentifierHelper.NormalizeNameKey("Age")] = new ColumnModel { Name = "Age", SqlType = "BIGINT", IsNullable = true };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
         var options = new PlannerOptions { EmitProposals = true };
@@ -1247,7 +1247,7 @@ CREATE TABLE dbo.Users (
         var desired = new DatabaseModel();
         var desiredTable = desired.GetOrAddTable("dbo", "Users");
         desiredTable.Columns[IdentifierHelper.NormalizeNameKey("Id")] = new ColumnModel { Name = "Id", SqlType = "INT", IsNullable = false };
-        desiredTable.Columns[IdentifierHelper.NormalizeNameKey("Age")] = new ColumnModel { Name = "Age", SqlType = "BIGINT", IsNullable = true };
+        desiredTable.Columns[IdentifierHelper.NormalizeNameKey("Age")] = new ColumnModel { Name = "Age", SqlType = "INT", IsNullable = true };
         desiredTable.Indexes[IdentifierHelper.NormalizeNameKey("IX_Users_Age")] = new IndexModel
         {
             Name = "IX_Users_Age",
@@ -1258,7 +1258,7 @@ CREATE TABLE dbo.Users (
         var current = new DatabaseModel();
         var currentTable = current.GetOrAddTable("dbo", "Users");
         currentTable.Columns[IdentifierHelper.NormalizeNameKey("Id")] = new ColumnModel { Name = "Id", SqlType = "INT", IsNullable = false };
-        currentTable.Columns[IdentifierHelper.NormalizeNameKey("Age")] = new ColumnModel { Name = "Age", SqlType = "INT", IsNullable = true };
+        currentTable.Columns[IdentifierHelper.NormalizeNameKey("Age")] = new ColumnModel { Name = "Age", SqlType = "BIGINT", IsNullable = true };
         currentTable.Indexes[IdentifierHelper.NormalizeNameKey("IX_Users_Age")] = new IndexModel
         {
             Name = "IX_Users_Age",
@@ -1486,7 +1486,7 @@ CREATE TABLE dbo.Users (
     }
 
     [Fact]
-    public void Diff_WhenExistingColumnHasDifferentCollation_IsSkipped()
+    public void Diff_WhenExistingColumnHasDifferentCollation_EmitsAlterColumn()
     {
         const string desiredSql = "CREATE TABLE dbo.T (Name nvarchar(100) COLLATE Japanese_CI_AS NOT NULL)";
         var desired = DesiredSchemaLoader.Load(desiredSql);
@@ -1504,9 +1504,250 @@ CREATE TABLE dbo.Users (
         var metadata = new PlanMetadata { Schema = "dbo" };
         var plan = SchemaDiffer.Diff(current, desired, metadata);
 
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal(OperationKind.AlterColumn, op.Kind);
+        Assert.Contains("ALTER COLUMN", op.Sql);
+        Assert.Contains("COLLATE Japanese_CI_AS", op.Sql);
+        Assert.Empty(plan.Skipped);
+    }
+
+    [Fact]
+    public void Diff_WhenColumnTypeWidens_EmitsAlterColumn()
+    {
+        var desired = new DatabaseModel();
+        var desiredTable = desired.GetOrAddTable("dbo", "Users");
+        desiredTable.Columns["AGE"] = new ColumnModel { Name = "Age", SqlType = "bigint", IsNullable = true };
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Columns["AGE"] = new ColumnModel { Name = "Age", SqlType = "int", IsNullable = true };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal(OperationKind.AlterColumn, op.Kind);
+        Assert.Contains("ALTER COLUMN", op.Sql);
+        Assert.Contains("[Age]", op.Sql);
+        Assert.Contains("bigint", op.Sql);
+        Assert.Empty(plan.Skipped);
+    }
+
+    [Fact]
+    public void Diff_WhenColumnTypeNarrows_IsSkipped()
+    {
+        var desired = new DatabaseModel();
+        var desiredTable = desired.GetOrAddTable("dbo", "Users");
+        desiredTable.Columns["AGE"] = new ColumnModel { Name = "Age", SqlType = "int", IsNullable = true };
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Columns["AGE"] = new ColumnModel { Name = "Age", SqlType = "bigint", IsNullable = true };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
         Assert.Empty(plan.Operations);
         var skipped = Assert.Single(plan.Skipped);
         Assert.Equal(SkippedReason.AlterNotSupported, skipped.Reason);
+        Assert.Contains("not safe", skipped.Message);
+    }
+
+    [Fact]
+    public void Diff_WhenNullabilityChanges_EmitsAlterColumn()
+    {
+        var desired = new DatabaseModel();
+        var desiredTable = desired.GetOrAddTable("dbo", "Users");
+        desiredTable.Columns["NAME"] = new ColumnModel { Name = "Name", SqlType = "nvarchar(100)", IsNullable = false };
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Columns["NAME"] = new ColumnModel { Name = "Name", SqlType = "nvarchar(100)", IsNullable = true };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal(OperationKind.AlterColumn, op.Kind);
+        Assert.Contains("NOT NULL", op.Sql);
+        Assert.Empty(plan.Skipped);
+    }
+
+    [Fact]
+    public void Diff_WhenNotNullToNull_EmitsAlterColumn()
+    {
+        var desired = new DatabaseModel();
+        var desiredTable = desired.GetOrAddTable("dbo", "Users");
+        desiredTable.Columns["NAME"] = new ColumnModel { Name = "Name", SqlType = "nvarchar(100)", IsNullable = true };
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Columns["NAME"] = new ColumnModel { Name = "Name", SqlType = "nvarchar(100)", IsNullable = false };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal(OperationKind.AlterColumn, op.Kind);
+        Assert.EndsWith("NULL", op.Sql);
+        Assert.DoesNotContain("NOT NULL", op.Sql);
+        Assert.Empty(plan.Skipped);
+    }
+
+    [Fact]
+    public void Diff_WhenIdentityChanges_IsSkipped()
+    {
+        var desired = new DatabaseModel();
+        var desiredTable = desired.GetOrAddTable("dbo", "Users");
+        desiredTable.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false, IsIdentity = true };
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false, IsIdentity = false };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        Assert.Empty(plan.Operations);
+        var skipped = Assert.Single(plan.Skipped);
+        Assert.Equal(SkippedReason.AlterNotSupported, skipped.Reason);
+        Assert.Contains("IDENTITY", skipped.Message);
+    }
+
+    [Fact]
+    public void Diff_WhenOnlyDefaultChanges_NoColumnSkip()
+    {
+        var desired = new DatabaseModel();
+        var desiredTable = desired.GetOrAddTable("dbo", "Users");
+        desiredTable.Columns["STATUS"] = new ColumnModel { Name = "Status", SqlType = "int", IsNullable = false, DefaultExpression = "1" };
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Columns["STATUS"] = new ColumnModel { Name = "Status", SqlType = "int", IsNullable = false, DefaultExpression = "0" };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        // Column-level skip should NOT be emitted; DEFAULT change is handled by constraint diff
+        Assert.DoesNotContain(plan.Skipped, s => s.Reason == SkippedReason.AlterNotSupported);
+    }
+
+    [Fact]
+    public void Diff_WhenTypeWidensAndNullChanges_EmitsAlterColumn()
+    {
+        var desired = new DatabaseModel();
+        var desiredTable = desired.GetOrAddTable("dbo", "Users");
+        desiredTable.Columns["AGE"] = new ColumnModel { Name = "Age", SqlType = "bigint", IsNullable = false };
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Columns["AGE"] = new ColumnModel { Name = "Age", SqlType = "int", IsNullable = true };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal(OperationKind.AlterColumn, op.Kind);
+        Assert.Contains("bigint", op.Sql);
+        Assert.Contains("NOT NULL", op.Sql);
+        Assert.Empty(plan.Skipped);
+    }
+
+    [Fact]
+    public void Diff_WhenTypeFamilyChanges_IsSkipped()
+    {
+        var desired = new DatabaseModel();
+        var desiredTable = desired.GetOrAddTable("dbo", "Users");
+        desiredTable.Columns["AGE"] = new ColumnModel { Name = "Age", SqlType = "varchar(100)", IsNullable = true };
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Columns["AGE"] = new ColumnModel { Name = "Age", SqlType = "int", IsNullable = true };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        Assert.Empty(plan.Operations);
+        var skipped = Assert.Single(plan.Skipped);
+        Assert.Equal(SkippedReason.AlterNotSupported, skipped.Reason);
+    }
+
+    [Fact]
+    public void Diff_WhenTypeWidensButIdentityChanges_IsSkipped()
+    {
+        var desired = new DatabaseModel();
+        var desiredTable = desired.GetOrAddTable("dbo", "Users");
+        desiredTable.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "bigint", IsNullable = false, IsIdentity = false };
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false, IsIdentity = true };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        Assert.Empty(plan.Operations);
+        var skipped = Assert.Single(plan.Skipped);
+        Assert.Equal(SkippedReason.AlterNotSupported, skipped.Reason);
+        Assert.Contains("IDENTITY", skipped.Message);
+    }
+
+    [Fact]
+    public void Diff_AlterColumnEmitsCorrectSqlSyntax()
+    {
+        var desired = new DatabaseModel();
+        var desiredTable = desired.GetOrAddTable("dbo", "Users");
+        desiredTable.Columns["NAME"] = new ColumnModel { Name = "Name", SqlType = "nvarchar(200)", IsNullable = false };
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Columns["NAME"] = new ColumnModel { Name = "Name", SqlType = "nvarchar(100)", IsNullable = false };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal("ALTER TABLE [dbo].[Users] ALTER COLUMN [Name] nvarchar(200) NOT NULL", op.Sql);
+    }
+
+    [Fact]
+    public void Diff_AlterColumnWithSchema_EmitsBracketEscapedSchema()
+    {
+        var desired = new DatabaseModel();
+        var desiredTable = desired.GetOrAddTable("sales", "Orders");
+        desiredTable.Columns["AMOUNT"] = new ColumnModel { Name = "Amount", SqlType = "decimal(18,4)", IsNullable = false };
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("sales", "Orders");
+        currentTable.Columns["AMOUNT"] = new ColumnModel { Name = "Amount", SqlType = "decimal(10,2)", IsNullable = false };
+
+        var metadata = new PlanMetadata { Schema = "sales" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        var op = Assert.Single(plan.Operations);
+        Assert.Equal("ALTER TABLE [sales].[Orders] ALTER COLUMN [Amount] decimal(18,4) NOT NULL", op.Sql);
+    }
+
+    [Fact]
+    public void Diff_AlterColumnOrder_AfterAddColumnBeforeConstraints()
+    {
+        var desired = new DatabaseModel();
+        var desiredTable = desired.GetOrAddTable("dbo", "Users");
+        desiredTable.Columns[IdentifierHelper.NormalizeNameKey("Id")] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+        desiredTable.Columns[IdentifierHelper.NormalizeNameKey("Age")] = new ColumnModel { Name = "Age", SqlType = "bigint", IsNullable = true };
+        desiredTable.Columns[IdentifierHelper.NormalizeNameKey("NewCol")] = new ColumnModel { Name = "NewCol", SqlType = "int", IsNullable = true };
+
+        var current = new DatabaseModel();
+        var currentTable = current.GetOrAddTable("dbo", "Users");
+        currentTable.Columns[IdentifierHelper.NormalizeNameKey("Id")] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false };
+        currentTable.Columns[IdentifierHelper.NormalizeNameKey("Age")] = new ColumnModel { Name = "Age", SqlType = "int", IsNullable = true };
+
+        var metadata = new PlanMetadata { Schema = "dbo" };
+        var plan = SchemaDiffer.Diff(current, desired, metadata);
+
+        Assert.Equal(2, plan.Operations.Count);
+        Assert.Equal(OperationKind.AddColumn, plan.Operations[0].Kind);
+        Assert.Equal(OperationKind.AlterColumn, plan.Operations[1].Kind);
     }
 
     [Fact]
@@ -2050,12 +2291,12 @@ CREATE INDEX IX_Users_Id ON dbo.Users(Id)";
         var desired = new DatabaseModel();
         var desiredTable = desired.GetOrAddTable("dbo", "Users");
         desiredTable.Columns[IdentifierHelper.NormalizeNameKey("Id")] = new ColumnModel { Name = "Id", SqlType = "INT", IsNullable = false };
-        desiredTable.Columns[IdentifierHelper.NormalizeNameKey("Age")] = new ColumnModel { Name = "Age", SqlType = "BIGINT", IsNullable = true };
+        desiredTable.Columns[IdentifierHelper.NormalizeNameKey("Age")] = new ColumnModel { Name = "Age", SqlType = "INT", IsNullable = true };
 
         var current = new DatabaseModel();
         var currentTable = current.GetOrAddTable("dbo", "Users");
         currentTable.Columns[IdentifierHelper.NormalizeNameKey("Id")] = new ColumnModel { Name = "Id", SqlType = "INT", IsNullable = false };
-        currentTable.Columns[IdentifierHelper.NormalizeNameKey("Age")] = new ColumnModel { Name = "Age", SqlType = "INT", IsNullable = true };
+        currentTable.Columns[IdentifierHelper.NormalizeNameKey("Age")] = new ColumnModel { Name = "Age", SqlType = "BIGINT", IsNullable = true };
         currentTable.Columns[IdentifierHelper.NormalizeNameKey("Legacy")] = new ColumnModel { Name = "Legacy", SqlType = "INT", IsNullable = true };
         currentTable.Indexes[IdentifierHelper.NormalizeNameKey("IX_Users_Legacy")] = new IndexModel
         {
