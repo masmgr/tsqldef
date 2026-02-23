@@ -225,7 +225,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             for (var i = 0; i < operations.Count; i++)
             {
                 var operation = operations[i];
-                var tableKey = GetOperationTableKey(operation);
+                var tableKey = IdentifierHelper.GetOperationTableKey(operation);
                 if (tableKey != null && proposalTargetKeys.Contains(tableKey))
                 {
                     _logger?.LogInformation(
@@ -238,48 +238,6 @@ namespace SqlSchemaDef.SqlServer.Planning
             }
 
             return filtered;
-        }
-
-        private static string GetOperationTableKey(SqlOperation operation)
-        {
-            var target = operation?.Target;
-            if (target == null)
-            {
-                return null;
-            }
-
-            switch (target.Type)
-            {
-                case SqlObjectType.Table:
-                    if (string.IsNullOrEmpty(target.Name))
-                    {
-                        return null;
-                    }
-
-                    return IdentifierHelper.BuildTableKey(target.Schema, target.Name);
-                case SqlObjectType.Column:
-                case SqlObjectType.Constraint:
-                case SqlObjectType.Index:
-                case SqlObjectType.ForeignKey:
-                    if (string.IsNullOrEmpty(target.ParentName))
-                    {
-                        return null;
-                    }
-
-                    return IdentifierHelper.BuildTableKey(target.Schema, target.ParentName);
-                case SqlObjectType.Description:
-                    var descriptionTable = string.IsNullOrEmpty(target.ParentName)
-                        ? target.Name
-                        : target.ParentName;
-                    if (string.IsNullOrEmpty(descriptionTable))
-                    {
-                        return null;
-                    }
-
-                    return IdentifierHelper.BuildTableKey(target.Schema, descriptionTable);
-                default:
-                    return null;
-            }
         }
     }
 }

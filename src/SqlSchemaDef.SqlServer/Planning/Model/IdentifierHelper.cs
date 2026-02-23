@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using Microsoft.SqlServer.TransactSql.ScriptDom;
+using SqlSchemaDef.Core.Planning;
 
 namespace SqlSchemaDef.SqlServer.Planning
 {
@@ -51,6 +52,48 @@ namespace SqlSchemaDef.SqlServer.Planning
             var parser = new TSql160Parser(true);
             var tokens = parser.GetTokenStream(new StringReader(name), out errors);
             return IdentifierEscapingAnalyzer.RequiresEscaping(errors, tokens);
+        }
+
+        internal static string GetOperationTableKey(SqlOperation operation)
+        {
+            var target = operation?.Target;
+            if (target == null)
+            {
+                return null;
+            }
+
+            switch (target.Type)
+            {
+                case SqlObjectType.Table:
+                    if (string.IsNullOrEmpty(target.Name))
+                    {
+                        return null;
+                    }
+
+                    return BuildTableKey(target.Schema, target.Name);
+                case SqlObjectType.Column:
+                case SqlObjectType.Constraint:
+                case SqlObjectType.Index:
+                case SqlObjectType.ForeignKey:
+                    if (string.IsNullOrEmpty(target.ParentName))
+                    {
+                        return null;
+                    }
+
+                    return BuildTableKey(target.Schema, target.ParentName);
+                case SqlObjectType.Description:
+                    var descriptionTable = string.IsNullOrEmpty(target.ParentName)
+                        ? target.Name
+                        : target.ParentName;
+                    if (string.IsNullOrEmpty(descriptionTable))
+                    {
+                        return null;
+                    }
+
+                    return BuildTableKey(target.Schema, descriptionTable);
+                default:
+                    return null;
+            }
         }
 
         internal static string NormalizeIndexOptionName(string name)
