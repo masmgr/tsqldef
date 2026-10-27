@@ -93,8 +93,13 @@ Mapping:
 - `ColumnModel.Name`
 - `ColumnModel.IsNullable`
 - `ColumnModel.IsIdentity` (presence of `IDENTITY`)
+- `ColumnModel.IdentitySeed` / `IdentityIncrement` retain explicit numeric arguments as strings, including negative values. Missing arguments mean SQL Server's default `(1,1)`. These values must survive SQL generation, catalog reads, and export. Changes to either require a rebuild; the presence flag alone is insufficient for comparison.
 - `ColumnModel.SqlType` (stringified using the rules below)
 - `ColumnModel.DefaultExpression` (raw string if `DEFAULT` exists)
+
+Named constraints in `ColumnDefinition.Constraints` are processed as well as table-level constraints. For column-level PRIMARY KEY / UNIQUE / FOREIGN KEY, the owning column supplies the local column list. CHECK retains its full expression. A column-level PRIMARY KEY without an explicit nullability clause implies NOT NULL. Unnamed key/check/foreign-key constraints fail fast, consistently with table-level constraints.
+
+During a shadow-table rebuild, DEFAULT expressions are created inline before copying rows. The subsequent constraint recreation step must exclude DEFAULT constraints to avoid assigning a second default to the same column. Generated default names may differ; default comparison matches by owning column when needed.
 
 Type stringification (recommended for v1):
 - Format a minimal canonical representation from ScriptDom `DataTypeReference`
@@ -129,6 +134,7 @@ CHECK:
 - `ConstraintModel.Name`
 - `ConstraintModel.Definition = <expression raw string>`
   - Use ScriptDom script generation or fragment text to preserve raw expression
+  - Compare normalized identifiers/keywords without case sensitivity, but preserve the exact case and escaped quotes of string-literal tokens. For example, `CHECK(Val = 'A')` and `CHECK(Val = 'a')` must be reported as different even though `Val` and `val` use the same identifier comparison rules.
 
 FOREIGN KEY:
 - `ConstraintModel.Kind = FK`

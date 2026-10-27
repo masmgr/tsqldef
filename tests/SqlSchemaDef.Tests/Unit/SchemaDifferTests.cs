@@ -387,7 +387,7 @@ public sealed class SchemaDifferTests
         };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var plan = SchemaDiffer.Diff(current, desired, metadata);
+        var plan = SchemaDiffer.Diff(current, desired, metadata, new PlannerOptions { AllowDrop = true });
 
         var op = Assert.Single(plan.Operations);
         Assert.Equal(OperationKind.RecreateConstraint, op.Kind);
@@ -548,7 +548,7 @@ public sealed class SchemaDifferTests
         };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var plan = SchemaDiffer.Diff(current, desired, metadata);
+        var plan = SchemaDiffer.Diff(current, desired, metadata, new PlannerOptions { AllowDrop = true });
 
         var op = Assert.Single(plan.Operations);
         Assert.Equal(OperationKind.RecreateConstraint, op.Kind);
@@ -558,7 +558,7 @@ public sealed class SchemaDifferTests
     }
 
     [Fact]
-    public void Diff_WhenPkChangedWithDependentFk_EmitsCompoundSql()
+    public void Diff_WhenPkChangedWithDependentFk_RestoresFkAfterKeyOperations()
     {
         var desired = new DatabaseModel();
         var desiredTeams = desired.GetOrAddTable("dbo", "Teams");
@@ -599,13 +599,14 @@ public sealed class SchemaDifferTests
         };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var plan = SchemaDiffer.Diff(current, desired, metadata);
+        var plan = SchemaDiffer.Diff(current, desired, metadata, new PlannerOptions { AllowDrop = true });
 
-        var op = Assert.Single(plan.Operations);
-        Assert.Equal(OperationKind.RecreateConstraint, op.Kind);
+        Assert.Equal(2, plan.Operations.Count);
+        Assert.Equal(OperationKind.RecreateConstraint, plan.Operations[0].Kind);
+        Assert.Equal(OperationKind.RecreateForeignKey, plan.Operations[1].Kind);
 
-        // SQL should contain: FK DROP, PK DROP, PK ADD, FK ADD in that order
-        var sql = op.Sql;
+        // FK restoration is separate and follows all key operations.
+        var sql = plan.ToScript();
         var fkDropPos = sql.IndexOf("DROP CONSTRAINT [FK_Users_Teams]", StringComparison.Ordinal);
         var pkDropPos = sql.IndexOf("DROP CONSTRAINT [PK_Teams]", StringComparison.Ordinal);
         var pkAddPos = sql.IndexOf("PRIMARY KEY", StringComparison.Ordinal);
@@ -662,14 +663,16 @@ public sealed class SchemaDifferTests
         };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var plan = SchemaDiffer.Diff(current, desired, metadata);
+        var plan = SchemaDiffer.Diff(current, desired, metadata, new PlannerOptions { AllowDrop = true });
 
-        // PK recreate should include FK DROP/ADD. There should be no separate RecreateForeignKey operation.
+        // The PK operation drops the FK; exactly one later operation restores the desired definition.
         var pkOp = plan.Operations.Single(op => op.Kind == OperationKind.RecreateConstraint);
         Assert.Contains("PRIMARY KEY", pkOp.Sql);
         Assert.Contains("FK_Users_Teams", pkOp.Sql);
 
-        Assert.DoesNotContain(plan.Operations, op => op.Kind == OperationKind.RecreateForeignKey);
+        var fkOp = Assert.Single(plan.Operations.Where(op => op.Kind == OperationKind.RecreateForeignKey));
+        Assert.Contains("ON DELETE CASCADE", fkOp.Sql);
+        Assert.DoesNotContain("DROP CONSTRAINT", fkOp.Sql);
     }
 
     [Fact]
@@ -694,7 +697,7 @@ public sealed class SchemaDifferTests
         };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var plan = SchemaDiffer.Diff(current, desired, metadata);
+        var plan = SchemaDiffer.Diff(current, desired, metadata, new PlannerOptions { AllowDrop = true });
 
         var op = Assert.Single(plan.Operations);
         Assert.Equal(OperationKind.RecreateIndex, op.Kind);
@@ -726,7 +729,7 @@ public sealed class SchemaDifferTests
         };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var plan = SchemaDiffer.Diff(current, desired, metadata);
+        var plan = SchemaDiffer.Diff(current, desired, metadata, new PlannerOptions { AllowDrop = true });
 
         var op = Assert.Single(plan.Operations);
         Assert.Equal(OperationKind.RecreateIndex, op.Kind);
@@ -763,7 +766,7 @@ public sealed class SchemaDifferTests
         };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var plan = SchemaDiffer.Diff(current, desired, metadata);
+        var plan = SchemaDiffer.Diff(current, desired, metadata, new PlannerOptions { AllowDrop = true });
 
         Assert.Empty(plan.Skipped);
 
@@ -847,7 +850,7 @@ public sealed class SchemaDifferTests
         };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var plan = SchemaDiffer.Diff(current, desired, metadata);
+        var plan = SchemaDiffer.Diff(current, desired, metadata, new PlannerOptions { AllowDrop = true });
 
         Assert.Empty(plan.Skipped);
 
@@ -899,7 +902,7 @@ public sealed class SchemaDifferTests
         };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var plan = SchemaDiffer.Diff(current, desired, metadata);
+        var plan = SchemaDiffer.Diff(current, desired, metadata, new PlannerOptions { AllowDrop = true });
 
         Assert.Empty(plan.Skipped);
         Assert.All(plan.Operations, op => Assert.Equal(OperationKind.DropColumn, op.Kind));
@@ -945,7 +948,7 @@ public sealed class SchemaDifferTests
         };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var plan = SchemaDiffer.Diff(current, desired, metadata);
+        var plan = SchemaDiffer.Diff(current, desired, metadata, new PlannerOptions { AllowDrop = true });
 
         Assert.Empty(plan.Skipped);
         Assert.All(plan.Operations, op => Assert.Equal(OperationKind.DropForeignKey, op.Kind));
@@ -1054,7 +1057,7 @@ public sealed class SchemaDifferTests
         };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var plan = SchemaDiffer.Diff(current, desired, metadata);
+        var plan = SchemaDiffer.Diff(current, desired, metadata, new PlannerOptions { AllowDrop = true });
 
         var op = Assert.Single(plan.Operations);
         Assert.Equal(OperationKind.RecreateForeignKey, op.Kind);
@@ -1201,7 +1204,7 @@ public sealed class SchemaDifferTests
         };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var plan = SchemaDiffer.Diff(current, desired, metadata);
+        var plan = SchemaDiffer.Diff(current, desired, metadata, new PlannerOptions { AllowDrop = true });
 
         var op = Assert.Single(plan.Operations);
         Assert.Equal(OperationKind.RecreateConstraint, op.Kind);
@@ -1348,7 +1351,7 @@ CREATE TABLE dbo.Users (
         };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var options = new PlannerOptions { EmitProposals = true };
+        var options = new PlannerOptions { EmitProposals = true, AllowDrop = true };
         var plan = SchemaDiffer.Diff(current, desired, metadata, options);
 
         var op = Assert.Single(plan.Operations);
@@ -1510,7 +1513,7 @@ CREATE TABLE dbo.Users (
         currentTable.Description = "Old table desc";
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var plan = SchemaDiffer.Diff(current, desired, metadata);
+        var plan = SchemaDiffer.Diff(current, desired, metadata, new PlannerOptions { AllowDrop = true });
 
         Assert.Empty(plan.Skipped);
         Assert.Equal(2, plan.Operations.Count);
@@ -1620,7 +1623,7 @@ CREATE TABLE dbo.Users (
         };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var plan = SchemaDiffer.Diff(current, desired, metadata);
+        var plan = SchemaDiffer.Diff(current, desired, metadata, new PlannerOptions { AllowDrop = true });
 
         var op = Assert.Single(plan.Operations);
         Assert.Equal(OperationKind.AlterColumn, op.Kind);
@@ -1683,7 +1686,7 @@ CREATE TABLE dbo.Users (
         };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var plan = SchemaDiffer.Diff(current, desired, metadata);
+        var plan = SchemaDiffer.Diff(current, desired, metadata, new PlannerOptions { AllowDrop = true });
 
         var op = Assert.Single(plan.Operations);
         Assert.Equal(OperationKind.AlterColumn, op.Kind);
@@ -1702,7 +1705,7 @@ CREATE TABLE dbo.Users (
         currentTable.Columns["AGE"] = new ColumnModel { Name = "Age", SqlType = "int", IsNullable = true };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var plan = SchemaDiffer.Diff(current, desired, metadata);
+        var plan = SchemaDiffer.Diff(current, desired, metadata, new PlannerOptions { AllowDrop = true });
 
         var op = Assert.Single(plan.Operations);
         Assert.Equal(OperationKind.AlterColumn, op.Kind);
@@ -1744,7 +1747,7 @@ CREATE TABLE dbo.Users (
         currentTable.Columns["NAME"] = new ColumnModel { Name = "Name", SqlType = "nvarchar(100)", IsNullable = true };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var plan = SchemaDiffer.Diff(current, desired, metadata);
+        var plan = SchemaDiffer.Diff(current, desired, metadata, new PlannerOptions { AllowDrop = true });
 
         var op = Assert.Single(plan.Operations);
         Assert.Equal(OperationKind.AlterColumn, op.Kind);
@@ -1764,7 +1767,7 @@ CREATE TABLE dbo.Users (
         currentTable.Columns["NAME"] = new ColumnModel { Name = "Name", SqlType = "nvarchar(100)", IsNullable = false };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var plan = SchemaDiffer.Diff(current, desired, metadata);
+        var plan = SchemaDiffer.Diff(current, desired, metadata, new PlannerOptions { AllowDrop = true });
 
         var op = Assert.Single(plan.Operations);
         Assert.Equal(OperationKind.AlterColumn, op.Kind);
@@ -1823,7 +1826,7 @@ CREATE TABLE dbo.Users (
         currentTable.Columns["AGE"] = new ColumnModel { Name = "Age", SqlType = "int", IsNullable = true };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var plan = SchemaDiffer.Diff(current, desired, metadata);
+        var plan = SchemaDiffer.Diff(current, desired, metadata, new PlannerOptions { AllowDrop = true });
 
         var op = Assert.Single(plan.Operations);
         Assert.Equal(OperationKind.AlterColumn, op.Kind);
@@ -1883,7 +1886,7 @@ CREATE TABLE dbo.Users (
         currentTable.Columns["NAME"] = new ColumnModel { Name = "Name", SqlType = "nvarchar(100)", IsNullable = false };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var plan = SchemaDiffer.Diff(current, desired, metadata);
+        var plan = SchemaDiffer.Diff(current, desired, metadata, new PlannerOptions { AllowDrop = true });
 
         var op = Assert.Single(plan.Operations);
         Assert.Equal("ALTER TABLE [dbo].[Users] ALTER COLUMN [Name] nvarchar(200) NOT NULL", op.Sql);
@@ -1901,7 +1904,7 @@ CREATE TABLE dbo.Users (
         currentTable.Columns["AMOUNT"] = new ColumnModel { Name = "Amount", SqlType = "decimal(10,2)", IsNullable = false };
 
         var metadata = new PlanMetadata { Schema = "sales" };
-        var plan = SchemaDiffer.Diff(current, desired, metadata);
+        var plan = SchemaDiffer.Diff(current, desired, metadata, new PlannerOptions { AllowDrop = true });
 
         var op = Assert.Single(plan.Operations);
         Assert.Equal("ALTER TABLE [sales].[Orders] ALTER COLUMN [Amount] decimal(18,4) NOT NULL", op.Sql);
@@ -1922,7 +1925,7 @@ CREATE TABLE dbo.Users (
         currentTable.Columns[IdentifierHelper.NormalizeNameKey("Age")] = new ColumnModel { Name = "Age", SqlType = "int", IsNullable = true };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var plan = SchemaDiffer.Diff(current, desired, metadata);
+        var plan = SchemaDiffer.Diff(current, desired, metadata, new PlannerOptions { AllowDrop = true });
 
         Assert.Equal(2, plan.Operations.Count);
         Assert.Equal(OperationKind.AddColumn, plan.Operations[0].Kind);
@@ -2002,20 +2005,15 @@ CREATE TABLE dbo.Users (
         };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var plan = SchemaDiffer.Diff(current, desired, metadata);
+        var plan = SchemaDiffer.Diff(current, desired, metadata, new PlannerOptions { AllowDrop = true });
 
-        Assert.Equal(2, plan.Operations.Count);
-
-        // IX_T_Val: RecreateIndex (既存 IX_T_Id を DROP → IX_T_Val を CREATE)
-        var recreateOp = plan.Operations[0];
+        // Recreate consumes the old index; no second DropIndex may be emitted.
+        var recreateOp = Assert.Single(plan.Operations);
         Assert.Equal(OperationKind.RecreateIndex, recreateOp.Kind);
         Assert.Contains("DROP INDEX [IX_T_Id]", recreateOp.Sql);
         Assert.Contains("CLUSTERED", recreateOp.Sql);
         Assert.Contains("IX_T_Val", recreateOp.Sql);
 
-        // IX_T_Id: DropIndex (desired に存在しない既存インデックス)
-        var dropOp = plan.Operations[1];
-        Assert.Equal(OperationKind.DropIndex, dropOp.Kind);
         Assert.Empty(plan.Skipped);
     }
 
@@ -2086,7 +2084,7 @@ CREATE TABLE dbo.Users (
         };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var plan = SchemaDiffer.Diff(current, desired, metadata);
+        var plan = SchemaDiffer.Diff(current, desired, metadata, new PlannerOptions { AllowDrop = true });
 
         var op = Assert.Single(plan.Operations);
         Assert.Equal(OperationKind.RecreateIndex, op.Kind);
@@ -2144,7 +2142,7 @@ CREATE TABLE dbo.Users (
         };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var plan = SchemaDiffer.Diff(current, desired, metadata);
+        var plan = SchemaDiffer.Diff(current, desired, metadata, new PlannerOptions { AllowDrop = true });
 
         var op = Assert.Single(plan.Operations);
         Assert.Equal(OperationKind.RecreateIndex, op.Kind);
@@ -2303,7 +2301,7 @@ CREATE INDEX IX_Users_Id ON dbo.Users(Id)";
         currentTable.Columns["LEGACY"] = new ColumnModel { Name = "Legacy", SqlType = "int", IsNullable = true };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var plan = SchemaDiffer.Diff(current, desired, metadata);
+        var plan = SchemaDiffer.Diff(current, desired, metadata, new PlannerOptions { AllowDrop = true });
 
         var op = Assert.Single(plan.Operations);
         Assert.Equal(OperationKind.DropColumn, op.Kind);
@@ -2327,7 +2325,7 @@ CREATE INDEX IX_Users_Id ON dbo.Users(Id)";
         };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var plan = SchemaDiffer.Diff(current, desired, metadata);
+        var plan = SchemaDiffer.Diff(current, desired, metadata, new PlannerOptions { AllowDrop = true });
 
         var op = Assert.Single(plan.Operations);
         Assert.Equal(OperationKind.DropConstraint, op.Kind);
@@ -2353,7 +2351,7 @@ CREATE INDEX IX_Users_Id ON dbo.Users(Id)";
         };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var plan = SchemaDiffer.Diff(current, desired, metadata);
+        var plan = SchemaDiffer.Diff(current, desired, metadata, new PlannerOptions { AllowDrop = true });
 
         var op = Assert.Single(plan.Operations);
         Assert.Equal(OperationKind.DropForeignKey, op.Kind);
@@ -2376,7 +2374,7 @@ CREATE INDEX IX_Users_Id ON dbo.Users(Id)";
         };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var plan = SchemaDiffer.Diff(current, desired, metadata);
+        var plan = SchemaDiffer.Diff(current, desired, metadata, new PlannerOptions { AllowDrop = true });
 
         var op = Assert.Single(plan.Operations);
         Assert.Equal(OperationKind.DropIndex, op.Kind);
@@ -2396,7 +2394,7 @@ CREATE INDEX IX_Users_Id ON dbo.Users(Id)";
         currentTable.Description = "Old table desc";
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var plan = SchemaDiffer.Diff(current, desired, metadata);
+        var plan = SchemaDiffer.Diff(current, desired, metadata, new PlannerOptions { AllowDrop = true });
 
         var op = Assert.Single(plan.Operations);
         Assert.Equal(OperationKind.DropDescription, op.Kind);
@@ -2417,7 +2415,7 @@ CREATE INDEX IX_Users_Id ON dbo.Users(Id)";
         currentTable.Columns["ID"] = new ColumnModel { Name = "Id", SqlType = "int", IsNullable = false, Description = "Primary key" };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var plan = SchemaDiffer.Diff(current, desired, metadata);
+        var plan = SchemaDiffer.Diff(current, desired, metadata, new PlannerOptions { AllowDrop = true });
 
         var op = Assert.Single(plan.Operations);
         Assert.Equal(OperationKind.DropDescription, op.Kind);
@@ -2452,7 +2450,7 @@ CREATE INDEX IX_Users_Id ON dbo.Users(Id)";
         };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var plan = SchemaDiffer.Diff(current, desired, metadata);
+        var plan = SchemaDiffer.Diff(current, desired, metadata, new PlannerOptions { AllowDrop = true });
 
         var kinds = plan.Operations.Select(op => op.Kind).ToArray();
         Assert.Equal(new[]
@@ -2522,7 +2520,7 @@ CREATE INDEX IX_Users_Id ON dbo.Users(Id)";
         };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var plan = SchemaDiffer.Diff(current, desired, metadata);
+        var plan = SchemaDiffer.Diff(current, desired, metadata, new PlannerOptions { AllowDrop = true });
 
         var op = Assert.Single(plan.Operations);
         Assert.Equal(OperationKind.RecreateConstraint, op.Kind);
@@ -2557,7 +2555,7 @@ CREATE INDEX IX_Users_Id ON dbo.Users(Id)";
         };
 
         var metadata = new PlanMetadata { Schema = "dbo" };
-        var plan = SchemaDiffer.Diff(current, desired, metadata);
+        var plan = SchemaDiffer.Diff(current, desired, metadata, new PlannerOptions { AllowDrop = true });
 
         var op = Assert.Single(plan.Operations);
         Assert.Equal(OperationKind.RecreateConstraint, op.Kind);

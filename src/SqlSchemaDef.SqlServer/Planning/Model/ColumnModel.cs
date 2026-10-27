@@ -6,6 +6,8 @@ namespace SqlSchemaDef.SqlServer.Planning
         public string SqlType { get; set; }
         public bool IsNullable { get; set; }
         public bool IsIdentity { get; set; }
+        public string IdentitySeed { get; set; }
+        public string IdentityIncrement { get; set; }
         public string DefaultExpression { get; set; }
         public bool IsFromAlterAdd { get; set; }
         public string UnsupportedFeature { get; set; }

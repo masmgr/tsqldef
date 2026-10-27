@@ -30,7 +30,7 @@ namespace SqlSchemaDef.Cli
             Console.Error.WriteLine("  - --strict exits non-zero (30) if any skipped items exist.");
             Console.Error.WriteLine("  - --emit-swap-sql generates rebuild proposals for non-additive diffs.");
             Console.Error.WriteLine("  - --swap executes rebuild proposals for non-additive column changes (shadow-table swap).");
-            Console.Error.WriteLine("  - --allow-drop enables DROP TABLE for tables not in the desired DDL.");
+            Console.Error.WriteLine("  - --allow-drop permits non-additive operations (DROP, ALTER COLUMN, constraint/index recreation), including saved JSON plans.");
             Console.Error.WriteLine("  - --reorder-columns detects column order differences and triggers rebuild proposals.");
             Console.Error.WriteLine("  - --schema defaults to 'dbo' when omitted.");
             return exitCode;
@@ -378,7 +378,7 @@ namespace SqlSchemaDef.Cli
                 plan = await planner.PlanAsync(planConn, desiredSql, plannerOptions).ConfigureAwait(false);
             }
 
-            PlanValidator.ValidateForApply(plan);
+            PlanValidator.ValidateForApply(plan, allowDrop);
 
             if (applySwap)
             {
@@ -398,7 +398,7 @@ namespace SqlSchemaDef.Cli
                 await applyConn.OpenAsync().ConfigureAwait(false);
 
                 var applier = new SqlServerSchemaApplier();
-                await applier.ApplyAsync(applyConn, plan, new ApplyOptions { ApplyProposals = applySwap }).ConfigureAwait(false);
+                await applier.ApplyAsync(applyConn, plan, new ApplyOptions { ApplyProposals = applySwap, AllowDrop = allowDrop }).ConfigureAwait(false);
             }
 
             return ExitOk;

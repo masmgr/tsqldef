@@ -96,7 +96,7 @@ The SQL Server implementation is `SqlSchemaDef.SqlServer.Planning.SqlServerSchem
 
 ## 4. `PlannerOptions` (v1: fixed `dbo` / additive-only)
 
-The v1 principle is “safety first”. Options should default to preventing destructive output.
+The v1 principle is “safety first”. Options default to preventing destructive output. The implemented opt-in `AllowDrop` permits supported non-additive operations; without it, DROP, ALTER COLUMN, and constraint/index recreation become `Skipped` items.
 
 ```csharp
 namespace SqlSchemaDef.Core.Planning;
@@ -121,6 +121,8 @@ public sealed class PlannerOptions
     // v1: extra objects/diffs in current are collected as skipped (not errors)
     public SurplusCurrentObjectBehavior SurplusCurrentObjectBehavior { get; set; }
         = SurplusCurrentObjectBehavior.CollectAsSkipped;
+
+    public bool AllowDrop { get; set; } // default false; explicit permission for non-additive operations
 }
 
 public enum PlanMode
@@ -160,17 +162,19 @@ namespace SqlSchemaDef.Core.Planning;
 
 public sealed class ApplyOptions
 {
-    public TransactionMode TransactionMode { get; set; } = TransactionMode.SingleTransaction;
-
-    // future: logging hooks, execution timeout, etc.
+    public ApplyTransactionMode TransactionMode { get; set; } = ApplyTransactionMode.SingleTransaction;
+    public bool ApplyProposals { get; set; } // separate opt-in for destructive rebuild steps
+    public bool AllowDrop { get; set; } // required again for non-additive Operations, including saved plans
 }
 
-public enum TransactionMode
+public enum ApplyTransactionMode
 {
     SingleTransaction = 0,
     // PerOperation, // future
 }
 ```
+
+`PlanValidator.ValidateForApply(plan)` rejects non-additive operation kinds. `ValidateForApply(plan, allowDrop: true)` permits recognized non-additive kinds, while unknown kinds remain invalid. `SqlServerSchemaApplier` passes `ApplyOptions.AllowDrop` to validation before executing any SQL. CLI `apply --plan` also requires `--allow-drop` for such operations; generating a plan with permission does not grant permission to apply it later. `ApplyProposals` authorizes only proposal steps.
 
 ---
 

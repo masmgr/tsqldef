@@ -49,6 +49,10 @@ namespace SqlSchemaDef.SqlServer.Planning
             if (column.IsIdentity)
             {
                 sb.Append(" IDENTITY");
+                if (column.IdentitySeed != null || column.IdentityIncrement != null)
+                {
+                    sb.Append('(').Append(column.IdentitySeed ?? "1").Append(',').Append(column.IdentityIncrement ?? "1").Append(')');
+                }
             }
 
             if (!string.IsNullOrWhiteSpace(column.DefaultExpression))

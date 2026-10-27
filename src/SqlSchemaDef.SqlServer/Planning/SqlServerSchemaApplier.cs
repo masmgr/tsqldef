@@ -34,7 +34,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             }
 
             options = options ?? new ApplyOptions();
-            PlanValidator.ValidateForApply(plan);
+            PlanValidator.ValidateForApply(plan, options.AllowDrop);
 
             var operationsToApply = plan.Operations;
             if (options.ApplyProposals && plan.Proposals.Count > 0 && plan.Operations.Count > 0)

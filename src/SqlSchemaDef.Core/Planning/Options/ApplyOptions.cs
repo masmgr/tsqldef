@@ -5,6 +5,8 @@ namespace SqlSchemaDef.Core.Planning
         public ApplyTransactionMode TransactionMode { get; set; } = ApplyTransactionMode.SingleTransaction;
 
         public bool ApplyProposals { get; set; }
+
+        public bool AllowDrop { get; set; }
     }
 
     public enum ApplyTransactionMode

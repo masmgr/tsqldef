@@ -39,8 +39,8 @@ SELECT
   c.is_computed,
 
   CASE WHEN ic.object_id IS NULL THEN 0 ELSE 1 END AS is_identity,
-  ic.seed_value,
-  ic.increment_value,
+  CONVERT(varchar(40), ic.seed_value) AS identity_seed,
+  CONVERT(varchar(40), ic.increment_value) AS identity_increment,
 
   c.collation_name
 FROM sys.tables AS t
@@ -348,6 +348,8 @@ ORDER BY ep.major_id, ep.minor_id;";
                     Scale = reader.GetByte(9),
                     IsComputed = reader.GetBoolean(10),
                     IsIdentity = reader.GetInt32(11) != 0,
+                    IdentitySeed = reader.IsDBNull(12) ? null : reader.GetString(12),
+                    IdentityIncrement = reader.IsDBNull(13) ? null : reader.GetString(13),
                     Collation = reader.IsDBNull(14) ? null : reader.GetString(14),
                 });
             }

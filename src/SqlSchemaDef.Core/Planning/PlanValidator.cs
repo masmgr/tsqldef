@@ -26,7 +26,20 @@ namespace SqlSchemaDef.Core.Planning
             OperationKind.DropTable,
         };
 
+        public static bool IsAdditiveOperation(OperationKind kind)
+        {
+            return kind == OperationKind.CreateTable || kind == OperationKind.AddColumn ||
+                kind == OperationKind.AddConstraint || kind == OperationKind.CreateIndex ||
+                kind == OperationKind.AddForeignKey || kind == OperationKind.AddDescription ||
+                kind == OperationKind.UpdateDescription;
+        }
+
         public static void ValidateForApply(MigrationPlan plan)
+        {
+            ValidateForApply(plan, false);
+        }
+
+        public static void ValidateForApply(MigrationPlan plan, bool allowDrop)
         {
             if (plan == null)
                 throw new ArgumentNullException(nameof(plan));
@@ -44,6 +57,11 @@ namespace SqlSchemaDef.Core.Planning
                     throw new InvalidOperationException(
                         "Operation " + i + " has unsupported OperationKind " + (int)op.Kind +
                         " (" + op.Kind + "). Only recognized operation kinds are allowed.");
+                }
+
+                if (!allowDrop && !IsAdditiveOperation(op.Kind))
+                {
+                    throw new InvalidOperationException("Operation " + i + " (" + op.Kind + ") requires explicit AllowDrop permission.");
                 }
             }
         }

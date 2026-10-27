@@ -45,7 +45,7 @@ ORDER BY t.name;
 
 Use:
 - Build `ColumnModel` entries (type is kept as a string in v1)
-- Detect IDENTITY (by presence in `sys.identity_columns`)
+- Detect IDENTITY (by presence in `sys.identity_columns`) and retain seed/increment values
 
 ```sql
 DECLARE @schema sysname = N'dbo';
@@ -67,8 +67,9 @@ SELECT
   c.is_computed,
 
   CASE WHEN ic.object_id IS NULL THEN 0 ELSE 1 END AS is_identity,
-  ic.seed_value,
-  ic.increment_value
+  CONVERT(varchar(40), ic.seed_value) AS identity_seed,
+  CONVERT(varchar(40), ic.increment_value) AS identity_increment,
+  c.collation_name
 FROM sys.tables AS t
 JOIN sys.schemas AS s
   ON s.schema_id = t.schema_id
@@ -85,6 +86,7 @@ ORDER BY t.name, c.column_id;
 ```
 
 Notes (type stringification guidance):
+- Map `identity_seed` / `identity_increment` to string properties on `ColumnRow` and `ColumnModel`. Converting in SQL avoids narrowing SQL Server numeric identity values to the smaller CLR decimal range. NULL is used for non-identity columns; an omitted desired IDENTITY argument compares as 1. Export and CREATE TABLE output retain both arguments when available. Seed/increment differences require a rebuild, rather than an ALTER COLUMN.
 - Since v1 does not emit alter DDL, generate a **display** type string from `type_name` and (as needed) `(max_length/precision/scale)`
 - `max_length = -1` means `MAX`
 - `nchar/nvarchar` use byte lengths, so divide `max_length` by 2

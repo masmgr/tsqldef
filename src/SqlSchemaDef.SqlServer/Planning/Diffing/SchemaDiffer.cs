@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
+using System.Numerics;
 using SqlSchemaDef.Core.Planning;
 
 namespace SqlSchemaDef.SqlServer.Planning
@@ -46,6 +48,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             var createIndexOps = new List<SqlOperation>();
             var addForeignKeyOps = new List<SqlOperation>();
             var recreateForeignKeyOps = new List<SqlOperation>();
+            var restoreForeignKeyOps = new List<SqlOperation>();
             var descriptionOps = new List<SqlOperation>();
             var dropDescriptionOps = new List<SqlOperation>();
             var dropForeignKeyOps = new List<SqlOperation>();
@@ -71,6 +74,7 @@ namespace SqlSchemaDef.SqlServer.Planning
                 }
 
                 var tableKey = IdentifierHelper.BuildTableKey(desiredTable.Schema, desiredTable.Name);
+                var indexesCoveredByRecreate = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
                 var hasCurrentTable = current.Tables.TryGetValue(tableKey, out var currentTable);
                 if (!hasCurrentTable)
@@ -85,6 +89,8 @@ namespace SqlSchemaDef.SqlServer.Planning
 
                 DiffConstraints(
                     current,
+                    desired,
+                    options,
                     currentTable,
                     desiredTable,
                     hasCurrentTable,
@@ -93,14 +99,15 @@ namespace SqlSchemaDef.SqlServer.Planning
                     addForeignKeyOps,
                     recreateConstraintOps,
                     recreateForeignKeyOps,
+                    restoreForeignKeyOps,
                     fksCoveredByPkRecreate,
                     skipped);
-                DiffIndexes(currentTable, desiredTable, hasCurrentTable, createIndexOps, recreateIndexOps, skipped);
+                DiffIndexes(currentTable, desiredTable, hasCurrentTable, options.AllowDrop, createIndexOps, recreateIndexOps, indexesCoveredByRecreate, skipped);
                 DiffDescriptions(currentTable, desiredTable, hasCurrentTable, descriptionOps, dropDescriptionOps, skipped);
 
                 if (hasCurrentTable)
                 {
-                    EmitDropOperations(currentTable, desiredTable, dropForeignKeyOps, dropIndexOps, dropConstraintOps);
+                    EmitDropOperations(currentTable, desiredTable, dropForeignKeyOps, dropIndexOps, dropConstraintOps, indexesCoveredByRecreate);
                 }
             }
 
@@ -190,6 +197,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             operations.AddRange(createIndexOps);
             operations.AddRange(addForeignKeyOps);
             operations.AddRange(recreateForeignKeyOps);
+            operations.AddRange(restoreForeignKeyOps);
             operations.AddRange(descriptionOps);
             operations.AddRange(dropDescriptionOps);
             operations.AddRange(dropForeignKeyOps);
@@ -197,6 +205,11 @@ namespace SqlSchemaDef.SqlServer.Planning
             operations.AddRange(dropConstraintOps);
             operations.AddRange(dropColumnOps);
             operations.AddRange(dropTableOps);
+
+            if (!options.AllowDrop)
+            {
+                operations = FilterNonAdditiveOperations(operations, skipped);
+            }
 
             IReadOnlyList<RebuildProposal> proposals = Array.Empty<RebuildProposal>();
             if (options.EmitProposals)
@@ -209,6 +222,29 @@ namespace SqlSchemaDef.SqlServer.Planning
             }
 
             return new MigrationPlan(metadata, operations, skipped, proposals);
+        }
+
+        private static List<SqlOperation> FilterNonAdditiveOperations(List<SqlOperation> operations, List<SkippedItem> skipped)
+        {
+            var additive = new List<SqlOperation>();
+            foreach (var operation in operations)
+            {
+                if (PlanValidator.IsAdditiveOperation(operation.Kind))
+                {
+                    additive.Add(operation);
+                    continue;
+                }
+
+                var isDrop = operation.Kind >= OperationKind.DropDescription && operation.Kind <= OperationKind.DropTable;
+                skipped.Add(new SkippedItem
+                {
+                    Reason = isDrop ? SkippedReason.DropNotSupported : SkippedReason.AlterNotSupported,
+                    Target = operation.Target,
+                    Message = operation.Description + " requires explicit AllowDrop permission (--allow-drop)",
+                });
+            }
+
+            return additive;
         }
 
         private static List<SqlOperation> FilterOperationsCoveredByProposals(
@@ -265,7 +301,12 @@ namespace SqlSchemaDef.SqlServer.Planning
         {
             operations.RemoveAll(op =>
                 op.Target != null &&
-                foreignKeyNames.Contains(IdentifierHelper.NormalizeNameKey(op.Target.Name ?? string.Empty)));
+                foreignKeyNames.Contains(BuildForeignKeyKey(op.Target.Schema, op.Target.ParentName, op.Target.Name)));
+        }
+
+        private static string BuildForeignKeyKey(string schema, string table, string name)
+        {
+            return IdentifierHelper.BuildTableKey(schema, table) + "." + IdentifierHelper.NormalizeNameKey(name);
         }
 
         private static void SuppressOperationsForDroppedTables(
@@ -436,6 +477,8 @@ namespace SqlSchemaDef.SqlServer.Planning
 
         private static void DiffConstraints(
             DatabaseModel currentDb,
+            DatabaseModel desiredDb,
+            PlannerOptions options,
             TableModel currentTable,
             TableModel desiredTable,
             bool hasCurrentTable,
@@ -444,6 +487,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             List<SqlOperation> addForeignKeyOps,
             List<SqlOperation> recreateConstraintOps,
             List<SqlOperation> recreateForeignKeyOps,
+            List<SqlOperation> restoreForeignKeyOps,
             HashSet<string> fksCoveredByPkRecreate,
             List<SkippedItem> skipped)
         {
@@ -491,9 +535,12 @@ namespace SqlSchemaDef.SqlServer.Planning
                             var lookup = GetOrBuildDependentForeignKeyLookup(currentDb, ref dependentForeignKeyLookup);
                             var recreateOp = RecreatePrimaryKeyOperation(
                                 lookup,
+                                desiredDb,
+                                options,
                                 desiredTable,
                                 currentConstraint,
                                 desiredConstraint,
+                                restoreForeignKeyOps,
                                 fksCoveredByPkRecreate);
                             recreateConstraintOps.Add(recreateOp);
                         }
@@ -553,8 +600,10 @@ namespace SqlSchemaDef.SqlServer.Planning
             TableModel currentTable,
             TableModel desiredTable,
             bool hasCurrentTable,
+            bool allowDrop,
             List<SqlOperation> createIndexOps,
             List<SqlOperation> recreateIndexOps,
+            HashSet<string> indexesCoveredByRecreate,
             List<SkippedItem> skipped)
         {
             var currentHasClusteredIndex = hasCurrentTable &&
@@ -590,9 +639,31 @@ namespace SqlSchemaDef.SqlServer.Planning
 
                 if (indexEntry.Value.IsClustered && currentHasClusteredIndex)
                 {
+                    if (!allowDrop)
+                    {
+                        skipped.Add(new SkippedItem
+                        {
+                            Reason = SkippedReason.AlterNotSupported,
+                            Target = new SqlObjectRef
+                            {
+                                Type = SqlObjectType.Index,
+                                Schema = desiredTable.Schema,
+                                ParentName = desiredTable.Name,
+                                Name = indexEntry.Value.Name,
+                            },
+                            Message = "clustered index creation requires replacing the current clustered index (--allow-drop)",
+                        });
+                        continue;
+                    }
+
                     var existingClustered = currentTable.Indexes.Values.First(ix => ix.IsClustered);
-                    recreateIndexOps.Add(RecreateIndexOperation(desiredTable, existingClustered, indexEntry.Value));
-                    continue;
+                    var existingKey = IdentifierHelper.NormalizeNameKey(existingClustered.Name);
+                    if (!desiredTable.Indexes.ContainsKey(existingKey))
+                    {
+                        recreateIndexOps.Add(RecreateIndexOperation(desiredTable, existingClustered, indexEntry.Value));
+                        indexesCoveredByRecreate.Add(existingKey);
+                        continue;
+                    }
                 }
 
                 createIndexOps.Add(CreateIndexOperation(desiredTable, indexEntry.Value));
@@ -714,7 +785,8 @@ namespace SqlSchemaDef.SqlServer.Planning
             TableModel desiredTable,
             List<SqlOperation> dropForeignKeyOps,
             List<SqlOperation> dropIndexOps,
-            List<SqlOperation> dropConstraintOps)
+            List<SqlOperation> dropConstraintOps,
+            HashSet<string> indexesCoveredByRecreate)
         {
             foreach (var currentConstraintEntry in currentTable.Constraints.OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase))
             {
@@ -761,7 +833,7 @@ namespace SqlSchemaDef.SqlServer.Planning
 
             foreach (var currentIndexEntry in currentTable.Indexes.OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase))
             {
-                if (desiredTable.Indexes.ContainsKey(currentIndexEntry.Key))
+                if (desiredTable.Indexes.ContainsKey(currentIndexEntry.Key) || indexesCoveredByRecreate.Contains(currentIndexEntry.Key))
                 {
                     continue;
                 }
@@ -851,9 +923,12 @@ namespace SqlSchemaDef.SqlServer.Planning
 
         private static SqlOperation RecreatePrimaryKeyOperation(
             Dictionary<string, List<(TableModel Table, ConstraintModel Constraint)>> dependentForeignKeyLookup,
+            DatabaseModel desiredDb,
+            PlannerOptions options,
             TableModel table,
             ConstraintModel currentPk,
             ConstraintModel desiredPk,
+            List<SqlOperation> restoreForeignKeyOps,
             HashSet<string> fksCoveredByPkRecreate)
         {
             var dependentFks = GetDependentForeignKeys(dependentForeignKeyLookup, table.Schema, table.Name);
@@ -862,7 +937,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             foreach (var entry in dependentFks)
             {
                 parts.Add(SqlStatementBuilder.BuildDropConstraintSql(entry.Table.Schema, entry.Table.Name, entry.Constraint.Name));
-                fksCoveredByPkRecreate.Add(IdentifierHelper.NormalizeNameKey(entry.Constraint.Name));
+                fksCoveredByPkRecreate.Add(BuildForeignKeyKey(entry.Table.Schema, entry.Table.Name, entry.Constraint.Name));
             }
 
             parts.Add(SqlStatementBuilder.BuildDropConstraintSql(table.Schema, table.Name, currentPk.Name));
@@ -870,7 +945,25 @@ namespace SqlSchemaDef.SqlServer.Planning
 
             foreach (var entry in dependentFks)
             {
-                parts.Add(SqlStatementBuilder.BuildAddConstraintSql(entry.Table, entry.Constraint));
+                var tableKey = IdentifierHelper.BuildTableKey(entry.Table.Schema, entry.Table.Name);
+                var constraint = entry.Constraint;
+                if (TableNameMatcher.ShouldInclude(entry.Table.Name, options.IncludeTablePatterns, options.ExcludeTablePatterns))
+                {
+                    if (!desiredDb.Tables.TryGetValue(tableKey, out var desiredTable) ||
+                        !desiredTable.Constraints.TryGetValue(IdentifierHelper.NormalizeNameKey(constraint.Name), out constraint))
+                    {
+                        // This FK (or its owning table) is absent from the requested schema.
+                        continue;
+                    }
+                }
+
+                var restore = AddConstraintOperation(entry.Table, constraint);
+
+                // The DROP is in the PK operation; restoration must wait for all referenced keys.
+                // Keep this non-additive so the default permission filter cannot restore an existing FK twice.
+                restore.Kind = OperationKind.RecreateForeignKey;
+                restore.Description = "Restore foreign key " + entry.Table.Schema + "." + entry.Table.Name + "." + constraint.Name;
+                restoreForeignKeyOps.Add(restore);
             }
 
             return new SqlOperation
@@ -1002,7 +1095,7 @@ namespace SqlSchemaDef.SqlServer.Planning
 
             var nullDiffers = current.IsNullable != desired.IsNullable;
 
-            var identityDiffers = current.IsIdentity != desired.IsIdentity;
+            var identityDiffers = IsIdentityDifferent(current, desired);
 
             var defaultDiffers = !string.Equals(
                 NormalizeDefaultDefinition(current.DefaultExpression),
@@ -1044,12 +1137,26 @@ namespace SqlSchemaDef.SqlServer.Planning
 
         private static string BuildUnsafeAlterMessage(ColumnModel current, ColumnModel desired)
         {
-            if (current.IsIdentity != desired.IsIdentity)
+            if (IsIdentityDifferent(current, desired))
             {
                 return "IDENTITY change requires rebuild";
             }
 
             return "type change from " + current.SqlType + " to " + desired.SqlType + " is not safe; requires rebuild";
+        }
+
+        private static bool IsIdentityDifferent(ColumnModel current, ColumnModel desired)
+        {
+            return current.IsIdentity != desired.IsIdentity || (current.IsIdentity &&
+                (NormalizeIdentityValue(current.IdentitySeed) != NormalizeIdentityValue(desired.IdentitySeed) ||
+                 NormalizeIdentityValue(current.IdentityIncrement) != NormalizeIdentityValue(desired.IdentityIncrement)));
+        }
+
+        private static string NormalizeIdentityValue(string value)
+        {
+            return BigInteger.TryParse(value ?? "1", NumberStyles.Integer, CultureInfo.InvariantCulture, out var number)
+                ? number.ToString(CultureInfo.InvariantCulture)
+                : value;
         }
 
         private static string NormalizeSqlType(string sqlType)
@@ -1339,7 +1446,7 @@ namespace SqlSchemaDef.SqlServer.Planning
         {
             var normalizedLeft = StripBrackets(CheckDefinitionNormalizer.Normalize(left) ?? string.Empty);
             var normalizedRight = StripBrackets(CheckDefinitionNormalizer.Normalize(right) ?? string.Empty);
-            return string.Equals(normalizedLeft, normalizedRight, StringComparison.OrdinalIgnoreCase);
+            return SqlExpressionComparer.Equals(normalizedLeft, normalizedRight);
         }
 
         private static string StripBrackets(string input)

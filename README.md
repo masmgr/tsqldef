@@ -13,7 +13,7 @@ tsqldef follows a **declarative** approach to schema management:
 3. It computes the diff and produces an additive migration plan
 4. You review the plan, then apply it
 
-This is **safety-first** by design — v1 performs only additive changes (CREATE, ADD). Destructive operations (DROP, ALTER COLUMN) are skipped with warnings, or optionally handled via shadow-table rebuild proposals.
+This is **safety-first** by default — ordinary plans contain only additive changes (CREATE, ADD) and description updates. Drops, ALTER COLUMN, and constraint/index recreation are reported as skipped. Explicit `--allow-drop` permits supported non-additive operations; `--swap` separately permits shadow-table rebuild proposals.
 
 ## Features
 
@@ -31,8 +31,8 @@ This is **safety-first** by design — v1 performs only additive changes (CREATE
 | Category | Details |
 |----------|---------|
 | Tables | `CREATE TABLE`, `ALTER TABLE ADD COLUMN` |
-| Column options | Data types, `NULL`/`NOT NULL`, `IDENTITY`, `DEFAULT`, `COLLATE` |
-| Constraints | `PRIMARY KEY`, `UNIQUE`, `CHECK`, `FOREIGN KEY` (with `ON DELETE`/`ON UPDATE`) |
+| Column options | Data types, `NULL`/`NOT NULL`, `IDENTITY(seed,increment)`, `DEFAULT`, `COLLATE` |
+| Constraints | Named table-level or column-level `PRIMARY KEY`, `UNIQUE`, `CHECK`, `FOREIGN KEY` (with `ON DELETE`/`ON UPDATE`) |
 | Indexes | `CREATE [UNIQUE] [CLUSTERED\|NONCLUSTERED] INDEX`, `INCLUDE`, `WHERE` (filtered), `WITH` options |
 | Extended properties | `MS_Description` on tables and columns |
 
@@ -91,6 +91,19 @@ SqlSchemaDef.Cli apply --connection "<connection-string>" --plan plan.json
 # Execute shadow-table rebuilds for non-additive changes
 SqlSchemaDef.Cli apply --connection "<connection-string>" --file desired.sql --swap
 ```
+
+### Explicit non-additive operations
+
+`--allow-drop` permits supported column/table/object drops, column alterations, and constraint/index recreation. Review the plan before applying it. Without this flag, these differences appear in `Skipped` and cause `plan --strict` to return 30.
+
+```bash
+SqlSchemaDef.Cli plan --connection "<cs>" --file desired.sql --allow-drop --format json > plan.json
+SqlSchemaDef.Cli apply --connection "<cs>" --plan plan.json --allow-drop
+```
+
+Permission must be supplied again when applying a saved JSON plan. The library equivalents are `PlannerOptions.AllowDrop` and `ApplyOptions.AllowDrop`, both false by default. `--swap` / `ApplyOptions.ApplyProposals` is separate permission for the destructive rebuild steps and does not authorize unrelated non-additive operations.
+
+Identity seed and increment values are preserved through parsing, catalog reads, export, and table creation. Changing either value requires a rebuild. CHECK comparisons preserve the case of string literals, including on case-sensitive collations.
 
 ### Scope filters
 

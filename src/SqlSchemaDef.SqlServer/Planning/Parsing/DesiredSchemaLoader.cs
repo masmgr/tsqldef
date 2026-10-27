@@ -242,6 +242,8 @@ namespace SqlSchemaDef.SqlServer.Planning
                 SqlType = GenerateScript(column.DataType),
                 IsNullable = ResolveNullability(column),
                 IsIdentity = column.IdentityOptions != null,
+                IdentitySeed = column.IdentityOptions?.IdentitySeed == null ? null : GenerateScript(column.IdentityOptions.IdentitySeed),
+                IdentityIncrement = column.IdentityOptions?.IdentityIncrement == null ? null : GenerateScript(column.IdentityOptions.IdentityIncrement),
                 DefaultExpression = column.DefaultConstraint == null ? null : GenerateScript(column.DefaultConstraint.Expression),
                 IsFromAlterAdd = isFromAlterAdd,
                 Collation = column.Collation != null ? column.Collation.Value : null,
@@ -273,6 +275,16 @@ namespace SqlSchemaDef.SqlServer.Planning
                 table.ColumnOrder.Add(columnKey);
             }
 
+            foreach (var constraint in column.Constraints)
+            {
+                if (constraint is NullableConstraintDefinition)
+                {
+                    continue;
+                }
+
+                AddConstraint(table, constraint, statementType, columnModel.Name);
+            }
+
             if (column.DefaultConstraint != null)
             {
                 var defaultName = column.DefaultConstraint.ConstraintIdentifier != null
@@ -298,30 +310,34 @@ namespace SqlSchemaDef.SqlServer.Planning
                 .OfType<NullableConstraintDefinition>()
                 .LastOrDefault();
 
-            return nullableConstraint?.Nullable != false;
+            return nullableConstraint != null
+                ? nullableConstraint.Nullable
+                : !column.Constraints.OfType<UniqueConstraintDefinition>().Any(constraint => constraint.IsPrimaryKey);
         }
 
-        private void AddConstraint(TableModel table, ConstraintDefinition constraint, string statementType)
+        private void AddConstraint(TableModel table, ConstraintDefinition constraint, string statementType, string columnName = null)
         {
             switch (constraint)
             {
                 case UniqueConstraintDefinition unique:
-                    AddUniqueConstraint(table, unique, statementType);
+                    AddUniqueConstraint(table, unique, statementType, columnName);
                     return;
                 case CheckConstraintDefinition check:
                     AddCheckConstraint(table, check, statementType);
                     return;
                 case ForeignKeyConstraintDefinition foreignKey:
-                    AddForeignKeyConstraint(table, foreignKey, statementType);
+                    AddForeignKeyConstraint(table, foreignKey, statementType, columnName);
                     return;
             }
 
             throw CreateUnsupportedFeatureException(constraint, statementType, "ConstraintType");
         }
 
-        private void AddUniqueConstraint(TableModel table, UniqueConstraintDefinition unique, string statementType)
+        private void AddUniqueConstraint(TableModel table, UniqueConstraintDefinition unique, string statementType, string columnName)
         {
-            var columns = unique.Columns.Select(column => column.Column.MultiPartIdentifier.Identifiers.Last().Value).ToList();
+            var columns = columnName == null
+                ? unique.Columns.Select(column => column.Column.MultiPartIdentifier.Identifiers.Last().Value).ToList()
+                : new List<string> { columnName };
             var isClusteredSpecified = unique.Clustered.HasValue;
             var constraint = new ConstraintModel
             {
@@ -347,7 +363,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             table.Constraints[IdentifierHelper.NormalizeNameKey(constraint.Name)] = constraint;
         }
 
-        private void AddForeignKeyConstraint(TableModel table, ForeignKeyConstraintDefinition foreignKey, string statementType)
+        private void AddForeignKeyConstraint(TableModel table, ForeignKeyConstraintDefinition foreignKey, string statementType, string columnName)
         {
             var (schema, referenceTable) = ResolveSchemaAndName(foreignKey.ReferenceTableName, foreignKey);
 
@@ -355,7 +371,7 @@ namespace SqlSchemaDef.SqlServer.Planning
             {
                 Kind = ConstraintKind.ForeignKey,
                 Name = RequireIdentifier(foreignKey.ConstraintIdentifier, foreignKey, "ConstraintName", statementType),
-                Columns = foreignKey.Columns.Select(column => column.Value).ToList(),
+                Columns = columnName == null ? foreignKey.Columns.Select(column => column.Value).ToList() : new List<string> { columnName },
                 ReferenceSchema = schema,
                 ReferenceTable = referenceTable,
                 ReferenceColumns = foreignKey.ReferencedTableColumns.Select(column => column.Value).ToList(),

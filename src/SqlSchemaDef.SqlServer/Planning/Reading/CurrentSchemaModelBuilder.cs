@@ -63,6 +63,8 @@ namespace SqlSchemaDef.SqlServer.Planning
                         column.Scale),
                     IsNullable = column.IsNullable,
                     IsIdentity = column.IsIdentity,
+                    IdentitySeed = column.IdentitySeed,
+                    IdentityIncrement = column.IdentityIncrement,
                     DefaultExpression = CurrentSchemaModelBuilderHelpers.GetDefaultDefinition(defaultMap, column.ObjectId, column.ColumnId),
                     IsFromAlterAdd = false,
                     UnsupportedFeature = column.IsComputed ? "ComputedColumn" : null,

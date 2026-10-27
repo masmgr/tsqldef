@@ -1,12 +1,12 @@
 # Schema Change Classification
 
-tsqldef v1 follows an **additive-only** policy.
+tsqldef v1 follows an **additive-only by default** policy. Both planning and applying require explicit `AllowDrop` / `--allow-drop` permission for supported non-additive Operations. Without permission, these differences are reported as `Skipped`. Rebuild proposals have separate `--swap` permission.
 Schema differences are classified into four categories:
 
 | Category | Data Migration | Execution |
 |---|---|---|
 | **Additive** | Not required | Executed directly via `apply` |
-| **Recreate (DROP + ADD)** | Not required | Executed directly via `apply` |
+| **Recreate / supported ALTER / DROP** | Depends on change | Requires `--allow-drop` for both `plan` and `apply` |
 | **Rebuild (data migration)** | Required | Executed via `apply --swap` |
 | **Unsupported (skipped)** | - | Manual intervention required |
 
@@ -31,18 +31,21 @@ These are executed directly by the `plan` / `apply` commands.
 
 ## 2. Recreate Changes (DROP + ADD, No Data Migration)
 
-When a constraint or index definition differs between desired and current, tsqldef generates a `DROP` followed by `ADD/CREATE` in a single operation. No data migration is required.
+When a constraint or index definition differs between desired and current, tsqldef can generate a `DROP` followed by `ADD/CREATE` in a single operation with `--allow-drop`. Without the flag, the difference is `AlterNotSupported`. CHECK expression comparison preserves string-literal case; `'A'` and `'a'` are distinct, while identifier case is normalized.
 
 ### Constraint Recreate (`RecreateConstraint` / `RecreateForeignKey`)
 
 | Constraint Type | Generated SQL | Example |
 |---|---|---|
+| PRIMARY KEY | Drop dependent FKs, replace PK, restore desired FKs | Key columns or clustering changed |
 | UNIQUE | `DROP CONSTRAINT` + `ADD CONSTRAINT ... UNIQUE` | Column list changed |
 | CHECK | `DROP CONSTRAINT` + `ADD CONSTRAINT ... CHECK` | Expression changed |
 | DEFAULT | `DROP CONSTRAINT` + `ADD CONSTRAINT ... DEFAULT` | Default value changed |
 | FOREIGN KEY | `DROP CONSTRAINT` + `ADD CONSTRAINT ... FOREIGN KEY` | ON DELETE/UPDATE action changed, reference columns changed |
 
-> **Note**: PRIMARY KEY changes are NOT handled by recreate — they require a rebuild (see section 3).
+When recreating a PRIMARY KEY, dependent FKs are restored from the desired definition, including ON DELETE/UPDATE actions. FKs removed from desired are not restored. Dependencies on tables excluded from the scope retain their current definitions. A covered FK is identified by schema, table, and name, and its standalone operation is suppressed to avoid duplication.
+
+FK drops are included in the PRIMARY KEY replacement operation. Their restores are separate `RecreateForeignKey` operations executed after all key constraints and indexes have been created or replaced. This permits desired FKs to reference newly created tables/keys. These restores still require `--allow-drop`; skipping the PK replacement must not leave an additive FK restore behind.
 
 ### Index Recreate (`RecreateIndex`)
 
@@ -51,45 +54,45 @@ When a constraint or index definition differs between desired and current, tsqld
 | Index definition differs (same name) | `DROP INDEX` + `CREATE INDEX` |
 | Clustered index conflict (different name) | `DROP INDEX` (existing clustered) + `CREATE CLUSTERED INDEX` (desired) |
 
+The old clustered index is consumed by recreation and must not also receive a surplus `DropIndex` operation. If the desired schema retains that index as nonclustered, it is recreated first and the new clustered index is created afterward.
+
+Without `--allow-drop`, creation of the replacement clustered index is skipped together with the prerequisite conversion/removal of the existing clustered index. A dependent `CreateIndex` must not remain in the default additive plan.
+
 All index properties are compared: uniqueness, clustering, key columns (incl. sort direction), INCLUDE columns, filter predicate, WITH options (excluding `ONLINE` and `SORTINTEMPDB`).
 
 ---
 
 ## 3. Changes Requiring Rebuild (Data Migration)
 
-**Column definition changes** and **PRIMARY KEY changes** on existing tables fall into this category.
-A shadow-table rebuild approach is used.
+Unsafe column type changes, IDENTITY changes (including seed/increment), and explicit column reordering require a shadow-table rebuild. Supported type widening, nullability, and collation changes may instead use ALTER COLUMN with `--allow-drop`; otherwise they are skipped and can produce column rebuild proposals with `--emit-swap-sql`.
 
 ### Column Properties That Trigger Rebuild
 
-`SchemaDiffer.IsColumnDifferent()` detects differences along five axes:
+`SchemaDiffer.ClassifyColumnChange()` compares the following properties:
 
 | Property | Comparison | Example |
 |---|---|---|
 | Data type (`SqlType`) | Case-insensitive | `int` → `bigint`, `nvarchar(50)` → `nvarchar(100)` |
 | Nullability (`IsNullable`) | Boolean | `NOT NULL` → `NULL`, `NULL` → `NOT NULL` |
-| Identity (`IsIdentity`) | Boolean | Adding or removing IDENTITY |
+| Identity | Presence plus numeric seed/increment | Adding/removing IDENTITY, `(1,1)` → `(1000,10)` |
 | Default expression (`DefaultExpression`) | Case-insensitive | `(0)` → `(1)`, adding or removing DEFAULT |
 | Collation (`Collation`) | Case-insensitive | `Latin1_General_CI_AS` → `Japanese_CI_AS` |
 
-### Primary Key Changes That Trigger Rebuild
-
-PRIMARY KEY column list changes (e.g., `PK(Id)` → `PK(Id, TenantId)`) require a rebuild because other tables may reference the PK via foreign keys. Dropping the PK would violate those FK constraints.
-
-### Rebuild Process (8 Steps)
+### Rebuild Process (9 Steps)
 
 Data is migrated using a shadow-table swap approach:
 
 | # | Step | Action |
 |---|---|---|
-| 1 | Create shadow table | `CREATE TABLE [schema].[__TableName_rebuild] (...)` with the desired definition |
-| 2 | Copy data | `INSERT INTO shadow SELECT ... FROM original` (`IDENTITY_INSERT` is handled automatically when identity columns exist) |
-| 3 | Drop constraints on original | `ALTER TABLE ... DROP CONSTRAINT` (PK, FK, UNIQUE, CHECK, DEFAULT) |
-| 4 | Rename original table | `sp_rename 'original' → 'TableName_old'` |
-| 5 | Rename shadow table | `sp_rename '__TableName_rebuild' → 'TableName'` |
-| 6 | Recreate constraints | `ALTER TABLE ... ADD CONSTRAINT` (recreated with the desired definition) |
-| 7 | Recreate indexes | `CREATE INDEX` (recreated with the desired definition) |
-| 8 | Drop old table | `DROP TABLE [schema].[TableName_old]` |
+| 1 | Create shadow table | Desired columns, including DEFAULT expressions and IDENTITY arguments |
+| 2 | Drop constraints on original | `ALTER TABLE ... DROP CONSTRAINT` |
+| 3 | Drop indexes on original | `DROP INDEX` |
+| 4 | Copy data | `INSERT INTO shadow SELECT ... FROM original` with IDENTITY_INSERT when needed |
+| 5 | Rename original table | `sp_rename 'original' → 'TableName_old'` |
+| 6 | Rename shadow table | `sp_rename '__TableName_rebuild' → 'TableName'` |
+| 7 | Recreate constraints | Desired constraints except DEFAULT, which already exists on the shadow table |
+| 8 | Recreate indexes | `CREATE INDEX` |
+| 9 | Drop old table | `DROP TABLE [schema].[TableName_old]` |
 
 > **Note**: If other tables reference this table via foreign keys, the DROP/CREATE for those FKs is not auto-generated. A warning message is emitted; handle them manually.
 
@@ -110,7 +113,7 @@ tsqldef plan --connection <cs> --file desired.sql --emit-swap-sql --format json
 
 ## 4. Unsupported Changes (Skipped)
 
-The following changes are detected but no SQL is generated.
+The following DROP differences are skipped without `--allow-drop`. Supported ones become Operations only with explicit permission. Unsafe column changes still require rebuild proposals rather than ordinary Operations.
 Use `--strict` mode (exit code 30) in CI to detect the presence of skipped items.
 
 ### DROP Operations
@@ -146,36 +149,34 @@ Does the desired object exist in the current DB?
     │
     └─ Difference found → Object type?
         │
-        ├─ Column        → AlterNotSupported (skipped)
-        │                  └─ --emit-swap-sql → Rebuild proposal generated
+        ├─ Column        → Supported ALTER with --allow-drop; otherwise skipped
+        │                  └─ --emit-swap-sql → Rebuild proposal for column changes
         │
-        ├─ Primary Key   → AlterNotSupported (skipped)
-        │                  └─ --emit-swap-sql → Rebuild proposal generated
+        ├─ Primary Key   → RecreateConstraint with --allow-drop; otherwise skipped
         │
         ├─ Constraint    → RecreateConstraint / RecreateForeignKey
-        │   (UNIQUE, CHECK, DEFAULT, FK)    (DROP + ADD, executed directly)
+        │   (UNIQUE, CHECK, DEFAULT, FK)    (requires --allow-drop; otherwise skipped)
         │
-        └─ Index         → RecreateIndex (DROP + CREATE, executed directly)
+        └─ Index         → RecreateIndex (requires --allow-drop; otherwise skipped)
 
 Object exists in current DB but not in desired:
-└─ DropNotSupported (skipped only)
+└─ DROP with --allow-drop; otherwise DropNotSupported
 ```
 
 ---
 
 ## 6. Comparison Logic Details
 
-### Column Comparison (`IsColumnDifferent`)
+### Column Comparison (`ClassifyColumnChange`)
 
-Compares the five axes described above (data type, nullability, identity, default expression, collation).
-If any one of them differs, the column is skipped as `AlterNotSupported`.
+Compares data type, nullability, identity presence/parameters, default expression, and collation. Identity and unsafe type changes require rebuild. Supported ALTER changes require `--allow-drop`; default-only changes use constraint comparison and recreation with the same permission.
 
 ### Constraint Comparison (`IsConstraintDifferent`)
 
 | Constraint Type | Compared Properties |
 |---|---|
-| PRIMARY KEY / UNIQUE | Column list (order and name) |
-| CHECK | Definition expression |
+| PRIMARY KEY / UNIQUE | Column list (order and name), explicitly specified clustering |
+| CHECK | Normalized expression, preserving string-literal case |
 | FOREIGN KEY | Schema, reference table, column list, reference column list, ON DELETE / ON UPDATE actions |
 | DEFAULT | Definition expression, target column name |
 

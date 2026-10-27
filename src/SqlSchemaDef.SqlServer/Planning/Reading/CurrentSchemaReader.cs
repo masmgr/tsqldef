@@ -53,6 +53,8 @@ namespace SqlSchemaDef.SqlServer.Planning
             public byte Scale { get; set; }
             public bool IsComputed { get; set; }
             public bool IsIdentity { get; set; }
+            public string IdentitySeed { get; set; }
+            public string IdentityIncrement { get; set; }
             public string Collation { get; set; }
         }
 

@@ -2,6 +2,19 @@
 
 This document describes a test plan to ensure quality for the v1 contract (fixed `dbo`, additive-only, alter/drop become `-- Skipped:`, and `desired` fails fast if it contains unsupported DDL).
 
+Current safety and schema fidelity regression coverage is in `ReviewRegressionTests` and `ReviewRegressionIntegrationTests`:
+
+- Omitted existing columns retain their data with default options; DROP, ALTER COLUMN, and recreation require both planning and applying permission. Saved plans must not bypass apply validation.
+- Named column-level PRIMARY KEY / UNIQUE / CHECK / FOREIGN KEY constraints produce the same model as table-level declarations; unnamed constraints fail fast and inline PK implies NOT NULL when unspecified.
+- Clustered index replacement consumes its old index exactly once, including when the desired schema retains the old index as nonclustered.
+- Shadow-table rebuilds create DEFAULT exactly once, preserve existing rows, and give subsequent inserts the desired default.
+- IDENTITY seed/increment, including negative values, survive SQL generation, catalog mapping, and export. SQL Server inserts follow the specified sequence; parameter-only changes are detected as requiring rebuild.
+- PK recreation uses desired FK actions, does not restore removed FKs, and preserves dependencies outside the selected scope.
+- Dependency ordering: a blocked clustered-index conversion also blocks the replacement clustered-index creation. PK-related FK restoration follows creation of all referenced keys, including keys on newly created tables, and remains blocked without non-additive permission.
+- Case-sensitive CHECK literal changes alter allowed values; identifier-only case changes remain equivalent.
+
+Integration tests return early when SQL Server is unavailable, following the repository fixture convention. A green test count alone does not establish that real-database scenarios ran.
+
 Targets:
 - The library targets **.NET Standard 2.0**
 - The test project can target anything (e.g. `net8.0`), but public APIs of the referenced library are assumed to be .NET Standard 2.0 compatible

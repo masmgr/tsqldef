@@ -311,6 +311,12 @@ namespace SqlSchemaDef.SqlServer.Planning
 
             foreach (var entry in desiredTable.Constraints.OrderBy(e => e.Key, StringComparer.OrdinalIgnoreCase))
             {
+                if (entry.Value.Kind == ConstraintKind.Default)
+                {
+                    // DEFAULT was already created inline on the shadow table before copying data.
+                    continue;
+                }
+
                 parts.Add(SqlStatementBuilder.BuildAddConstraintSql(desiredTable, entry.Value));
             }
 
