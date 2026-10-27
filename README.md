@@ -42,7 +42,7 @@ Computed columns, partitioning, columnstore/XML/spatial indexes, triggers, views
 
 ## Requirements
 
-- [.NET 8.0 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) or later
+- [.NET 10.0 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) or later
 - SQL Server (any edition: Express, Developer, LocalDB, Azure SQL Database)
 
 ## Installation
@@ -51,7 +51,7 @@ Computed columns, partitioning, columnstore/XML/spatial indexes, triggers, views
 dotnet build SqlSchemaDef.sln -c Release
 ```
 
-The CLI binary is produced at `src/SqlSchemaDef.Cli/bin/Release/net8.0/SqlSchemaDef.Cli`.
+The CLI binary is produced at `src/SqlSchemaDef.Cli/bin/Release/net10.0/SqlSchemaDef.Cli`.
 
 ## Usage
 
@@ -140,8 +140,8 @@ When `--schema` is specified, schema-less DDL (e.g., `CREATE TABLE T ...`) is tr
 |---------|--------|------|
 | `SqlSchemaDef.Core` | netstandard2.0 | Domain types, interfaces, plan serialization |
 | `SqlSchemaDef.SqlServer` | netstandard2.0 | SQL Server implementation (ScriptDom + SqlClient) |
-| `SqlSchemaDef.Cli` | net8.0 | CLI entry point |
-| `SqlSchemaDef.Tests` | net8.0 | xUnit + FsCheck property-based tests |
+| `SqlSchemaDef.Cli` | net10.0 | CLI entry point |
+| `SqlSchemaDef.Tests` | net10.0 | xUnit + FsCheck property-based tests |
 
 ## Building and Testing
 

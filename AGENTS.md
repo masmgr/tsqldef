@@ -10,7 +10,7 @@
 
 - まず `dotnet build SqlSchemaDef.sln -c Release`、次に `dotnet test SqlSchemaDef.sln -c Release`。
 - v1 は **破壊的変更なし**（DROP/ALTER は実行しない）。
-- `Core` / `SqlServer` は `netstandard2.0` ターゲット（`net8.0` 専用 API を入れない）。
+- `Core` / `SqlServer` は `netstandard2.0` ターゲット（`net10.0` 専用 API を入れない）。
 - 許容 SQL や挙動を変える場合は `docs/` を同時更新。
 
 ## Repository Map

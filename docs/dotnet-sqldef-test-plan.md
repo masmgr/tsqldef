@@ -17,7 +17,7 @@ Integration tests return early when SQL Server is unavailable, following the rep
 
 Targets:
 - The library targets **.NET Standard 2.0**
-- The test project can target anything (e.g. `net8.0`), but public APIs of the referenced library are assumed to be .NET Standard 2.0 compatible
+- The test project targets `net10.0`, but public APIs of the referenced library are assumed to be .NET Standard 2.0 compatible
 
 ---
 

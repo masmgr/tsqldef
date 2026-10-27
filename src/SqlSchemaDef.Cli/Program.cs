@@ -226,19 +226,7 @@ namespace SqlSchemaDef.Cli
             var desiredSql = await ReadFileAsync(filePath).ConfigureAwait(false);
 
             var plannerOptions = new PlannerOptions { EmitProposals = emitSwapSql, AllowDrop = allowDrop, ReorderColumns = reorderColumns };
-            if (schema != null)
-            {
-                plannerOptions.Schema = schema;
-            }
-
-            if (includeArg != null)
-            {
-                plannerOptions.IncludeTablePatterns = CliArgumentParser.ParseCsvArg(includeArg);
-            }
-            if (excludeArg != null)
-            {
-                plannerOptions.ExcludeTablePatterns = CliArgumentParser.ParseCsvArg(excludeArg);
-            }
+            ConfigurePlannerScope(plannerOptions, schema, includeArg, excludeArg);
 
             await using var conn = new SqlConnection(connectionString);
             await conn.OpenAsync().ConfigureAwait(false);
@@ -246,18 +234,7 @@ namespace SqlSchemaDef.Cli
             var planner = new SqlServerSchemaPlanner();
             var plan = await planner.PlanAsync(conn, desiredSql, plannerOptions).ConfigureAwait(false);
 
-            if (normalizedFormat == "json")
-            {
-                Console.Write(MigrationPlanSerializer.ToJson(plan));
-            }
-            else
-            {
-                Console.Write(plan.ToScript(new ScriptOptions
-                {
-                    HeaderMode = ScriptHeaderMode.DryRunStyle,
-                    IncludeProposals = emitSwapSql,
-                }));
-            }
+            PrintPlan(plan, normalizedFormat, emitSwapSql);
 
             if (strict && plan.Skipped.Count > 0)
             {
@@ -266,6 +243,22 @@ namespace SqlSchemaDef.Cli
             }
 
             return ExitOk;
+        }
+
+        private static void PrintPlan(MigrationPlan plan, string format, bool includeProposals)
+        {
+            if (format == "json")
+            {
+                Console.Write(MigrationPlanSerializer.ToJson(plan));
+            }
+            else
+            {
+                Console.Write(plan.ToScript(new ScriptOptions
+                {
+                    HeaderMode = ScriptHeaderMode.DryRunStyle,
+                    IncludeProposals = includeProposals,
+                }));
+            }
         }
 
         private static async Task<int> RunApplyAsync(List<string> args)
@@ -357,19 +350,7 @@ namespace SqlSchemaDef.Cli
                 var desiredSql = await ReadFileAsync(filePath!).ConfigureAwait(false);
 
                 var plannerOptions = new PlannerOptions { EmitProposals = applySwap, AllowDrop = allowDrop, ReorderColumns = reorderColumns };
-                if (schema != null)
-                {
-                    plannerOptions.Schema = schema;
-                }
-
-                if (includeArg != null)
-                {
-                    plannerOptions.IncludeTablePatterns = CliArgumentParser.ParseCsvArg(includeArg);
-                }
-                if (excludeArg != null)
-                {
-                    plannerOptions.ExcludeTablePatterns = CliArgumentParser.ParseCsvArg(excludeArg);
-                }
+                ConfigurePlannerScope(plannerOptions, schema, includeArg, excludeArg);
 
                 await using var planConn = new SqlConnection(connectionString);
                 await planConn.OpenAsync().ConfigureAwait(false);
@@ -378,6 +359,29 @@ namespace SqlSchemaDef.Cli
                 plan = await planner.PlanAsync(planConn, desiredSql, plannerOptions).ConfigureAwait(false);
             }
 
+            return await ApplyPlanAsync(connectionString, plan, applySwap, allowDrop).ConfigureAwait(false);
+        }
+
+        private static void ConfigurePlannerScope(PlannerOptions options, string? schema, string? includeArg, string? excludeArg)
+        {
+            if (schema != null)
+            {
+                options.Schema = schema;
+            }
+
+            if (includeArg != null)
+            {
+                options.IncludeTablePatterns = CliArgumentParser.ParseCsvArg(includeArg);
+            }
+
+            if (excludeArg != null)
+            {
+                options.ExcludeTablePatterns = CliArgumentParser.ParseCsvArg(excludeArg);
+            }
+        }
+
+        private static async Task<int> ApplyPlanAsync(string connectionString, MigrationPlan plan, bool applySwap, bool allowDrop)
+        {
             PlanValidator.ValidateForApply(plan, allowDrop);
 
             if (applySwap)

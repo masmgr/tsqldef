@@ -36,8 +36,8 @@ There is no separate lint command; Roslyn analyzers (Microsoft.CodeAnalysis.NetA
 |---------|--------|------|
 | `SqlSchemaDef.Core` | netstandard2.0 | Domain types, interfaces, plan serialization. Only dependency: Newtonsoft.Json |
 | `SqlSchemaDef.SqlServer` | netstandard2.0 | SQL Server implementation using ScriptDom (T-SQL parser) and SqlClient |
-| `SqlSchemaDef.Cli` | net8.0 | CLI entry point with three commands: `export`, `plan`, `apply` |
-| `SqlSchemaDef.Tests` | net8.0 | xUnit + FsCheck property-based tests |
+| `SqlSchemaDef.Cli` | net10.0 | CLI entry point with three commands: `export`, `plan`, `apply` |
+| `SqlSchemaDef.Tests` | net10.0 | xUnit + FsCheck property-based tests |
 
 ### Data Flow (plan command)
 

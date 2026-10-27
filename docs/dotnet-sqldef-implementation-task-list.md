@@ -26,8 +26,8 @@ Assumptions:
 - [x] Create solution: `SqlSchemaDef.sln` / `SqlSchemaDef.slnx`
 - [x] Create project layout: `src/SqlSchemaDef.Core` (`netstandard2.0`)
 - [x] Create project layout: `src/SqlSchemaDef.SqlServer` (`netstandard2.0`)
-- [x] Create project layout: `src/SqlSchemaDef.Cli` (`net8.0`)
-- [x] Create project layout: `tests/SqlSchemaDef.Tests` (xUnit, `net8.0`)
+- [x] Create project layout: `src/SqlSchemaDef.Cli` (`net10.0`)
+- [x] Create project layout: `tests/SqlSchemaDef.Tests` (xUnit, `net10.0`)
 - [x] References: `Cli -> SqlServer -> Core` / `Tests -> Core`
 - [x] Add Core public API skeleton (plan/options/exceptions/ToScript)
 - [x] Add SqlServer planner/applier skeleton (Plan currently returns empty)
